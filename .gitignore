@@ -1,0 +1,25 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs gerais (scripts, deploy, etc.)
+*.log
+
+# Variáveis de ambiente na raiz
+.env
+.env.local
+.env.*.local
+
+# Arquivos de infra sensíveis
+infra/**/*.pem
+infra/**/*.key
+infra/**/secrets/
+
+# Node
+node_modules/
