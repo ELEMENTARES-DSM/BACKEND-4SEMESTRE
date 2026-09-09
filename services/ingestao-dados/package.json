@@ -8,7 +8,7 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json && tsc-alias -p tsconfig.json",
     "start": "node dist/server.js",
-    "lint": "eslint src --ext .ts",
+    "lint": "eslint src/",
     "migrate": "node-pg-migrate"
   },
   "keywords": [],
@@ -26,6 +26,7 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/bcrypt": "^6.0.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
@@ -39,6 +40,7 @@
     "ts-jest": "^29.4.12",
     "tsc-alias": "^1.9.4",
     "tsx": "^4.23.13",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.70.0"
   }
 }
