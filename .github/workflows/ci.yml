@@ -38,6 +38,15 @@ jobs:
     - name: Instalar dependências (${{ matrix.service }})
       run: npm ci
 
+    - name: Criar arquivo .env dinamicamente
+      run: |
+        echo "PORT=${{ secrets.PORT }}" >> .env
+        echo "DB_HOST=${{ secrets.DB_HOST }}" >> .env
+        echo "DB_USER=${{ secrets.DB_USER }}" >> .env
+        echo "DB_PASS=${{ secrets.DB_PASS }}" >> .env
+        echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
+        echo "RABBITMQ_URL=${{ secrets.RABBITMQ_URL }}" >> .env
+
     - name: Verificar tipagem TypeScript (${{ matrix.service }})
       run: npx tsc --noEmit
 
