@@ -1,0 +1,51 @@
+name: CI Elementares
+
+on:
+  push:
+    branches: [ "develop" ]
+  pull_request:
+    branches: [ "develop" ]
+
+jobs:
+  validacao-codigo:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      fail-fast: false 
+      matrix:
+        service: 
+          - alertas-notificacoes
+          - analise-dados
+          - auth-service
+          - gestao-estacoes
+          - ingestao-dados
+          - servico-relatorios
+          - servico-validacao
+
+    defaults:
+      run:
+        working-directory: ./services/${{ matrix.service }}
+
+    steps:
+    - name: Fazer o Checkout do código
+      uses: actions/checkout@v4
+
+    - name: Configurar Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24.x'
+
+    - name: Instalar dependências (${{ matrix.service }})
+      run: npm ci
+
+    - name: Verificar tipagem TypeScript (${{ matrix.service }})
+      run: npx tsc --noEmit
+
+    - name: Rodar Linter (${{ matrix.service }})
+      run: npm run lint --if-present
+
+    - name: Rodar Testes (${{ matrix.service }})
+      run: npm test --if-present
+
+    - name: Fazer o Build (${{ matrix.service }})
+      run: npm run build --if-present
