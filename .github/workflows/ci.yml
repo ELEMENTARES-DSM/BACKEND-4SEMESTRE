@@ -58,3 +58,12 @@ jobs:
 
     - name: Fazer o Build (${{ matrix.service }})
       run: npm run build --if-present
+
+    - name: Notificar falha no Discord
+      if: failure()
+      uses: sarisia/actions-status-discord@v1
+      with:
+        webhook: ${{ secrets.DISCORD_WEBHOOK }}
+        title: "❌ Pipeline Quebrou!"
+        description: "O serviço ${{ matrix.service || 'Backend' }} falhou no GitHub Actions. Alguém tem que ver isso aí."
+        color: 0xff0000
