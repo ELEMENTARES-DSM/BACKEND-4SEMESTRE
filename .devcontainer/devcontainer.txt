@@ -1,0 +1,9 @@
+* Requisitos
+- Docker desktop aberto
+- Extensão Dev Containers instalada no VSCode
+
+* Passo a passo
+1. Abram o terminal normal do PC de vocês, vão na pasta do projeto e rodem docker-compose up -d (Isso vai ligar o Banco e o RabbitMQ).
+2. Abram o VS Code.
+3. Clique em Reopen in Container (Reabrir no Contêiner) que vai aparecer no cantinho da tela. (Se não aparecer, aperte F1, digite "Reopen in Container" e dê Enter
+4. Pronto! O VS Code vai baixar tudo sozinho e o código já vai conseguir falar com o banco.
