@@ -28,10 +28,10 @@ jobs:
 
     steps:
     - name: Fazer o Checkout do código
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
     - name: Configurar Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.0.4
       with:
         node-version: '24.x'
 
@@ -39,13 +39,20 @@ jobs:
       run: npm ci
 
     - name: Criar arquivo .env dinamicamente
+      env:
+        PORT: ${{ secrets.PORT }}
+        DB_HOST: ${{ secrets.DB_HOST }}
+        DB_USER: ${{ secrets.DB_USER }}
+        DB_PASS: ${{ secrets.DB_PASS }}
+        JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        RABBITMQ_URL: ${{ secrets.RABBITMQ_URL }}
       run: |
-        echo "PORT=${{ secrets.PORT }}" >> .env
-        echo "DB_HOST=${{ secrets.DB_HOST }}" >> .env
-        echo "DB_USER=${{ secrets.DB_USER }}" >> .env
-        echo "DB_PASS=${{ secrets.DB_PASS }}" >> .env
-        echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
-        echo "RABBITMQ_URL=${{ secrets.RABBITMQ_URL }}" >> .env
+        echo "PORT=$PORT" >> .env
+        echo "DB_HOST=$DB_HOST" >> .env
+        echo "DB_USER=$DB_USER" >> .env
+        echo "DB_PASS=$DB_PASS" >> .env
+        echo "JWT_SECRET=$JWT_SECRET" >> .env
+        echo "RABBITMQ_URL=$RABBITMQ_URL" >> .env
 
     - name: Verificar tipagem TypeScript (${{ matrix.service }})
       run: npx tsc --noEmit
@@ -58,12 +65,21 @@ jobs:
 
     - name: Fazer o Build (${{ matrix.service }})
       run: npm run build --if-present
-
-    - name: Notificar falha no Discord
-      if: failure()
-      uses: sarisia/actions-status-discord@v1
+    
+    - name: 📢 Pull Requests
+      if: always() && github.event_name == 'pull_request'
+      uses: sarisia/actions-status-discord@2808f258a43da652cc7082edecb4a3c1dd30a7d5 # v1.15.0
       with:
-        webhook: ${{ secrets.DISCORD_WEBHOOK }}
-        title: "❌ Pipeline Quebrou!"
-        description: "O serviço ${{ matrix.service || 'Backend' }} falhou no GitHub Actions. Alguém tem que ver isso aí."
-        color: 0xff0000
+        webhook: ${{ secrets.DISCORD_WEBHOOK_PRS }}
+        status: ${{ job.status }}
+        title: "Status do PR: ${{ matrix.service }}"
+        description: "PR #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }} no serviço ${{ matrix.service }}"
+
+    - name: 📢 Atualizações do Repositório
+      if: always() && github.event_name == 'push'
+      uses: sarisia/actions-status-discord@2808f258a43da652cc7082edecb4a3c1dd30a7d5 # v1.15.0
+      with:
+        webhook: ${{ secrets.DISCORD_WEBHOOK_FEED }}
+        status: ${{ job.status }}
+        title: "Atualização no Repositório: ${{ matrix.service }}"
+        description: "A branch ${{ github.ref_name }} recebeu um novo push e a validação do serviço ${{ matrix.service }} finalizou com status: ${{ job.status }}."
