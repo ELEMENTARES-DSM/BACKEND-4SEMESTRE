@@ -68,7 +68,7 @@ jobs:
     
     - name: 📢 Pull Requests
       if: always() && github.event_name == 'pull_request'
-      uses: sarisia/actions-status-discord@2808f258a43da652cc7082edecb4a3c1dd30a7d5 # v1.15.0
+    - uses: sarisia/actions-status-discord@b8381b25576cb341b2af39926ab42c5056cc44ed
       with:
         webhook: ${{ secrets.DISCORD_WEBHOOK_PRS }}
         status: ${{ job.status }}
@@ -77,7 +77,7 @@ jobs:
 
     - name: 📢 Atualizações do Repositório
       if: always() && github.event_name == 'push'
-      uses: sarisia/actions-status-discord@2808f258a43da652cc7082edecb4a3c1dd30a7d5 # v1.15.0
+    - uses: sarisia/actions-status-discord@b8381b25576cb341b2af39926ab42c5056cc44ed
       with:
         webhook: ${{ secrets.DISCORD_WEBHOOK_FEED }}
         status: ${{ job.status }}
