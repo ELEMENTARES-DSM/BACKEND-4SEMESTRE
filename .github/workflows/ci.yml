@@ -60,6 +60,7 @@ jobs:
         with:
           fetch-depth: 0
 
+      # TODO: REMOVER '-Dsonar.coverage.exclusions=**/*' ASSIM QUE OS TESTES FOREM IMPLEMENTADOS
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@v3.1.0
         env:
@@ -71,6 +72,4 @@ jobs:
             -Dsonar.projectKey=ELEMENTARES-DSM_BACKEND-4SEMESTRE
             -Dsonar.sources=services
             -Dsonar.scanner.dumpToFile=none
-            # TODO: REMOVER A LINHA ABAIXO ASSIM QUE OS TESTES UNITÁRIOS FOREM IMPLEMENTADOS
-            # Esta linha ignora a checagem de cobertura no Quality Gate enquanto não há testes no projeto.
             -Dsonar.coverage.exclusions=**/*
