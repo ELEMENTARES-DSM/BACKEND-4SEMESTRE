@@ -17,6 +17,7 @@ jobs:
           - alertas-notificacoes
           - analise-dados
           - auth-service
+          - gestao-usuarios
           - gestao-estacoes
           - ingestao-dados
           - servico-relatorios
