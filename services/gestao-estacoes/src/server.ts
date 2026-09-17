@@ -1,7 +1,7 @@
 import app from "./app";
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3004;
 
 app.listen(PORT, () => {
-  console.log(`auth-service running on port ${PORT}`);
+  console.log(`gestao-estacoes running on port ${PORT}`);
 });
