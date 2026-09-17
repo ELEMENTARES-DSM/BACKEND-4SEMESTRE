@@ -1,5 +1,5 @@
 import { pool } from "../config/db";
-import { Usuario } from "../models/user.model";
+import { Usuario, UsuarioComPapel } from "../models/user.model";
 
 interface CreateParams {
   nome: string;
@@ -28,9 +28,16 @@ export const create = async (params: CreateParams): Promise<Usuario> => {
   return result.rows[0];
 };
 
-export const findAll = async (): Promise<Usuario[]> => {
-  const result = await pool.query<Usuario>(
-    `SELECT * FROM usuarios WHERE esta_ativo ORDER BY criado_em DESC`
+export const findAll = async (): Promise<UsuarioComPapel[]> => {
+  const result = await pool.query<UsuarioComPapel>(
+    `SELECT
+        u.id, u.nome, u.email, u.papel_id, u.municipio,
+        u.esta_ativo, u.criado_em, u.atualizado_em,
+        p.nome AS papel_nome
+     FROM usuarios u
+     JOIN papeis p ON p.id = u.papel_id
+     WHERE u.esta_ativo
+     ORDER BY u.criado_em DESC`
   );
 
   return result.rows;

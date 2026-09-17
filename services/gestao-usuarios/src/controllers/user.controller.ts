@@ -37,6 +37,15 @@ export const update = async (req: Request, res: Response, next: NextFunction) =>
   }
 };
 
+export const updateStatus = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const usuario = await userService.updateStatus(req.params.id as string, req.body.esta_ativo);
+    res.json(usuario);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const remove = async (req: Request, res: Response, next: NextFunction) => {
   try {
     await userService.remove(req.params.id as string);

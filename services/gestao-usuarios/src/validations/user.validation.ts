@@ -19,3 +19,7 @@ export const updateUserSchema = z.object({
 export const userIdParamSchema = z.object({
   id: z.string().uuid(),
 });
+
+export const updateStatusSchema = z.object({
+  esta_ativo: z.boolean(),
+});
