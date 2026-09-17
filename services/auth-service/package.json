@@ -9,7 +9,7 @@
     "build": "tsc -p tsconfig.json && tsc-alias -p tsconfig.json",
     "start": "node dist/server.js",
     "lint": "eslint src/",
-    "migrate": "node-pg-migrate"
+  "migrate": "node-pg-migrate -m src/db/migrations"
   },
   "keywords": [],
   "author": "",
