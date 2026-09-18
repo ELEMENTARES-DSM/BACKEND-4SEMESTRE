@@ -1,0 +1,29 @@
+{
+  "name": "backend-4semestre",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "allure:generate": "allure generate allure-results -o allure-report --clean",
+    "allure:open": "allure open allure-report"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ELEMENTARES-DSM/BACKEND-4SEMESTRE.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/ELEMENTARES-DSM/BACKEND-4SEMESTRE/issues"
+  },
+  "homepage": "https://github.com/ELEMENTARES-DSM/BACKEND-4SEMESTRE#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^22.20.3",
+    "allure-commandline": "^2.43.0",
+    "allure-playwright": "^3.12.1"
+  }
+}
