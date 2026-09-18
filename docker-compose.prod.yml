@@ -37,6 +37,7 @@ services:
       - auth-service
       - alertas-notificacoes
       - analise-dados
+      - gestao-usuarios
       - gestao-estacoes
       - ingestao-dados
       - servico-relatorios
@@ -141,6 +142,23 @@ services:
     networks:
       - app-network
 
+  gestao-usuarios:
+    image: ${DOCKERHUB_USER}/gestao-usuarios:latest
+    restart: unless-stopped
+    environment:
+      PORT: 3000
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - app-network
   gestao-estacoes:
     image: ${DOCKERHUB_USER}/gestao-estacoes:latest
     restart: unless-stopped
