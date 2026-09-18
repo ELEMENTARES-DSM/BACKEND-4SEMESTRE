@@ -2,21 +2,22 @@ name: CI Elementares
 
 on:
   push:
-    branches: [ "develop" ]
+    branches: ["develop", "main"]
   pull_request:
-    branches: [ "develop" ]
+    branches: ["develop", "main"]
 
 jobs:
   validacao-codigo:
     runs-on: ubuntu-latest
-    
+
     strategy:
-      fail-fast: false 
+      fail-fast: false
       matrix:
-        service: 
+        service:
           - alertas-notificacoes
           - analise-dados
           - auth-service
+          - gestao-usuarios
           - gestao-estacoes
           - ingestao-dados
           - servico-relatorios
@@ -27,25 +28,59 @@ jobs:
         working-directory: ./services/${{ matrix.service }}
 
     steps:
-    - name: Fazer o Checkout do código
-      uses: actions/checkout@v4
+      - name: Fazer o Checkout do código
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-    - name: Configurar Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '24.x'
+      - name: Configurar Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.0.4
+        with:
+          node-version: "24.x"
 
-    - name: Instalar dependências (${{ matrix.service }})
-      run: npm ci
+      - name: Instalar dependências (${{ matrix.service }})
+        run: npm ci
 
-    - name: Verificar tipagem TypeScript (${{ matrix.service }})
-      run: npx tsc --noEmit
+      - name: Criar arquivo .env dinamicamente
+        env:
+          PORT: ${{ secrets.PORT }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASS: ${{ secrets.DB_PASS }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          RABBITMQ_URL: ${{ secrets.RABBITMQ_URL }}
+        run: |
+          echo "PORT=$PORT" >> .env
+          echo "DB_HOST=$DB_HOST" >> .env
+          echo "DB_USER=$DB_USER" >> .env
+          echo "DB_PASS=$DB_PASS" >> .env
+          echo "JWT_SECRET=$JWT_SECRET" >> .env
+          echo "RABBITMQ_URL=$RABBITMQ_URL" >> .env
 
-    - name: Rodar Linter (${{ matrix.service }})
-      run: npm run lint --if-present
+      - name: Verificar tipagem TypeScript (${{ matrix.service }})
+        run: npx tsc --noEmit
 
-    - name: Rodar Testes (${{ matrix.service }})
-      run: npm test --if-present
+      - name: Rodar Linter (${{ matrix.service }})
+        run: npm run lint --if-present
 
-    - name: Fazer o Build (${{ matrix.service }})
-      run: npm run build --if-present
+      - name: Rodar Testes (${{ matrix.service }})
+        run: npm test --if-present
+
+      - name: Fazer o Build (${{ matrix.service }})
+        run: npm run build --if-present
+
+      - name: 📢 Pull Requests
+        if: always() && github.event_name == 'pull_request'
+        uses: sarisia/actions-status-discord@eb045afee445dc055c18d3d90bd0f244fd062708
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK_PRS }}
+          status: ${{ job.status }}
+          title: "Status do PR: ${{ matrix.service }}"
+          description: "PR #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }} no serviço ${{ matrix.service }}"
+
+      - name: 📢 Atualizações do Repositório
+        if: always() && github.event_name == 'push'
+        uses: sarisia/actions-status-discord@eb045afee445dc055c18d3d90bd0f244fd062708
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK_FEED }}
+          status: ${{ job.status }}
+          title: "Atualização no Repositório: ${{ matrix.service }}"
+          description: "A branch ${{ github.ref_name }} recebeu um novo push e a validação do serviço ${{ matrix.service }} finalizou com status: ${{ job.status }}."

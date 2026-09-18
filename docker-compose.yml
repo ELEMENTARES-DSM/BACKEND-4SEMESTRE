@@ -145,6 +145,33 @@ services:
     networks:
       - app-network
 
+  gestao-usuarios:
+    build:
+      context: ./services/gestao-usuarios
+      dockerfile: Dockerfile
+      target: build
+    command: npm run dev
+    environment:
+      PORT: 3000
+      NODE_ENV: development
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+    volumes:
+      - ./services/gestao-usuarios/src:/app/src
+      - ./services/gestao-usuarios/tsconfig.json:/app/tsconfig.json
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "3008:3000"
+    networks:
+      - app-network
+
   gestao-estacoes:
     build:
       context: ./services/gestao-estacoes
