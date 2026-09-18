@@ -31,6 +31,7 @@ export function authMiddleware(
   } catch (err) {
     return res.status(401).json({
       erro: "Token inválido ou expirado.",
+      if: err instanceof Error ? err.message : "Erro desconhecido",
     });
   }
 }
