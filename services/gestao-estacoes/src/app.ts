@@ -1,9 +1,25 @@
 import express from "express";
+import cors from "cors";
+import openapi from "./docs/openapi.json";
 
 const app = express();
+
+// Necessário no desenvolvimento: Swagger UI e API usam portas diferentes.
+if (process.env.SWAGGER_UI_ORIGIN) {
+  app.use(cors({ origin: process.env.SWAGGER_UI_ORIGIN }));
+}
+
 app.use(express.json());
 
-// aplicação minima
+app.get("/openapi.json", (_req, res) => {
+  const publicUrl = process.env.PUBLIC_API_URL || `http://localhost:${process.env.PORT || 3001}`;
+  res.json({
+    ...openapi,
+    servers: [{ url: publicUrl }],
+  });
+});
+
+// Verificação básica do processo HTTP.
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });

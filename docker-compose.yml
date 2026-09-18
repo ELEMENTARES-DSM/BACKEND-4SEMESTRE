@@ -1,4 +1,29 @@
 services:
+  swagger-ui:
+    image: swaggerapi/swagger-ui:v5.32.15
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      URLS: >-
+        [
+          {"url": "http://localhost:3001/openapi.json", "name": "Autenticação"},
+          {"url": "http://localhost:3002/openapi.json", "name": "Alertas e notificações"},
+          {"url": "http://localhost:3003/openapi.json", "name": "Análise de dados"},
+          {"url": "http://localhost:3004/openapi.json", "name": "Gestão de estações"},
+          {"url": "http://localhost:3005/openapi.json", "name": "Ingestão de dados"},
+          {"url": "http://localhost:3006/openapi.json", "name": "Relatórios"},
+          {"url": "http://localhost:3007/openapi.json", "name": "Validação"}
+        ]
+      URLS_PRIMARY_NAME: Autenticação
+      DOC_EXPANSION: list
+      FILTER: "true"
+      DEEP_LINKING: "true"
+      DISPLAY_REQUEST_DURATION: "true"
+      VALIDATOR_URL: none
+    networks:
+      - app-network
+
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -44,6 +69,8 @@ services:
       target: build
     command: npm run dev
     environment:
+      PUBLIC_API_URL: http://localhost:3001
+      SWAGGER_UI_ORIGIN: http://localhost:8080
       PORT: 3000
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -71,6 +98,8 @@ services:
       target: build
     command: npm run dev
     environment:
+      PUBLIC_API_URL: http://localhost:3002
+      SWAGGER_UI_ORIGIN: http://localhost:8080
       PORT: 3000
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -96,6 +125,8 @@ services:
       target: build
     command: npm run dev
     environment:
+      PUBLIC_API_URL: http://localhost:3003
+      SWAGGER_UI_ORIGIN: http://localhost:8080
       PORT: 3000
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -148,6 +179,8 @@ services:
       target: build
     command: npm run dev
     environment:
+      PUBLIC_API_URL: http://localhost:3004
+      SWAGGER_UI_ORIGIN: http://localhost:8080
       PORT: 3000
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -173,6 +206,8 @@ services:
       target: build
     command: npm run dev
     environment:
+      PUBLIC_API_URL: http://localhost:3005
+      SWAGGER_UI_ORIGIN: http://localhost:8080
       PORT: 3000
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -198,6 +233,8 @@ services:
       target: build
     command: npm run dev
     environment:
+      PUBLIC_API_URL: http://localhost:3006
+      SWAGGER_UI_ORIGIN: http://localhost:8080
       PORT: 3000
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -223,6 +260,8 @@ services:
       target: build
     command: npm run dev
     environment:
+      PUBLIC_API_URL: http://localhost:3007
+      SWAGGER_UI_ORIGIN: http://localhost:8080
       PORT: 3000
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
