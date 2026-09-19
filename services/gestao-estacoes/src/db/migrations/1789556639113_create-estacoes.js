@@ -12,7 +12,7 @@ export const up = (pgm) => {
         },
 
         nome: {
-            type: "varchar(100)",
+            type: "varchar(120)",
             notNull: true,
         },
 
@@ -22,13 +22,23 @@ export const up = (pgm) => {
         },
 
         latitude: {
-            type: "numeric(10,6)",
+            type: "numeric(9,6)",
             notNull: true,
         },
 
         longitude: {
-            type: "numeric(10,6)",
+            type: "numeric(9,6)",
             notNull: true,
+        },
+
+        nivel_bateria: {
+            type: "integer",
+            notNull: false,
+        },
+
+        ultimo_ping: {
+            type: "timestamp",
+            notNull: false,
         },
 
         status: {
@@ -44,13 +54,12 @@ export const up = (pgm) => {
         },
     });
 
-    // Código pode se repetir em municípios diferentes,
-    // mas não dentro do mesmo município.
+    // O campo codigo deve ser único globalmente na base (UNIQUE).
     pgm.addConstraint(
         "estacoes",
-        "estacoes_codigo_municipio_unique",
+        "estacoes_codigo_unique",
         {
-            unique: ["codigo", "municipio"],
+            unique: ["codigo"],
         }
     );
 
@@ -77,5 +86,11 @@ export const up = (pgm) => {
 };
 
 export const down = (pgm) => {
+
+    pgm.dropIndex("estacoes", "estacoes_municipio_idx");
+    pgm.dropConstraint("estacoes", "estacoes_codigo_unique");
+    pgm.dropConstraint("estacoes", "estacoes_latitude_check");
+    pgm.dropConstraint("estacoes", "estacoes_longitude_check");
+
     pgm.dropTable("estacoes");
 };
