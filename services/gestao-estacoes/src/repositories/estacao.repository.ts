@@ -1,5 +1,5 @@
 import { pool } from "../config/db";
-import { Estacao } from "../models/estacao.model";
+import { Estacoes } from "../models/estacao.model";
 
 interface CreateParams {
   codigo: string;
@@ -15,13 +15,13 @@ interface UpdateParams {
   latitude?: number;
   longitude?: number;
   status?: string;
-  nivel_bateria?: number;
-  ultimo_ping?: Date;
+  nivel_bateria?: number | null;
+  ultimo_ping?: Date | null;
 }
 
-export const create = async (params: CreateParams): Promise<Estacao> => {
-  const result = await pool.query<Estacao>(
-    `INSERT INTO estacao (codigo, nome, municipio, latitude, longitude, status)
+export const create = async (params: CreateParams): Promise<Estacoes> => {
+  const result = await pool.query<Estacoes>(
+    `INSERT INTO estacoes (codigo, nome, municipio, latitude, longitude, status)
      VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING *`,
     [
@@ -37,18 +37,18 @@ export const create = async (params: CreateParams): Promise<Estacao> => {
   return result.rows[0];
 };
 
-export const findAll = async (): Promise<Estacao[]> => {
-  const result = await pool.query<Estacao>(
-    `SELECT * FROM estacao
+export const findAll = async (): Promise<Estacoes[]> => {
+  const result = await pool.query<Estacoes>(
+    `SELECT * FROM estacoes
      ORDER BY criado_em DESC`,
   );
 
   return result.rows;
 };
 
-export const findByMunicipio = async (municipio: string): Promise<Estacao[]> => {
-  const result = await pool.query<Estacao>(
-    `SELECT * FROM estacao
+export const findByMunicipio = async (municipio: string): Promise<Estacoes[]> => {
+  const result = await pool.query<Estacoes>(
+    `SELECT * FROM estacoes
      WHERE municipio = $1
      ORDER BY criado_em DESC`,
     [municipio]
@@ -57,17 +57,17 @@ export const findByMunicipio = async (municipio: string): Promise<Estacao[]> => 
   return result.rows;
 };
 
-export const findById = async (id: string): Promise<Estacao | null> => {
-  const result = await pool.query<Estacao>(
-    `SELECT * FROM estacao WHERE id = $1`,
+export const findById = async (id: string): Promise<Estacoes | null> => {
+  const result = await pool.query<Estacoes>(
+    `SELECT * FROM estacoes WHERE id = $1`,
     [id]
   );
 
   return result.rows[0] ?? null;
 };
 
-export const findByCodigo = async (codigo: string): Promise<Estacao | null> => {
-  const result = await pool.query<Estacao>(
+export const findByCodigo = async (codigo: string): Promise<Estacoes | null> => {
+  const result = await pool.query<Estacoes>(
     `SELECT * FROM estacoes WHERE codigo = $1`,
     [codigo]
   );
@@ -77,7 +77,7 @@ export const findByCodigo = async (codigo: string): Promise<Estacao | null> => {
 export const update = async (
   id: string,
   params: UpdateParams
-): Promise<Estacao | null> => {
+): Promise<Estacoes | null> => {
   const fields: string[] = [];
   const values: unknown[] = [];
   let index = 1;
@@ -97,8 +97,8 @@ export const update = async (
   fields.push(`atualizado_em = CURRENT_TIMESTAMP`);
   values.push(id);
 
-  const result = await pool.query<Estacao>(
-    `UPDATE estacao SET ${fields.join(", ")} WHERE id = $${index} RETURNING *`,
+  const result = await pool.query<Estacoes>(
+    `UPDATE estacoes SET ${fields.join(", ")} WHERE id = $${index} RETURNING *`,
     values
   );
 
@@ -106,9 +106,9 @@ export const update = async (
 };
 
 // Soft delete — segue o padrão do modelo (status = FALSE, sem apagar a linha)
-export const softDelete = async (id: string): Promise<Estacao | null> => {
-  const result = await pool.query<Estacao>(
-    `UPDATE estacao SET status =  'Inativa' WHERE id = $1 RETURNING *`,
+export const softDelete = async (id: string): Promise<Estacoes | null> => {
+  const result = await pool.query<Estacoes>(
+    `UPDATE estacoes SET status =  'Inativa' WHERE id = $1 RETURNING *`,
     [id]
   );
 

@@ -1,4 +1,4 @@
-export interface Estacao{
+export interface Estacoes{
   id: string;
   codigo: string;
   nome: string;
