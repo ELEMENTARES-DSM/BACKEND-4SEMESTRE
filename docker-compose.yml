@@ -13,7 +13,8 @@ services:
           {"url": "http://localhost:3004/openapi.json", "name": "Gestão de estações"},
           {"url": "http://localhost:3005/openapi.json", "name": "Ingestão de dados"},
           {"url": "http://localhost:3006/openapi.json", "name": "Relatórios"},
-          {"url": "http://localhost:3007/openapi.json", "name": "Validação"}
+          {"url": "http://localhost:3007/openapi.json", "name": "Validação"},
+          {"url": "http://localhost:3008/openapi.json", "name": "Usuários"}
         ]
       URLS_PRIMARY_NAME: Autenticação
       DOC_EXPANSION: list
@@ -152,6 +153,8 @@ services:
       target: build
     command: npm run dev
     environment:
+      PUBLIC_API_URL: http://localhost:3008
+      SWAGGER_UI_ORIGIN: http://localhost:8080
       PORT: 3000
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}

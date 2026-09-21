@@ -13,7 +13,8 @@ services:
           {"url": "/estacoes/openapi.json", "name": "Gestão de estações"},
           {"url": "/ingestao/openapi.json", "name": "Ingestão de dados"},
           {"url": "/relatorios/openapi.json", "name": "Relatórios"},
-          {"url": "/validacao/openapi.json", "name": "Validação"}
+          {"url": "/validacao/openapi.json", "name": "Validação"},
+          {"url": "/usuarios/openapi.json", "name": "Usuários"}
         ]
       URLS_PRIMARY_NAME: Autenticação
       DOC_EXPANSION: list
@@ -146,6 +147,7 @@ services:
     image: ${DOCKERHUB_USER}/gestao-usuarios:latest
     restart: unless-stopped
     environment:
+      PUBLIC_API_URL: /usuarios
       PORT: 3000
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
