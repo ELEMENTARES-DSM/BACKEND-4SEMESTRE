@@ -5,14 +5,21 @@ import { UpdateEstacaoDTO } from "../dto/update-estacao.dto";
 import { UserContext } from "../dto/user-context.dto";
 import { AppError } from "../middlewares/error-handler";
 
-
 export const create = async (data: CreateEstacaoDTO): Promise<Estacoes> => {
   const existente = await estacaoRepository.findByCodigo(data.codigo);
   if (existente) {
-    throw new AppError("Identificador de estação já cadastrado no sistema", 409);
+    throw new AppError(
+      "Identificador de estação já cadastrado no sistema",
+      409,
+    );
   }
 
-  if (data.latitude < -90 || data.latitude > 90 || data.longitude < -180 || data.longitude > 180) {
+  if (
+    data.latitude < -90 ||
+    data.latitude > 90 ||
+    data.longitude < -180 ||
+    data.longitude > 180
+  ) {
     throw new AppError("Coordenadas geográficas fora dos limites válidos", 400);
   }
 
@@ -26,7 +33,9 @@ export const create = async (data: CreateEstacaoDTO): Promise<Estacoes> => {
   });
 };
 
-export const findAll = async (userContext?: UserContext): Promise<Estacoes[]> => {
+export const findAll = async (
+  userContext?: UserContext,
+): Promise<Estacoes[]> => {
   if (userContext?.papel === "GESTOR_PUBLICO" && userContext.municipio) {
     return estacaoRepository.findByMunicipio(userContext.municipio);
   }
@@ -34,23 +43,47 @@ export const findAll = async (userContext?: UserContext): Promise<Estacoes[]> =>
   return estacaoRepository.findAll();
 };
 
-export const findById = async (id: string): Promise<Estacoes> => {
+export const findById = async (
+  id: string,
+  userContext?: UserContext,
+): Promise<Estacoes> => {
   const estacao = await estacaoRepository.findById(id);
   if (!estacao) {
     throw new AppError("Estação meteorológica não encontrada", 404);
   }
+
+  if (
+    userContext?.papel === "GESTOR_PUBLICO" &&
+    estacao.municipio !== userContext.municipio
+  ) {
+    throw new AppError("Acesso negado a estações de outro município", 403);
+  }
+
   return estacao;
 };
 
-export const update = async (id: string, data: UpdateEstacaoDTO): Promise<Estacoes> => {
+export const update = async (
+  id: string,
+  data: UpdateEstacaoDTO,
+  userContext?: UserContext,
+): Promise<Estacoes> => {
   const existente = await estacaoRepository.findById(id);
   if (!existente) {
     throw new AppError("Estação meteorológica não encontrada", 404);
   }
 
   if (
-    (data.latitude !== undefined && (data.latitude < -90 || data.latitude > 90)) ||
-    (data.longitude !== undefined && (data.longitude < -180 || data.longitude > 180))
+    userContext?.papel === "GESTOR_PUBLICO" &&
+    existente.municipio !== userContext.municipio
+  ) {
+    throw new AppError("Acesso negado a estações de outro município", 403);
+  }
+
+  if (
+    (data.latitude !== undefined &&
+      (data.latitude < -90 || data.latitude > 90)) ||
+    (data.longitude !== undefined &&
+      (data.longitude < -180 || data.longitude > 180))
   ) {
     throw new AppError("Coordenadas geográficas fora dos limites válidos", 400);
   }
@@ -59,12 +92,23 @@ export const update = async (id: string, data: UpdateEstacaoDTO): Promise<Estaco
   return atualizado!;
 };
 
-export const inativar = async (id: string): Promise<Estacoes> => {
+export const updateStatus = async (
+  id: string,
+  status: string,
+  userContext?: UserContext,
+): Promise<Estacoes> => {
   const existente = await estacaoRepository.findById(id);
   if (!existente) {
     throw new AppError("Estação meteorológica não encontrada", 404);
   }
 
-  const inativada = await estacaoRepository.softDelete(id);
-  return inativada!;
+  if (
+    userContext?.papel === "GESTOR_PUBLICO" &&
+    existente.municipio !== userContext.municipio
+  ) {
+    throw new AppError("Acesso negado a estações de outro município", 403);
+  }
+
+  const atualizado = await estacaoRepository.update(id, { status });
+  return atualizado!;
 };

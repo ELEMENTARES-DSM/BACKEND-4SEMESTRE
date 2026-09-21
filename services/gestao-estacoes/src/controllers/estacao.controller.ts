@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import * as estacaoService from "../services/estacao.service";
+import { AppError } from "../middlewares/error-handler";
 
 interface AuthenticatedRequest extends Request {
   user?: {
@@ -9,56 +10,98 @@ interface AuthenticatedRequest extends Request {
   };
 }
 
-export const create = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+export const create = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) => {
   try {
-    const payload = {
+    let municipio: string | undefined;
+
+    if (req.user?.papel === "GESTOR_PUBLICO") {
+      municipio = req.user.municipio;
+    } else if (req.user?.papel === "ADMINISTRADOR") {
+      municipio = req.body.municipio;
+    } else {
+      throw new AppError("Perfil não autorizado para cadastrar estações", 403);
+    }
+
+    if (!municipio) {
+      throw new AppError(
+        "O município é obrigatório para o cadastro da estação",
+        400,
+      );
+    }
+
+    const novaEstacao = await estacaoService.create({
       ...req.body,
-      municipio: req.user?.papel === "ADMINISTRADOR" ? req.body.municipio : req.user?.municipio,
-    };
-
-    const estacao = await estacaoService.create(payload);
-    res.status(201).json(estacao);
-  } catch (err) {
-    next(err);
-  }
-};
-
-export const findAll = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  try {
-    // Gestor público apenas consulta a sua própria cidade; Administrador vê todas
-    const estacoes = await estacaoService.findAll({
-      papel: req.user?.papel,
-      municipio: req.user?.municipio,
+      municipio,
     });
-    res.json(estacoes);
+
+    return res.status(201).json(novaEstacao);
   } catch (err) {
     next(err);
   }
 };
 
-export const findById = async (req: Request, res: Response, next: NextFunction) => {
+export const findAll = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) => {
   try {
-    const estacao = await estacaoService.findById(req.params.id as string);
-    res.json(estacao);
+    const estacoes = await estacaoService.findAll(req.user);
+    return res.json(estacoes);
   } catch (err) {
     next(err);
   }
 };
 
-export const update = async (req: Request, res: Response, next: NextFunction) => {
+export const findById = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) => {
   try {
-    const estacao = await estacaoService.update(req.params.id as string, req.body);
-    res.json(estacao);
+    const estacao = await estacaoService.findById(
+      req.params.id as string,
+      req.user,
+    );
+    return res.json(estacao);
   } catch (err) {
     next(err);
   }
 };
 
-// Inativação Lógica (Soft Delete) - Troca o status para 'Inativa'
-export const inativar = async (req: Request, res: Response, next: NextFunction) => {
+export const update = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) => {
   try {
-    const estacao = await estacaoService.inativar(req.params.id as string);
-    res.json(estacao);
+    const estacao = await estacaoService.update(
+      req.params.id as string,
+      req.body,
+      req.user,
+    );
+    return res.json(estacao);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const updateStatus = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const estacao = await estacaoService.updateStatus(
+      req.params.id as string,
+      req.body.status,
+      req.user,
+    );
+    return res.json(estacao);
   } catch (err) {
     next(err);
   }

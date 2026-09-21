@@ -6,6 +6,7 @@ import {
   createEstacaoSchema,
   updateEstacaoSchema,
   estacaoIdParamSchema,
+  updateStatusSchema,
 } from "../validations/estacao.validation";
 
 const router = Router();
@@ -15,14 +16,21 @@ router.use(authenticate);
 router.get(
   "/",
   authorize("ADMINISTRADOR", "GESTOR_PUBLICO"),
-  estacaoController.findAll
+  estacaoController.findAll,
+);
+
+router.get(
+  "/:id",
+  authorize("ADMINISTRADOR", "GESTOR_PUBLICO"),
+  validate(estacaoIdParamSchema, "params"),
+  estacaoController.findById,
 );
 
 router.post(
   "/",
   authorize("ADMINISTRADOR", "GESTOR_PUBLICO"),
   validate(createEstacaoSchema, "body"),
-  estacaoController.create
+  estacaoController.create,
 );
 
 router.put(
@@ -30,14 +38,15 @@ router.put(
   authorize("ADMINISTRADOR", "GESTOR_PUBLICO"),
   validate(estacaoIdParamSchema, "params"),
   validate(updateEstacaoSchema, "body"),
-  estacaoController.update
+  estacaoController.update,
 );
 
 router.patch(
-  "/:id/inativar",
+  "/:id/status",
   authorize("ADMINISTRADOR", "GESTOR_PUBLICO"),
   validate(estacaoIdParamSchema, "params"),
-  estacaoController.inativar
+  validate(updateStatusSchema, "body"),
+  estacaoController.updateStatus,
 );
 
 export default router;

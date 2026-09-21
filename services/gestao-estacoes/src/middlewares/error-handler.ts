@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
 
 export class AppError extends Error {
   statusCode: number;
@@ -12,15 +12,17 @@ export class AppError extends Error {
 export const errorHandler = (
   err: Error,
   _req: Request,
-  res: Response
+  res: Response,
+  _next: NextFunction
 ) => {
   if (err instanceof AppError) {
     return res.status(err.statusCode).json({ message: err.message });
   }
 
-  // Captura erro de chave duplicada no Postgres (código de estação existente)
   if ((err as { code?: string }).code === "23505") {
-    return res.status(409).json({ message: "Identificador de estação já cadastrado no sistema" });
+    return res
+      .status(409)
+      .json({ message: "Identificador de estação já cadastrado no sistema" });
   }
 
   console.error(err);
