@@ -1,0 +1,73 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Elementares — Gestão de estações",
+    "version": "1.0.0",
+    "description": "Operações HTTP do serviço gestao-estacoes."
+  },
+  "servers": [
+    {
+      "url": "http://localhost/estacoes",
+      "description": "Desenvolvimento local"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Saúde",
+      "description": "Verificação básica do processo HTTP"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "Saúde"
+        ],
+        "operationId": "gestao_estacoes_health",
+        "summary": "Verificar se o serviço responde",
+        "description": "Verifica se o processo HTTP responde. Não verifica a disponibilidade de bancos de dados, filas ou outros serviços.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Serviço disponível para receber requisições HTTP.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                },
+                "examples": {
+                  "processoDisponivel": {
+                    "summary": "Serviço disponível",
+                    "value": {
+                      "status": "ok"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HealthResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok"
+            ],
+            "description": "Estado do processo HTTP.",
+            "example": "ok"
+          }
+        }
+      }
+    }
+  }
+}
