@@ -11,32 +11,23 @@ const shorthands = undefined;
 const up = (pgm) => {
   pgm.sql(`
     CREATE TABLE IF NOT EXISTS sensores (
-        id             UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
-        estacao_id     UUID          NOT NULL REFERENCES estacoes(id) ON DELETE CASCADE,
-        codigo         VARCHAR(50)   NOT NULL,
-        nome           VARCHAR(150)  NOT NULL,
-        grandeza       VARCHAR(100)  NOT NULL,
-        unidade        VARCHAR(20)   NOT NULL,
-        status         VARCHAR(20)   NOT NULL DEFAULT 'Ativo'
-            CHECK (status IN ('Ativo', 'Inativo')),
-        criado_em      TIMESTAMPTZ   NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        atualizado_em  TIMESTAMPTZ   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        id              UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+        estacao_id      UUID          NOT NULL REFERENCES estacoes(id) ON DELETE RESTRICT,
+        tipo            VARCHAR(50)   NOT NULL,
+        unidade_medida  VARCHAR(20)   NOT NULL,
+        fator           NUMERIC(12,6) NOT NULL DEFAULT 1.0,
+        ganho           NUMERIC(12,6) NOT NULL DEFAULT 0.0,
+        status          VARCHAR(20)   NOT NULL DEFAULT 'Ativo',
+        criado_em       TIMESTAMPTZ   NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-        CONSTRAINT uq_sensores_estacao_codigo UNIQUE (estacao_id, codigo)
+        CONSTRAINT uq_sensor_por_estacao UNIQUE (estacao_id, tipo),
+        CONSTRAINT chk_tipo_sensor   CHECK (tipo IN ('Temperatura', 'Umidade Relativa',
+                                                     'PM2.5', 'PM10', 'Velocidade do Vento')),
+        CONSTRAINT chk_status_sensor CHECK (status IN ('Ativo', 'Inativo'))
     );
   `);
 
-  pgm.sql(`
-    COMMENT ON COLUMN sensores.status IS
-        'Ativo/Inativo controla se o sensor ainda coleta dados. PATCH /sensores/:id/status alterna isso sem apagar historico (RF-05, item 4).';
-  `);
-
-  pgm.sql(`
-    COMMENT ON CONSTRAINT uq_sensores_estacao_codigo ON sensores IS
-        'Garante codigo unico POR ESTACAO (a mesma sigla pode existir em estacoes diferentes). Violacao -> 409 (RF-05, item 2).';
-  `);
-
-  pgm.sql(`CREATE INDEX IF NOT EXISTS idx_sensores_estacao_id ON sensores (estacao_id);`);
+  pgm.sql(`CREATE INDEX IF NOT EXISTS idx_sensores_estacao ON sensores (estacao_id);`);
 };
 
 /**
