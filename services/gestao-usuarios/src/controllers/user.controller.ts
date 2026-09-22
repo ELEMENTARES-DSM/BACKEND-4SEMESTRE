@@ -54,3 +54,12 @@ export const remove = async (req: Request, res: Response, next: NextFunction) =>
     next(err);
   }
 };
+
+export const removePermanente = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await userService.inativar(req.params.id as string);
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+};

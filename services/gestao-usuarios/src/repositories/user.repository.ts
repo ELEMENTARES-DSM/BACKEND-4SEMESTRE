@@ -103,3 +103,12 @@ export const softDelete = async (id: string): Promise<Usuario | null> => {
 
   return result.rows[0] ?? null;
 };
+
+export const hardDelete = async (id: string): Promise<Usuario | null> => {
+  const result = await pool.query<Usuario>(
+    `DELETE FROM usuarios WHERE id = $1 RETURNING *`,
+    [id]
+  )
+
+  return result.rows[0] ?? null
+}

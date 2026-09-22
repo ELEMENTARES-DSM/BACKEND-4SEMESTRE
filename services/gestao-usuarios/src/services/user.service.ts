@@ -91,11 +91,22 @@ export const updateStatus = async (
   return toPublic(usuario!);
 };
 
-export const remove = async (id: string): Promise<void> => {
+// Soft delete, service para atualizar diretamente o campo esta_ativo para FALSE
+//  mantendo, para caso necessário
+export const inativar = async (id: string): Promise<void> => {
   const existente = await userRepository.findById(id);
   if (!existente) {
     throw new AppError("Usuário não encontrado", 404);
   }
 
   await userRepository.softDelete(id);
+};
+
+export const remove = async (id: string): Promise<void> => {
+  const existente = await userRepository.findById(id);
+  if (!existente) {
+    throw new AppError("Usuário não encontrado", 404);
+  }
+
+  await userRepository.hardDelete(id);
 };
