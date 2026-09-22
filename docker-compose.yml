@@ -1,4 +1,49 @@
 services:
+  swagger-ui:
+    image: swaggerapi/swagger-ui:v5.32.15
+    restart: unless-stopped
+    expose:
+      - "8080"
+    environment:
+      URLS: '[
+        {"url":"/auth/openapi.json","name":"Autenticação"},
+        {"url":"/alertas/openapi.json","name":"Alertas e notificações"},
+        {"url":"/analise/openapi.json","name":"Análise de dados"},
+        {"url":"/estacoes/openapi.json","name":"Gestão de estações"},
+        {"url":"/ingestao/openapi.json","name":"Ingestão de dados"},
+        {"url":"/relatorios/openapi.json","name":"Relatórios"},
+        {"url":"/validacao/openapi.json","name":"Validação"},
+        {"url":"/usuarios/openapi.json","name":"Usuários"}
+        ]'
+      URLS_PRIMARY_NAME: "Autenticação"
+      DOC_EXPANSION: "list"
+      FILTER: "true"
+      DEEP_LINKING: "true"
+      DISPLAY_REQUEST_DURATION: "true"
+      VALIDATOR_URL: "none"
+    networks:
+      - app-network
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - swagger-ui
+      - auth-service
+      - alertas-notificacoes
+      - analise-dados
+      - gestao-usuarios
+      - gestao-estacoes
+      - ingestao-dados
+      - servico-relatorios
+      - servico-validacao
+    networks:
+      - app-network
+
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -13,7 +58,7 @@ services:
     networks:
       - app-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -44,6 +89,7 @@ services:
       target: build
     command: npm run dev
     environment:
+      PUBLIC_API_URL: http://localhost/auth
       PORT: 3000
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -59,8 +105,6 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-    ports:
-      - "3001:3000"
     networks:
       - app-network
 
@@ -71,6 +115,7 @@ services:
       target: build
     command: npm run dev
     environment:
+      PUBLIC_API_URL: http://localhost/alertas
       PORT: 3000
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -84,8 +129,6 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-    ports:
-      - "3002:3000"
     networks:
       - app-network
 
@@ -96,6 +139,7 @@ services:
       target: build
     command: npm run dev
     environment:
+      PUBLIC_API_URL: http://localhost/analise
       PORT: 3000
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -109,8 +153,6 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-    ports:
-      - "3003:3000"
     networks:
       - app-network
 
@@ -121,6 +163,7 @@ services:
       target: build
     command: npm run dev
     environment:
+      PUBLIC_API_URL: http://localhost/usuarios
       PORT: 3000
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -136,8 +179,6 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-    ports:
-      - "3008:3000"
     networks:
       - app-network
 
@@ -148,6 +189,7 @@ services:
       target: build
     command: npm run dev
     environment:
+      PUBLIC_API_URL: http://localhost/estacoes
       PORT: 3000
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -163,8 +205,6 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-    ports:
-      - "3004:3000"
     networks:
       - app-network
 
@@ -175,6 +215,7 @@ services:
       target: build
     command: npm run dev
     environment:
+      PUBLIC_API_URL: http://localhost/ingestao
       PORT: 3000
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -188,8 +229,6 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-    ports:
-      - "3005:3000"
     networks:
       - app-network
 
@@ -200,6 +239,7 @@ services:
       target: build
     command: npm run dev
     environment:
+      PUBLIC_API_URL: http://localhost/relatorios
       PORT: 3000
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -213,8 +253,6 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-    ports:
-      - "3006:3000"
     networks:
       - app-network
 
@@ -225,6 +263,7 @@ services:
       target: build
     command: npm run dev
     environment:
+      PUBLIC_API_URL: http://localhost/validacao
       PORT: 3000
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -238,8 +277,6 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-    ports:
-      - "3007:3000"
     networks:
       - app-network
 

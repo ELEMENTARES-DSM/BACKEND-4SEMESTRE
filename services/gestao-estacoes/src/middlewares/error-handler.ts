@@ -21,7 +21,7 @@ export const errorHandler = (
 
   if ((err as { code?: string }).code === "23505") {
     return res.status(409).json({
-      message: "Já existe um sensor com esse código nesta estação.",
+      message: "Já existe um sensor desse tipo nesta estação.",
     });
   }
 
