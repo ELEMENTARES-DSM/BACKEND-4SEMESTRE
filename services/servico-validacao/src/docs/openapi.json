@@ -7,7 +7,7 @@
   },
   "servers": [
     {
-      "url": "http://localhost:3007",
+      "url": "http://localhost/validacao",
       "description": "Desenvolvimento local"
     }
   ],

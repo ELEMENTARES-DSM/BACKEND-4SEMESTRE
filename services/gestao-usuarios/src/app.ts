@@ -13,7 +13,7 @@ if (process.env.SWAGGER_UI_ORIGIN) {
 
 app.use(express.json());
 
-app.get("/openapi.json", (_req, res) => {
+app.get("/usuarios/openapi.json", (_req, res) => {
   const publicUrl = process.env.PUBLIC_API_URL || `http://localhost:${process.env.PORT || 3000}`;
   res.json({
     ...openapi,
@@ -21,7 +21,7 @@ app.get("/openapi.json", (_req, res) => {
   });
 });
 
-app.get("/health", (_req, res) => {
+app.get("/usuarios/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
