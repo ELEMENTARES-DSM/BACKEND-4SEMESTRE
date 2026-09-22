@@ -36,7 +36,6 @@ export const findAll = async (): Promise<UsuarioComPapel[]> => {
         p.nome AS papel_nome
      FROM usuarios u
      JOIN papeis p ON p.id = u.papel_id
-     WHERE u.esta_ativo
      ORDER BY u.criado_em DESC`
   );
 
