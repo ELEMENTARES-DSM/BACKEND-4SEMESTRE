@@ -33,6 +33,22 @@ export const listByEstacao = async (
   }
 };
 
+export const update = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { id } = req.params as { id: string };
+    const municipio = req.usuario!.municipio;
+
+    const sensor = await sensorService.update(id, municipio, req.body);
+    res.json(sensor);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const updateStatus = async (
   req: Request,
   res: Response,

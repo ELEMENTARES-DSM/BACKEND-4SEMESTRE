@@ -1,11 +1,13 @@
 import { z } from "zod";
+import { TIPOS_SENSOR } from "../models/sensor.model";
 
 export const createSensorSchema = z.object({
-  codigo: z.string().min(1).max(50),
-  nome: z.string().min(1).max(150),
-  grandeza: z.string().min(1).max(100),
-  unidade: z.string().min(1).max(20),
+  tipo: z.enum(TIPOS_SENSOR as [string, ...string[]]),
+  fator: z.number().optional(),
+  ganho: z.number().optional(),
 });
+
+export const updateSensorSchema = createSensorSchema;
 
 export const updateSensorStatusSchema = z.object({
   status: z.enum(["Ativo", "Inativo"]),
