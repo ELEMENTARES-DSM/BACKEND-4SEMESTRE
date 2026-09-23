@@ -81,6 +81,21 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+  
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   auth-service:
     build:
@@ -96,6 +111,7 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      REDIS_URL: redis://redis:6379
     volumes:
       - ./services/auth-service/src:/app/src
       - ./services/auth-service/tsconfig.json:/app/tsconfig.json
@@ -104,6 +120,8 @@ services:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - app-network
@@ -170,6 +188,7 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      REDIS_URL: redis://redis:6379
     volumes:
       - ./services/gestao-usuarios/src:/app/src
       - ./services/gestao-usuarios/tsconfig.json:/app/tsconfig.json
@@ -178,6 +197,8 @@ services:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - app-network
@@ -285,3 +306,4 @@ networks:
 volumes:
   postgres-data:
   rabbitmq-data:
+  redis-data:

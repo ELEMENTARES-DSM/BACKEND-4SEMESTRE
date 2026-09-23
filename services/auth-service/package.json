@@ -9,7 +9,7 @@
     "build": "tsc -p tsconfig.json && tsc-alias -p tsconfig.json",
     "start": "node dist/server.js",
     "lint": "eslint src/",
-  "migrate": "node-pg-migrate -m src/db/migrations"
+    "migrate": "node-pg-migrate -m src/db/migrations"
   },
   "keywords": [],
   "author": "",
@@ -23,7 +23,8 @@
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
     "pg": "^8.23.0",
-    "zod": "^4.5.4"
+    "zod": "^4.5.4",
+    "redis": "^4.7.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
