@@ -1,7 +1,8 @@
 import express from "express";
-import { authMiddleware, checkRole } from "./middlewares/middleware";
 import cors from "cors";
 import openapi from "./docs/openapi.json";
+import authRoutes from "./routes/auth.routes";
+import { errorHandler } from "./middlewares/error-handler";
 
 const app = express();
 
@@ -25,20 +26,8 @@ app.get("/auth/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
-app.get("/teste-auth", authMiddleware, (req, res) => {
-  res.json({
-    mensagem: "Token válido! Você está autenticado.",
-    usuario: req.usuario,
-  });
-});
+app.use("/auth", authRoutes);
 
-app.get(
-  "/teste-auth-admin",
-  authMiddleware,
-  checkRole(["admin"]),
-  (req, res) => {
-    res.json({ mensagem: "Você é admin, acesso liberado." });
-  }
-);
+app.use(errorHandler);
 
 export default app;
