@@ -35,7 +35,7 @@ const up = (pgm) => {
       notNull: true,
     },
 
-    limiar: {
+    valor_limite: {
       type: "numeric(10,2)",
       notNull: true,
     },
@@ -45,37 +45,33 @@ const up = (pgm) => {
       notNull: true,
     },
 
-    status: {
-      type: "varchar(20)",
+    fator: {
+      type: "numeric(10,2)",
       notNull: true,
-      default: "Ativa",
     },
 
-    criado_em: {
-      type: "timestamp",
+    ganho: {
+      type: "numeric(10,2)",
       notNull: true,
-      default: pgm.func("CURRENT_TIMESTAMP"),
+    },
+
+    esta_ativo: {
+      type: "boolean",
+      notNull: true,
+      default: true,
     },
   });
 
-  pgm.addConstraint(
-    "regras_alerta",
-    "regras_alerta_operador_check",
-    {
-      check: "operador IN ('>', '>=', '<', '<=', '=')",
-    }
-  );
+  pgm.addConstraint("regras_alerta", "regras_alerta_operador_check", {
+    check: "operador IN ('>', '>=', '<', '<=', '=')",
+  });
 
-  pgm.addConstraint(
-    "regras_alerta",
-    "regras_alerta_severidade_check",
-    {
-      check: "severidade IN ('ATENCAO', 'ALERTA', 'CRITICO')",
-    }
-  );
+  pgm.addConstraint("regras_alerta", "regras_alerta_severidade_check", {
+    check: "severidade IN ('ATENCAO', 'ALERTA', 'CRITICO')",
+  });
 
   pgm.createIndex("regras_alerta", "sensor_id");
-  pgm.createIndex("regras_alerta", "status");
+  pgm.createIndex("regras_alerta", "esta_ativo");
 };
 
 /**
@@ -85,7 +81,7 @@ const up = (pgm) => {
  */
 const down = (pgm) => {
   pgm.dropIndex("regras_alerta", "regras_alerta_sensor_id_idx");
-  pgm.dropIndex("regras_alerta", "regras_alerta_status_idx");
+  pgm.dropIndex("regras_alerta", "regras_alerta_esta_ativo_idx");
   pgm.dropConstraint("regras_alerta", "regras_alerta_operador_check");
   pgm.dropConstraint("regras_alerta", "regras_alerta_severidade_check");
   pgm.dropTable("regras_alerta");

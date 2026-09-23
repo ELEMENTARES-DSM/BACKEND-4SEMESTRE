@@ -15,10 +15,11 @@ const up = (pgm) => {
         sensor_id   UUID          NOT NULL REFERENCES sensores(id) ON DELETE RESTRICT,
         nome        VARCHAR(100)  NOT NULL,
         operador    VARCHAR(5)    NOT NULL,
-        limiar      NUMERIC(10,2) NOT NULL,
+        valor_limite NUMERIC(10,2) NOT NULL,
         severidade  VARCHAR(20)   NOT NULL,
-        status      VARCHAR(20)   NOT NULL DEFAULT 'Ativa',
-        criado_em   TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        fator       NUMERIC(10,2) NOT NULL,
+        ganho       NUMERIC(10,2) NOT NULL,
+        esta_ativo  BOOLEAN       NOT NULL DEFAULT TRUE,
 
         CONSTRAINT chk_regras_alerta_operador
             CHECK (operador IN ('>', '>=', '<', '<=', '=')),
@@ -34,8 +35,8 @@ const up = (pgm) => {
   `);
 
   pgm.sql(`
-    CREATE INDEX IF NOT EXISTS idx_regras_alerta_status
-    ON regras_alerta (status);
+    CREATE INDEX IF NOT EXISTS idx_regras_alerta_esta_ativo
+    ON regras_alerta (esta_ativo);
   `);
 };
 

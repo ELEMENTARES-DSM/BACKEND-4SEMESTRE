@@ -1,12 +1,14 @@
 export type OperadorRegraAlerta = ">" | ">=" | "<" | "<=" | "=";
 export type SeveridadeRegraAlerta = "ATENCAO" | "ALERTA" | "CRITICO";
-export type StatusRegraAlerta = "Ativa" | "Inativa";
+
 export interface Alerta {
   id: string;
   sensor_id: string;
+  nome: string;
   operador: OperadorRegraAlerta;
-  limiar: number;
+  valor_limite: number;
   severidade: SeveridadeRegraAlerta;
-  status: StatusRegraAlerta;
-  criado_em: Date;
+  fator: number;
+  ganho: number;
+  esta_ativo: boolean;
 }

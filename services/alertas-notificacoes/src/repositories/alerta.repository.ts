@@ -5,16 +5,21 @@ interface CreateParams {
   sensor_id: string;
   nome: string;
   operador: ">" | ">=" | "<" | "<=" | "=";
-  limiar: number;
+  valor_limite: number;
   severidade: "ATENCAO" | "ALERTA" | "CRITICO";
+  fator: number;
+  ganho: number;
+  esta_ativo?: boolean;
 }
 
 interface UpdateParams {
   nome?: string;
   operador?: ">" | ">=" | "<" | "<=" | "=";
-  limiar?: number;
+  valor_limite?: number;
   severidade?: "ATENCAO" | "ALERTA" | "CRITICO";
-  status?: "Ativa" | "Inativa";
+  fator?: number;
+  ganho?: number;
+  esta_ativo?: boolean;
 }
 
 export const create = async (params: CreateParams): Promise<Alerta> => {
@@ -23,17 +28,23 @@ export const create = async (params: CreateParams): Promise<Alerta> => {
         sensor_id,
         nome,
         operador,
-        limiar,
-        severidade
+        valor_limite,
+        severidade,
+        fator,
+        ganho,
+        esta_ativo
      )
-     VALUES ($1, $2, $3, $4, $5)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING *`,
     [
       params.sensor_id,
       params.nome,
       params.operador,
-      params.limiar,
+      params.valor_limite,
       params.severidade,
+      params.fator,
+      params.ganho,
+      params.esta_ativo ?? true,
     ],
   );
 
@@ -44,7 +55,7 @@ export const findAll = async (): Promise<Alerta[]> => {
   const result = await pool.query<Alerta>(
     `SELECT *
      FROM regras_alerta
-     ORDER BY criado_em DESC`,
+     ORDER BY id DESC`,
   );
 
   return result.rows;
@@ -66,7 +77,7 @@ export const findBySensorId = async (sensorId: string): Promise<Alerta[]> => {
     `SELECT *
      FROM regras_alerta
      WHERE sensor_id = $1
-     ORDER BY criado_em DESC`,
+     ORDER BY id DESC`,
     [sensorId],
   );
 
@@ -77,8 +88,8 @@ export const findAtivas = async (): Promise<Alerta[]> => {
   const result = await pool.query<Alerta>(
     `SELECT *
      FROM regras_alerta
-     WHERE status = 'Ativa'
-     ORDER BY criado_em DESC`,
+     WHERE esta_ativo = TRUE
+     ORDER BY id DESC`,
   );
 
   return result.rows;
@@ -119,14 +130,14 @@ export const update = async (
 
 export const updateStatus = async (
   id: string,
-  status: "Ativa" | "Inativa",
+  esta_ativo: boolean,
 ): Promise<Alerta | null> => {
   const result = await pool.query<Alerta>(
     `UPDATE regras_alerta
-     SET status = $1
+     SET esta_ativo = $1
      WHERE id = $2
      RETURNING *`,
-    [status, id],
+    [esta_ativo, id],
   );
 
   return result.rows[0] ?? null;
