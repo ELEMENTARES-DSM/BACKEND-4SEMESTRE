@@ -1,4 +1,5 @@
 import express from "express";
+import { authMiddleware, checkRole } from "./middlewares/middleware";
 import cors from "cors";
 import openapi from "./docs/openapi.json";
 import authRoutes from "./routes/auth.routes";
