@@ -20,4 +20,5 @@ router.put("/:id", validate(userIdParamSchema, "params"), validate(updateUserSch
 router.patch("/:id/status", validate(userIdParamSchema, "params"), validate(updateStatusSchema), userController.updateStatus);
 router.delete("/:id", validate(userIdParamSchema, "params"), userController.remove);
 
+
 export default router;
