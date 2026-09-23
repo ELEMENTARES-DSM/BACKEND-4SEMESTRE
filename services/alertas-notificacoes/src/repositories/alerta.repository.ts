@@ -1,5 +1,5 @@
 import { pool } from "../config/db";
-import type { Alerta } from "../models/alertas";
+import type { Alerta } from "../models/alerta.model";
 
 interface CreateParams {
   sensor_id: string;
