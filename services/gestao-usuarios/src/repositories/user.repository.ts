@@ -44,7 +44,13 @@ export const findAll = async (): Promise<UsuarioComPapel[]> => {
 
 export const findById = async (id: string): Promise<Usuario | null> => {
   const result = await pool.query<Usuario>(
-    `SELECT * FROM usuarios WHERE id = $1`,
+    `SELECT
+        u.id, u.nome, u.email, u.papel_id, u.municipio,
+        u.esta_ativo, u.criado_em, u.atualizado_em,
+        p.nome AS papel_nome
+     FROM usuarios u
+     JOIN papeis p ON p.id = u.papel_id
+     WHERE u.id = $1`,
     [id]
   );
 
@@ -53,7 +59,13 @@ export const findById = async (id: string): Promise<Usuario | null> => {
 
 export const findByEmail = async (email: string): Promise<Usuario | null> => {
   const result = await pool.query<Usuario>(
-    `SELECT * FROM usuarios WHERE email = $1`,
+    `SELECT
+        u.id, u.nome, u.email, u.papel_id, u.municipio,
+        u.esta_ativo, u.criado_em, u.atualizado_em,
+        p.nome AS papel_nome
+     FROM usuarios u
+     JOIN papeis p ON p.id = u.papel_id
+     WHERE u.email = $1`,
     [email]
   );
 
