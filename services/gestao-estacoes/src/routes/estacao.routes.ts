@@ -8,8 +8,12 @@ import {
   estacaoIdParamSchema,
   updateStatusSchema,
 } from "../validations/estacao.validation";
+import { authMiddleware } from "../middlewares/middleware";
 
 const router = Router();
+
+
+router.get("/estacoes/status", authMiddleware, estacaoController.status);
 
 router.use(authenticate);
 

@@ -20,9 +20,9 @@ export const errorHandler = (
   }
 
   if ((err as { code?: string }).code === "23505") {
-    return res
-      .status(409)
-      .json({ message: "Identificador de estação já cadastrado no sistema" });
+    return res.status(409).json({
+      message: "Já existe um sensor desse tipo nesta estação.",
+    });
   }
 
   console.error(err);

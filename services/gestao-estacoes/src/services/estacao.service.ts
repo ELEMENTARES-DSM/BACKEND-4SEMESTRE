@@ -4,6 +4,10 @@ import { CreateEstacaoDTO } from "../dto/create-estacao.dto";
 import { UpdateEstacaoDTO } from "../dto/update-estacao.dto";
 import { UserContext } from "../dto/user-context.dto";
 import { AppError } from "../middlewares/error-handler";
+import {
+  ResumoStatus,
+  StatusEstacoesResponse,
+} from "../models/estacao.model";
 
 export const create = async (data: CreateEstacaoDTO): Promise<Estacoes> => {
   const existente = await estacaoRepository.findByCodigo(data.codigo);
@@ -111,4 +115,25 @@ export const updateStatus = async (
 
   const atualizado = await estacaoRepository.update(id, { status });
   return atualizado!;
+};
+
+export const getStatusPorMunicipio = async (
+  municipio: string
+): Promise<StatusEstacoesResponse> => {
+  const estacoes = await estacaoRepository.findStatusByMunicipio(municipio);
+
+  const resumo: ResumoStatus = {
+    total: estacoes.length,
+    ativas: 0,
+    com_falha: 0,
+    inativas: 0,
+  };
+
+  for (const estacao of estacoes) {
+    if (estacao.status_operacional === "Ativa") resumo.ativas++;
+    else if (estacao.status_operacional === "Inativa") resumo.inativas++;
+    else resumo.com_falha++;
+  }
+
+  return { resumo, estacoes };
 };
