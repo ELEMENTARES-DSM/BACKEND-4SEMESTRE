@@ -93,8 +93,7 @@ export const update = async (
   if (fields.length === 0) {
     return findById(id);
   }
-
-  fields.push(`atualizado_em = CURRENT_TIMESTAMP`);
+  
   values.push(id);
 
   const result = await pool.query<Estacoes>(

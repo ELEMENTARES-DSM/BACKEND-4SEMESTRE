@@ -1,4 +1,4 @@
-import "dotenv/config"; 
+import "dotenv/config";
 import express from "express";
 import routes from "./routes";
 import { errorHandler } from "./middlewares/error-handler";
@@ -18,12 +18,15 @@ app.get("/health", (_req, res) => {
 });
 
 app.get("/estacoes/openapi.json", (_req, res) => {
-  const publicUrl = process.env.PUBLIC_API_URL || `http://localhost:${process.env.PORT || 3000}`;
+  const publicUrl =
+    process.env.PUBLIC_API_URL ||
+    `http://localhost:${process.env.PORT || 3000}`;
   res.json({
     ...openapi,
     servers: [{ url: publicUrl }],
   });
 });
+
 
 app.get("/estacoes/health", (_req, res) => {
   res.json({ status: "ok" });

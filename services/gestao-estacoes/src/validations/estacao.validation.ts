@@ -12,7 +12,8 @@ export const createEstacaoSchema = z.object({
   municipio: z
     .string()
     .min(1, "Município é obrigatório")
-    .max(100, "Município deve ter no mínimo 1 caracteres"),
+    .max(100, "Município deve ter no mínimo 1 caracteres")
+    .optional(),
 
   latitude: z
     .number({ message: "Latitude deve ser um número" })

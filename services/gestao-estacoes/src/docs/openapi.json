@@ -15,14 +15,21 @@
     {
       "name": "Saúde",
       "description": "Verificação básica do processo HTTP"
+    },
+    {
+      "name": "Estações",
+      "description": "Gerenciamento e monitoramento das estações meteorológicas"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
     }
   ],
   "paths": {
     "/health": {
       "get": {
-        "tags": [
-          "Saúde"
-        ],
+        "tags": ["Saúde"],
         "operationId": "gestao_estacoes_health",
         "summary": "Verificar se o serviço responde",
         "description": "Verifica se o processo HTTP responde. Não verifica a disponibilidade de bancos de dados, filas ou outros serviços.",
@@ -48,23 +55,556 @@
           }
         }
       }
+    },
+    "/": {
+      "get": {
+        "tags": ["Estações"],
+        "operationId": "findAllEstacoes",
+        "summary": "Listar estações",
+        "description": "Retorna a lista de estações. Para GESTOR_PUBLICO, limita-se ao seu município. Para ADMINISTRADOR, retorna todas.",
+        "responses": {
+          "200": {
+            "description": "Lista de estações retornada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Estacao"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403Forbidden"
+          }
+        }
+      },
+      "post": {
+        "tags": ["Estações"],
+        "operationId": "createEstacao",
+        "summary": "Cadastrar nova estação",
+        "description": "Cria uma nova estação meteorológica. Para GESTOR_PUBLICO, o município é herdado automaticamente do token JWT.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEstacaoInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Estação criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Estacao"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403Forbidden"
+          },
+          "409": {
+            "description": "Código de estação já existente.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "message": "Identificador de estação já cadastrado no sistema"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/status": {
+      "get": {
+        "tags": ["Estações"],
+        "operationId": "getStatusPorMunicipio",
+        "summary": "Obter resumo de status por município",
+        "description": "Retorna o resumo quantitativo e a lista do status operacional das estações do município. ADMINISTRADOR pode filtrar via query string `?municipio=...`.",
+        "parameters": [
+          {
+            "name": "municipio",
+            "in": "query",
+            "required": false,
+            "description": "Nome do município (Obrigatório para ADMINISTRADOR caso não tenha município no token)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resumo de status retornado com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusEstacoesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403Forbidden"
+          }
+        }
+      }
+    },
+    "/{id}": {
+      "get": {
+        "tags": ["Estações"],
+        "operationId": "findEstacaoById",
+        "summary": "Buscar estação por ID",
+        "description": "Retorna os detalhes de uma estação específica pelo seu UUID.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EstacaoIdParam"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estação encontrada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Estacao"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/404NotFound"
+          }
+        }
+      },
+      "put": {
+        "tags": ["Estações"],
+        "operationId": "updateEstacao",
+        "summary": "Atualizar estação",
+        "description": "Atualiza os dados de uma estação. GESTOR_PUBLICO só pode alterar estações do próprio município.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EstacaoIdParam"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateEstacaoInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Estação atualizada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Estacao"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/404NotFound"
+          }
+        }
+      }
+    },
+    "/{id}/status": {
+      "patch": {
+        "tags": ["Estações"],
+        "operationId": "updateEstacaoStatus",
+        "summary": "Atualizar apenas o status da estação",
+        "description": "Altera o estado operacional da estação ('Ativa' ou 'Inativa').",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EstacaoIdParam"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateStatusInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Status atualizado com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Estacao"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/404NotFound"
+          }
+        }
+      }
     }
   },
   "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Informe o Token JWT obtido na rota de login."
+      }
+    },
+    "parameters": {
+      "EstacaoIdParam": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "description": "UUID de identificação da estação",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "responses": {
+      "400BadRequest": {
+        "description": "Requisição inválida ou falha na validação de dados.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "401Unauthorized": {
+        "description": "Token de autenticação ausente ou inválido.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "example": {
+              "message": "Não autorizado"
+            }
+          }
+        }
+      },
+      "403Forbidden": {
+        "description": "Acesso negado devido a restrições de perfil ou escopo de município.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "example": {
+              "message": "Acesso negado a estações de outro município"
+            }
+          }
+        }
+      },
+      "404NotFound": {
+        "description": "Estação não encontrada.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "example": {
+              "message": "Estação meteorológica não encontrada"
+            }
+          }
+        }
+      }
+    },
     "schemas": {
       "HealthResponse": {
         "type": "object",
-        "required": [
-          "status"
-        ],
+        "required": ["status"],
         "properties": {
           "status": {
             "type": "string",
-            "enum": [
-              "ok"
-            ],
+            "enum": ["ok"],
             "description": "Estado do processo HTTP.",
             "example": "ok"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "example": "Mensagem descritiva do erro"
+          },
+          "errors": {
+            "type": "object",
+            "description": "Detalhes de validação (quando aplicável)"
+          }
+        }
+      },
+      "Estacao": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "1c80274a-7c56-45aa-b397-2f89fa6c7fd9"
+          },
+          "codigo": {
+            "type": "string",
+            "example": "EST-001"
+          },
+          "nome": {
+            "type": "string",
+            "example": "Estação Central"
+          },
+          "municipio": {
+            "type": "string",
+            "example": "São José dos Campos"
+          },
+          "latitude": {
+            "type": "number",
+            "example": -23.1791
+          },
+          "longitude": {
+            "type": "number",
+            "example": -45.8872
+          },
+          "status": {
+            "type": "string",
+            "example": "Ativa"
+          },
+          "nivel_bateria": {
+            "type": "number",
+            "nullable": true,
+            "example": 100
+          },
+          "ultimo_ping": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": "2026-09-25T01:40:01.011Z"
+          },
+          "criado_em": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-09-25T01:40:01.011Z"
+          }
+        }
+      },
+      "CreateEstacaoInput": {
+        "type": "object",
+        "required": ["codigo", "nome", "latitude", "longitude"],
+        "properties": {
+          "codigo": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 30,
+            "example": "EST-003"
+          },
+          "nome": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 120,
+            "example": "Estação Teste"
+          },
+          "municipio": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Obrigatório apenas para ADMINISTRADOR. O GESTOR_PUBLICO herda do token.",
+            "example": "São José dos Campos"
+          },
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90,
+            "example": -23.18
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180,
+            "example": -45.88
+          },
+          "status": {
+            "type": "string",
+            "maxLength": 20,
+            "example": "Ativa"
+          },
+          "nivel_bateria": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "nullable": true,
+            "example": 100
+          },
+          "ultimo_ping": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "UpdateEstacaoInput": {
+        "type": "object",
+        "properties": {
+          "nome": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 120,
+            "example": "Estação Central Reformada"
+          },
+          "municipio": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "example": "São José dos Campos"
+          },
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90,
+            "example": -23.1791
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180,
+            "example": -45.8872
+          },
+          "status": {
+            "type": "string",
+            "maxLength": 20,
+            "example": "Inativa"
+          },
+          "nivel_bateria": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "nullable": true,
+            "example": 95
+          },
+          "ultimo_ping": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "UpdateStatusInput": {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["Ativa", "Inativa"],
+            "example": "Inativa"
+          }
+        }
+      },
+      "StatusEstacoesResponse": {
+        "type": "object",
+        "properties": {
+          "resumo": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer",
+                "example": 3
+              },
+              "ativas": {
+                "type": "integer",
+                "example": 2
+              },
+              "com_falha": {
+                "type": "integer",
+                "example": 0
+              },
+              "inativas": {
+                "type": "integer",
+                "example": 1
+              }
+            }
+          },
+          "estacoes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "nome": {
+                  "type": "string"
+                },
+                "status_operacional": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       }

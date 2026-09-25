@@ -3,7 +3,7 @@ import * as estacaoService from "../services/estacao.service";
 import { AppError } from "../middlewares/error-handler";
 
 interface AuthenticatedRequest extends Request {
-  user?: {
+  usuario?: {
     id: string;
     papel: string;
     municipio: string;
@@ -11,16 +11,18 @@ interface AuthenticatedRequest extends Request {
 }
 
 export const create = async (
-  req: AuthenticatedRequest,
+  req: Request,
   res: Response,
   next: NextFunction,
 ) => {
   try {
+    const papel = req.usuario?.papel || (req.usuario as any)?.role;
+
     let municipio: string | undefined;
 
-    if (req.user?.papel === "GESTOR_PUBLICO") {
-      municipio = req.user.municipio;
-    } else if (req.user?.papel === "ADMINISTRADOR") {
+    if (papel === "GESTOR_PUBLICO") {
+      municipio = req.usuario?.municipio;
+    } else if (papel === "ADMINISTRADOR") {
       municipio = req.body.municipio;
     } else {
       throw new AppError("Perfil não autorizado para cadastrar estações", 403);
@@ -50,7 +52,7 @@ export const findAll = async (
   next: NextFunction,
 ) => {
   try {
-    const estacoes = await estacaoService.findAll(req.user);
+    const estacoes = await estacaoService.findAll(req.usuario);
     return res.json(estacoes);
   } catch (err) {
     next(err);
@@ -65,7 +67,7 @@ export const findById = async (
   try {
     const estacao = await estacaoService.findById(
       req.params.id as string,
-      req.user,
+      req.usuario,
     );
     return res.json(estacao);
   } catch (err) {
@@ -82,7 +84,7 @@ export const update = async (
     const estacao = await estacaoService.update(
       req.params.id as string,
       req.body,
-      req.user,
+      req.usuario,
     );
     return res.json(estacao);
   } catch (err) {
@@ -99,7 +101,7 @@ export const updateStatus = async (
     const estacao = await estacaoService.updateStatus(
       req.params.id as string,
       req.body.status,
-      req.user,
+      req.usuario,
     );
     return res.json(estacao);
   } catch (err) {
@@ -108,15 +110,30 @@ export const updateStatus = async (
 };
 
 export const status = async (
-  req: Request,
+  req: AuthenticatedRequest,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   try {
-    const municipio = req.usuario!.municipio;
+    const usuario = req.usuario;
+    const papel = usuario?.papel;
+    let municipio = usuario?.municipio;
+
+    // Se for ADMINISTRADOR, aceita o município enviado via Query String (?municipio=...)
+    if (papel === "ADMINISTRADOR") {
+      municipio = (req.query.municipio as string) || municipio;
+    }
+
+    if (!municipio) {
+      throw new AppError(
+        "O parâmetro de município é obrigatório para consultar o status.",
+        400,
+      );
+    }
 
     const resultado = await estacaoService.getStatusPorMunicipio(municipio);
-    res.json(resultado);
+
+    return res.status(200).json(resultado);
   } catch (err) {
     next(err);
   }
