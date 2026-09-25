@@ -4,7 +4,7 @@ import sensorRoutes from "./sensor.routes";
 
 const router = Router();
 
-router.use(estacaoRoutes);
-router.use(sensorRoutes);
+router.use("/estacoes", estacaoRoutes);
+router.use("/estacoes", sensorRoutes);
 
 export default router;
