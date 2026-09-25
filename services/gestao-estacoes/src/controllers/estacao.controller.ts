@@ -5,7 +5,7 @@ import { AppError } from "../middlewares/error-handler";
 interface AuthenticatedRequest extends Request {
   usuario?: {
     id: string;
-    papel: string;
+    papel: string;    
     municipio: string;
   };
 }
@@ -16,7 +16,7 @@ export const create = async (
   next: NextFunction,
 ) => {
   try {
-    const papel = req.usuario?.papel || (req.usuario as any)?.role;
+    const papel = req.usuario?.papel ;
 
     let municipio: string | undefined;
 
