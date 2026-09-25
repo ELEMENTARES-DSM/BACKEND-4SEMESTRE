@@ -60,7 +60,7 @@
         ],
         "operationId": "alertas_regras_create",
         "summary": "Criar regra de alerta",
-        "description": "Cria uma regra de alerta para um sensor ativo. A regra sempre nasce ativa; campos extras são descartados. GESTOR_PUBLICO só atua em sensores do seu município; ADMINISTRADOR tem acesso global. O valor limite deve ser coerente com o tipo do sensor (RN-04): Umidade Relativa 0 a 100; PM2.5, PM10 e Velocidade do Vento >= 0; Temperatura -90 a 60.",
+        "description": "Cria uma regra de alerta para um sensor ativo. A regra sempre nasce ativa; campos extras são descartados. GESTOR_PUBLICO só atua em sensores do seu município (sensor de outro município responde 404, como se não existisse); ADMINISTRADOR tem acesso global. O valor limite deve ser coerente com o tipo do sensor (RN-04): Umidade Relativa 0 a 100; PM2.5, PM10 e Velocidade do Vento >= 0; Temperatura -90 a 60.",
         "security": [
           {
             "bearerAuth": []
@@ -175,7 +175,7 @@
             }
           },
           "403": {
-            "description": "Perfil sem permissão ou recurso fora do município do gestor público.",
+            "description": "Perfil sem permissão ou gestor público sem município no token.",
             "content": {
               "application/json": {
                 "schema": {
@@ -195,12 +195,6 @@
                       "erro": "Acesso negado. Perfil insuficiente para esta ação."
                     }
                   },
-                  "foraDoMunicipio": {
-                    "summary": "Sensor de outro município",
-                    "value": {
-                      "message": "Acesso negado: este sensor não pertence ao seu município."
-                    }
-                  },
                   "semMunicipio": {
                     "summary": "Gestor sem município no token",
                     "value": {
@@ -212,7 +206,7 @@
             }
           },
           "404": {
-            "description": "Sensor não encontrado.",
+            "description": "Sensor não encontrado ou, para GESTOR_PUBLICO, sensor de outro município (resposta idêntica).",
             "content": {
               "application/json": {
                 "schema": {
@@ -220,7 +214,7 @@
                 },
                 "examples": {
                   "sensorNaoEncontrado": {
-                    "summary": "Sensor inexistente",
+                    "summary": "Sensor inexistente ou de outro município",
                     "value": {
                       "message": "Sensor não encontrado."
                     }
@@ -329,7 +323,7 @@
             }
           },
           "403": {
-            "description": "Perfil sem permissão ou recurso fora do município do gestor público.",
+            "description": "Perfil sem permissão ou gestor público sem município no token.",
             "content": {
               "application/json": {
                 "schema": {
@@ -369,7 +363,7 @@
         ],
         "operationId": "alertas_regras_update_status",
         "summary": "Ativar ou inativar regra de alerta",
-        "description": "Altera o status da regra (inativação lógica; a regra nunca é removida).",
+        "description": "Altera o status da regra (inativação lógica; a regra nunca é removida). Não é possível ativar regra de um sensor inativo (RN-01); inativar é sempre permitido. Para GESTOR_PUBLICO, regra de outro município responde 404, como se não existisse.",
         "security": [
           {
             "bearerAuth": []
@@ -509,7 +503,7 @@
             }
           },
           "403": {
-            "description": "Perfil sem permissão ou recurso fora do município do gestor público.",
+            "description": "Perfil sem permissão ou gestor público sem município no token.",
             "content": {
               "application/json": {
                 "schema": {
@@ -529,12 +523,6 @@
                       "erro": "Acesso negado. Perfil insuficiente para esta ação."
                     }
                   },
-                  "foraDoMunicipio": {
-                    "summary": "Sensor de outro município",
-                    "value": {
-                      "message": "Acesso negado: este sensor não pertence ao seu município."
-                    }
-                  },
                   "semMunicipio": {
                     "summary": "Gestor sem município no token",
                     "value": {
@@ -546,7 +534,7 @@
             }
           },
           "404": {
-            "description": "Regra não encontrada.",
+            "description": "Regra não encontrada ou, para GESTOR_PUBLICO, regra de outro município (resposta idêntica).",
             "content": {
               "application/json": {
                 "schema": {
@@ -554,9 +542,27 @@
                 },
                 "examples": {
                   "regraNaoEncontrada": {
-                    "summary": "Regra inexistente",
+                    "summary": "Regra inexistente ou de outro município",
                     "value": {
                       "message": "Regra de alerta não encontrada."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Tentativa de ativar regra de sensor inativo (RN-01).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroResponse"
+                },
+                "examples": {
+                  "sensorInativo": {
+                    "summary": "Sensor inativo (RN-01)",
+                    "value": {
+                      "message": "Não é possível ativar regra de um sensor inativo."
                     }
                   }
                 }

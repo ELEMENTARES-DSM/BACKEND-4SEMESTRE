@@ -4,6 +4,9 @@ import { StatusRegraAlerta } from "../models/regra-alerta.model";
 import { UsuarioPayload } from "../types/express";
 import { AppError } from "../middlewares/error-handler";
 
+const SENSOR_NAO_ENCONTRADO = "Sensor não encontrado.";
+const REGRA_NAO_ENCONTRADA = "Regra de alerta não encontrada.";
+
 // RN-04: faixa aceitável de valor_limite por tipo de sensor (limites inclusivos).
 export const FAIXAS_VALOR_LIMITE_POR_TIPO: Record<
   string,
@@ -44,17 +47,19 @@ const resolverMunicipioDoUsuario = (usuario: UsuarioPayload): string | null => {
   );
 };
 
+/**
+ * Recurso de outro município responde como inexistente (404, mesma mensagem),
+ * para não revelar ao gestor que ele existe.
+ */
 const garantirAcessoAoMunicipio = (
   usuario: UsuarioPayload,
-  municipioRecurso: string
+  municipioRecurso: string,
+  mensagemNaoEncontrado: string
 ) => {
   const municipioUsuario = resolverMunicipioDoUsuario(usuario);
 
   if (municipioUsuario !== null && municipioUsuario !== municipioRecurso) {
-    throw new AppError(
-      "Acesso negado: este sensor não pertence ao seu município.",
-      403
-    );
+    throw new AppError(mensagemNaoEncontrado, 404);
   }
 };
 
@@ -94,10 +99,10 @@ export const create = async (
   );
 
   if (!sensor) {
-    throw new AppError("Sensor não encontrado.", 404);
+    throw new AppError(SENSOR_NAO_ENCONTRADO, 404);
   }
 
-  garantirAcessoAoMunicipio(usuario, sensor.municipio);
+  garantirAcessoAoMunicipio(usuario, sensor.municipio, SENSOR_NAO_ENCONTRADO);
 
   if (sensor.status !== "Ativo") {
     throw new AppError(
@@ -135,15 +140,27 @@ export const updateStatus = async (
   const regra = await regraAlertaRepository.findByIdComMunicipio(regraId);
 
   if (!regra) {
-    throw new AppError("Regra de alerta não encontrada.", 404);
+    throw new AppError(REGRA_NAO_ENCONTRADA, 404);
   }
 
-  garantirAcessoAoMunicipio(usuario, regra.municipio);
+  garantirAcessoAoMunicipio(usuario, regra.municipio, REGRA_NAO_ENCONTRADA);
+
+  // RN-01: não reativa regra de sensor inativo (inativar continua permitido).
+  if (status === "Ativa" && regra.sensor_status !== "Ativo") {
+    throw new AppError(
+      "Não é possível ativar regra de um sensor inativo.",
+      422
+    );
+  }
 
   const atualizada = await regraAlertaRepository.updateStatus(
     regraId,
     status === "Ativa"
   );
 
-  return atualizada!;
+  if (!atualizada) {
+    throw new AppError(REGRA_NAO_ENCONTRADA, 404);
+  }
+
+  return atualizada;
 };

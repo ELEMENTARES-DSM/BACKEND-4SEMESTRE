@@ -72,11 +72,16 @@ export const findAllDetalhadas = async (
   return result.rows;
 };
 
+type RegraAlertaComSensor = RegraAlerta & {
+  municipio: string;
+  sensor_status: string;
+};
+
 export const findByIdComMunicipio = async (
   id: string
-): Promise<(RegraAlerta & { municipio: string }) | null> => {
-  const result = await pool.query<RegraAlerta & { municipio: string }>(
-    `SELECT r.*, e.municipio
+): Promise<RegraAlertaComSensor | null> => {
+  const result = await pool.query<RegraAlertaComSensor>(
+    `SELECT r.*, e.municipio, s.status AS sensor_status
      FROM regras_alerta r
      JOIN sensores s ON s.id = r.sensor_id
      JOIN estacoes e ON e.id = s.estacao_id
