@@ -15,6 +15,10 @@
     {
       "name": "Saúde",
       "description": "Verificação básica do processo HTTP"
+    },
+    {
+      "name": "Regras de alerta",
+      "description": "Cadastro, consulta e ativação/inativação de regras de alerta por sensor"
     }
   ],
   "paths": {
@@ -48,6 +52,519 @@
           }
         }
       }
+    },
+    "/regras-alerta": {
+      "post": {
+        "tags": [
+          "Regras de alerta"
+        ],
+        "operationId": "alertas_regras_create",
+        "summary": "Criar regra de alerta",
+        "description": "Cria uma regra de alerta para um sensor ativo. A regra sempre nasce ativa; campos extras são descartados. GESTOR_PUBLICO só atua em sensores do seu município; ADMINISTRADOR tem acesso global. O valor limite deve ser coerente com o tipo do sensor (RN-04): Umidade Relativa 0 a 100; PM2.5, PM10 e Velocidade do Vento >= 0; Temperatura -90 a 60.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRegraAlertaRequest"
+              },
+              "examples": {
+                "ca001": {
+                  "summary": "CA-001: PM2.5 >= 50 µg/m³ crítico",
+                  "value": {
+                    "sensor_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                    "nome": "PM2.5 crítico",
+                    "operador": ">=",
+                    "valor_limite": 50.0,
+                    "severidade": "CRITICO"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Regra criada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegraAlerta"
+                },
+                "examples": {
+                  "ca001": {
+                    "summary": "Regra criada (CA-001)",
+                    "value": {
+                      "id": "7b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+                      "sensor_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "nome": "PM2.5 crítico",
+                      "operador": ">=",
+                      "valor_limite": 50.0,
+                      "severidade": "CRITICO",
+                      "esta_ativo": true,
+                      "criado_em": "2026-09-24T13:45:00.000Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Payload inválido ou JSON malformado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ValidacaoErroResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErroResponse"
+                    }
+                  ]
+                },
+                "examples": {
+                  "dadosInvalidos": {
+                    "summary": "Payload inválido",
+                    "value": {
+                      "message": "Dados inválidos",
+                      "errors": {
+                        "valor_limite": [
+                          "Invalid input: expected number, received string"
+                        ]
+                      }
+                    }
+                  },
+                  "jsonMalformado": {
+                    "summary": "JSON malformado",
+                    "value": {
+                      "message": "JSON malformado."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido ou expirado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroAutenticacaoResponse"
+                },
+                "examples": {
+                  "tokenAusente": {
+                    "summary": "Token não informado",
+                    "value": {
+                      "erro": "Autenticação necessária. Token não informado ou formato inválido."
+                    }
+                  },
+                  "tokenInvalido": {
+                    "summary": "Token inválido",
+                    "value": {
+                      "erro": "Token inválido ou expirado."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Perfil sem permissão ou recurso fora do município do gestor público.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErroAutenticacaoResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErroResponse"
+                    }
+                  ]
+                },
+                "examples": {
+                  "perfilInsuficiente": {
+                    "summary": "Perfil sem permissão",
+                    "value": {
+                      "erro": "Acesso negado. Perfil insuficiente para esta ação."
+                    }
+                  },
+                  "foraDoMunicipio": {
+                    "summary": "Sensor de outro município",
+                    "value": {
+                      "message": "Acesso negado: este sensor não pertence ao seu município."
+                    }
+                  },
+                  "semMunicipio": {
+                    "summary": "Gestor sem município no token",
+                    "value": {
+                      "message": "Acesso negado: usuário sem município vinculado."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Sensor não encontrado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroResponse"
+                },
+                "examples": {
+                  "sensorNaoEncontrado": {
+                    "summary": "Sensor inexistente",
+                    "value": {
+                      "message": "Sensor não encontrado."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Sensor inativo ou valor limite incoerente com a unidade do sensor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroResponse"
+                },
+                "examples": {
+                  "sensorInativo": {
+                    "summary": "Sensor inativo (RN-01)",
+                    "value": {
+                      "message": "Não é possível criar regra de alerta para um sensor inativo."
+                    }
+                  },
+                  "foraDaFaixa": {
+                    "summary": "Valor fora da faixa (RN-04)",
+                    "value": {
+                      "message": "O valor limite para sensores de PM2.5 deve ser maior ou igual a 0 µg/m³."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Regras de alerta"
+        ],
+        "operationId": "alertas_regras_list",
+        "summary": "Listar regras de alerta",
+        "description": "Lista as regras de alerta com dados do sensor e da estação, ordenadas por criação (mais recentes primeiro). GESTOR_PUBLICO vê apenas as regras do seu município; ADMINISTRADOR vê todas.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de regras.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RegraAlertaDetalhada"
+                  }
+                },
+                "examples": {
+                  "lista": {
+                    "summary": "Regras do município",
+                    "value": [
+                      {
+                        "id": "7b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+                        "sensor_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "nome": "PM2.5 crítico",
+                        "operador": ">=",
+                        "valor_limite": 50.0,
+                        "severidade": "CRITICO",
+                        "esta_ativo": true,
+                        "criado_em": "2026-09-24T13:45:00.000Z",
+                        "sensor_tipo": "PM2.5",
+                        "sensor_unidade_medida": "µg/m³",
+                        "estacao_id": "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+                        "estacao_codigo": "SJC-001",
+                        "estacao_nome": "Estação Centro",
+                        "municipio": "São José dos Campos"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido ou expirado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroAutenticacaoResponse"
+                },
+                "examples": {
+                  "tokenAusente": {
+                    "summary": "Token não informado",
+                    "value": {
+                      "erro": "Autenticação necessária. Token não informado ou formato inválido."
+                    }
+                  },
+                  "tokenInvalido": {
+                    "summary": "Token inválido",
+                    "value": {
+                      "erro": "Token inválido ou expirado."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Perfil sem permissão ou recurso fora do município do gestor público.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErroAutenticacaoResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErroResponse"
+                    }
+                  ]
+                },
+                "examples": {
+                  "perfilInsuficiente": {
+                    "summary": "Perfil sem permissão",
+                    "value": {
+                      "erro": "Acesso negado. Perfil insuficiente para esta ação."
+                    }
+                  },
+                  "semMunicipio": {
+                    "summary": "Gestor sem município no token",
+                    "value": {
+                      "message": "Acesso negado: usuário sem município vinculado."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regras-alerta/{id}/status": {
+      "patch": {
+        "tags": [
+          "Regras de alerta"
+        ],
+        "operationId": "alertas_regras_update_status",
+        "summary": "Ativar ou inativar regra de alerta",
+        "description": "Altera o status da regra (inativação lógica; a regra nunca é removida).",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Identificador da regra de alerta.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRegraAlertaStatusRequest"
+              },
+              "examples": {
+                "inativar": {
+                  "summary": "Inativar regra",
+                  "value": {
+                    "status": "Inativa"
+                  }
+                },
+                "ativar": {
+                  "summary": "Ativar regra",
+                  "value": {
+                    "status": "Ativa"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Regra atualizada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegraAlerta"
+                },
+                "examples": {
+                  "inativada": {
+                    "summary": "Regra inativada",
+                    "value": {
+                      "id": "7b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+                      "sensor_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "nome": "PM2.5 crítico",
+                      "operador": ">=",
+                      "valor_limite": 50.0,
+                      "severidade": "CRITICO",
+                      "esta_ativo": false,
+                      "criado_em": "2026-09-24T13:45:00.000Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Id inválido, status inválido ou JSON malformado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ValidacaoErroResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErroResponse"
+                    }
+                  ]
+                },
+                "examples": {
+                  "statusInvalido": {
+                    "summary": "Status fora do enum",
+                    "value": {
+                      "message": "Dados inválidos",
+                      "errors": {
+                        "status": [
+                          "Invalid option: expected one of \"Ativa\"|\"Inativa\""
+                        ]
+                      }
+                    }
+                  },
+                  "idInvalido": {
+                    "summary": "Id não é UUID",
+                    "value": {
+                      "message": "Dados inválidos",
+                      "errors": {
+                        "id": [
+                          "Invalid UUID"
+                        ]
+                      }
+                    }
+                  },
+                  "jsonMalformado": {
+                    "summary": "JSON malformado",
+                    "value": {
+                      "message": "JSON malformado."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido ou expirado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroAutenticacaoResponse"
+                },
+                "examples": {
+                  "tokenAusente": {
+                    "summary": "Token não informado",
+                    "value": {
+                      "erro": "Autenticação necessária. Token não informado ou formato inválido."
+                    }
+                  },
+                  "tokenInvalido": {
+                    "summary": "Token inválido",
+                    "value": {
+                      "erro": "Token inválido ou expirado."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Perfil sem permissão ou recurso fora do município do gestor público.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErroAutenticacaoResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErroResponse"
+                    }
+                  ]
+                },
+                "examples": {
+                  "perfilInsuficiente": {
+                    "summary": "Perfil sem permissão",
+                    "value": {
+                      "erro": "Acesso negado. Perfil insuficiente para esta ação."
+                    }
+                  },
+                  "foraDoMunicipio": {
+                    "summary": "Sensor de outro município",
+                    "value": {
+                      "message": "Acesso negado: este sensor não pertence ao seu município."
+                    }
+                  },
+                  "semMunicipio": {
+                    "summary": "Gestor sem município no token",
+                    "value": {
+                      "message": "Acesso negado: usuário sem município vinculado."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Regra não encontrada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroResponse"
+                },
+                "examples": {
+                  "regraNaoEncontrada": {
+                    "summary": "Regra inexistente",
+                    "value": {
+                      "message": "Regra de alerta não encontrada."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -67,6 +584,247 @@
             "example": "ok"
           }
         }
+      },
+      "CreateRegraAlertaRequest": {
+        "type": "object",
+        "required": [
+          "sensor_id",
+          "nome",
+          "operador",
+          "valor_limite",
+          "severidade"
+        ],
+        "properties": {
+          "sensor_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Sensor monitorado pela regra."
+          },
+          "nome": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Nome da regra (espaços nas pontas são removidos).",
+            "example": "PM2.5 crítico"
+          },
+          "operador": {
+            "type": "string",
+            "enum": [
+              ">",
+              ">=",
+              "<",
+              "<=",
+              "="
+            ],
+            "description": "Operador de comparação entre a leitura e o valor limite.",
+            "example": ">="
+          },
+          "valor_limite": {
+            "type": "number",
+            "minimum": -99999999.99,
+            "maximum": 99999999.99,
+            "description": "Valor limite na unidade do sensor (NUMERIC(10,2)). Deve ser número JSON; strings não são aceitas.",
+            "example": 50.0
+          },
+          "severidade": {
+            "type": "string",
+            "enum": [
+              "ATENCAO",
+              "ALERTA",
+              "CRITICO"
+            ],
+            "description": "Severidade do alerta gerado.",
+            "example": "CRITICO"
+          }
+        }
+      },
+      "UpdateRegraAlertaStatusRequest": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "Ativa",
+              "Inativa"
+            ],
+            "description": "Novo status da regra.",
+            "example": "Inativa"
+          }
+        }
+      },
+      "RegraAlerta": {
+        "type": "object",
+        "required": [
+          "id",
+          "sensor_id",
+          "nome",
+          "operador",
+          "valor_limite",
+          "severidade",
+          "esta_ativo",
+          "criado_em"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sensor_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nome": {
+            "type": "string",
+            "example": "PM2.5 crítico"
+          },
+          "operador": {
+            "type": "string",
+            "enum": [
+              ">",
+              ">=",
+              "<",
+              "<=",
+              "="
+            ],
+            "description": "Operador de comparação entre a leitura e o valor limite.",
+            "example": ">="
+          },
+          "valor_limite": {
+            "type": "number",
+            "minimum": -99999999.99,
+            "maximum": 99999999.99,
+            "description": "Valor limite na unidade do sensor (NUMERIC(10,2)). Deve ser número JSON; strings não são aceitas.",
+            "example": 50.0
+          },
+          "severidade": {
+            "type": "string",
+            "enum": [
+              "ATENCAO",
+              "ALERTA",
+              "CRITICO"
+            ],
+            "description": "Severidade do alerta gerado.",
+            "example": "CRITICO"
+          },
+          "esta_ativo": {
+            "type": "boolean",
+            "description": "Indica se a regra está ativa.",
+            "example": true
+          },
+          "criado_em": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "RegraAlertaDetalhada": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/RegraAlerta"
+          },
+          {
+            "type": "object",
+            "required": [
+              "sensor_tipo",
+              "sensor_unidade_medida",
+              "estacao_id",
+              "estacao_codigo",
+              "estacao_nome",
+              "municipio"
+            ],
+            "properties": {
+              "sensor_tipo": {
+                "type": "string",
+                "enum": [
+                  "Temperatura",
+                  "Umidade Relativa",
+                  "PM2.5",
+                  "PM10",
+                  "Velocidade do Vento"
+                ],
+                "example": "PM2.5"
+              },
+              "sensor_unidade_medida": {
+                "type": "string",
+                "example": "µg/m³"
+              },
+              "estacao_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "estacao_codigo": {
+                "type": "string",
+                "example": "SJC-001"
+              },
+              "estacao_nome": {
+                "type": "string",
+                "example": "Estação Centro"
+              },
+              "municipio": {
+                "type": "string",
+                "example": "São José dos Campos"
+              }
+            }
+          }
+        ]
+      },
+      "ErroResponse": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "Descrição do erro."
+          }
+        }
+      },
+      "ValidacaoErroResponse": {
+        "type": "object",
+        "required": [
+          "message",
+          "errors"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "example": "Dados inválidos"
+          },
+          "errors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "description": "Mensagens de validação por campo."
+          }
+        }
+      },
+      "ErroAutenticacaoResponse": {
+        "type": "object",
+        "required": [
+          "erro"
+        ],
+        "properties": {
+          "erro": {
+            "type": "string",
+            "description": "Descrição do erro de autenticação/autorização."
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Token JWT emitido pelo auth-service."
       }
     }
   }

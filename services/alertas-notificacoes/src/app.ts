@@ -1,5 +1,7 @@
 import express from "express";
 import cors from "cors";
+import routes from "./routes";
+import { errorHandler } from "./middlewares/error-handler";
 import openapi from "./docs/openapi.json";
 
 const app = express();
@@ -23,5 +25,9 @@ app.get("/alertas/openapi.json", (_req, res) => {
 app.get("/alertas/health", (_req, res) => {
   res.json({ status: "ok" });
 });
+
+app.use(routes);
+
+app.use(errorHandler);
 
 export default app;
