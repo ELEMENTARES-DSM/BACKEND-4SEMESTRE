@@ -2,6 +2,8 @@ import { pool } from "../config/db";
 import { Sensor, StatusSensor, TipoSensor } from "../models/sensor.model";
 
 interface DadosSensor {
+  codigo?: string;
+  nome?: string;
   tipo: TipoSensor;
   unidadeMedida: string;
   fator: number;
@@ -13,10 +15,10 @@ export const create = async (
   dados: DadosSensor
 ): Promise<Sensor> => {
   const result = await pool.query<Sensor>(
-    `INSERT INTO sensores (estacao_id, tipo, unidade_medida, fator, ganho)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO sensores (estacao_id, tipo, unidade_medida, fator, ganho, codigo, nome)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING *`,
-    [estacaoId, dados.tipo, dados.unidadeMedida, dados.fator, dados.ganho]
+    [estacaoId, dados.tipo, dados.unidadeMedida, dados.fator, dados.ganho, dados.codigo ?? null, dados.nome ?? null]
   );
 
   return result.rows[0];
