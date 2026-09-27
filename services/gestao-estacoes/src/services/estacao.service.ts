@@ -118,7 +118,7 @@ export const updateStatus = async (
 };
 
 export const getStatusPorMunicipio = async (
-  municipio: string
+  municipio: string | null
 ): Promise<StatusEstacoesResponse> => {
   const estacoes = await estacaoRepository.findStatusByMunicipio(municipio);
 
