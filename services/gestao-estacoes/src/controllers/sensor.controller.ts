@@ -8,9 +8,9 @@ export const create = async (
 ) => {
   try {
     const { estacaoId } = req.params as { estacaoId: string };
-    const municipio = req.usuario!.municipio;
+    const usuario = req.usuario!;
 
-    const sensor = await sensorService.create(estacaoId, municipio, req.body);
+    const sensor = await sensorService.create(estacaoId, usuario, req.body);
     res.status(201).json(sensor);
   } catch (err) {
     next(err);
@@ -24,9 +24,9 @@ export const listByEstacao = async (
 ) => {
   try {
     const { estacaoId } = req.params as { estacaoId: string };
-    const municipio = req.usuario!.municipio;
+    const usuario = req.usuario!;
 
-    const sensores = await sensorService.listByEstacao(estacaoId, municipio);
+    const sensores = await sensorService.listByEstacao(estacaoId, usuario);
     res.json(sensores);
   } catch (err) {
     next(err);
@@ -40,9 +40,9 @@ export const update = async (
 ) => {
   try {
     const { id } = req.params as { id: string };
-    const municipio = req.usuario!.municipio;
+    const usuario = req.usuario!;
 
-    const sensor = await sensorService.update(id, municipio, req.body);
+    const sensor = await sensorService.update(id, usuario, req.body);
     res.json(sensor);
   } catch (err) {
     next(err);
@@ -56,10 +56,10 @@ export const updateStatus = async (
 ) => {
   try {
     const { id } = req.params as { id: string };
-    const municipio = req.usuario!.municipio;
+    const usuario = req.usuario!;
     const { status } = req.body;
 
-    const sensor = await sensorService.updateStatus(id, municipio, status);
+    const sensor = await sensorService.updateStatus(id, usuario, status);
     res.json(sensor);
   } catch (err) {
     next(err);

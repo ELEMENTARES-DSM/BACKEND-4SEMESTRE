@@ -2,12 +2,13 @@ import * as sensorRepository from "../repositories/sensor.repository";
 import * as estacaoRepository from "../repositories/estacao.repository";
 import { CreateSensorDTO } from "../dto/create-sensor.dto";
 import { UpdateSensorDTO } from "../dto/update-sensor.dto";
+import { UserContext } from "../dto/user-context.dto";
 import { CATALOGO_TIPO_UNIDADE, StatusSensor } from "../models/sensor.model";
 import { AppError } from "../middlewares/error-handler";
 
 const garantirPosseDaEstacao = async (
   estacaoId: string,
-  municipioUsuario: string
+  usuario: UserContext
 ) => {
   const estacao = await estacaoRepository.findById(estacaoId);
 
@@ -15,7 +16,10 @@ const garantirPosseDaEstacao = async (
     throw new AppError("Estação não encontrada.", 404);
   }
 
-  if (estacao.municipio !== municipioUsuario) {
+  if (
+    usuario.papel !== "ADMINISTRADOR" &&
+    estacao.municipio !== usuario.municipio
+  ) {
     throw new AppError(
       "Acesso negado: esta estação não pertence ao seu município.",
       403
@@ -46,10 +50,10 @@ const garantirTipoDisponivel = async (
 
 export const create = async (
   estacaoId: string,
-  municipioUsuario: string,
+  usuario: UserContext,
   data: CreateSensorDTO
 ) => {
-  await garantirPosseDaEstacao(estacaoId, municipioUsuario);
+  await garantirPosseDaEstacao(estacaoId, usuario);
   await garantirTipoDisponivel(estacaoId, data.tipo);
 
   return sensorRepository.create(estacaoId, {
@@ -64,16 +68,16 @@ export const create = async (
 
 export const listByEstacao = async (
   estacaoId: string,
-  municipioUsuario: string
+  usuario: UserContext
 ) => {
-  await garantirPosseDaEstacao(estacaoId, municipioUsuario);
+  await garantirPosseDaEstacao(estacaoId, usuario);
 
   return sensorRepository.findByEstacaoId(estacaoId);
 };
 
 export const update = async (
   sensorId: string,
-  municipioUsuario: string,
+  usuario: UserContext,
   data: UpdateSensorDTO
 ) => {
   const sensor = await sensorRepository.findById(sensorId);
@@ -82,7 +86,7 @@ export const update = async (
     throw new AppError("Sensor não encontrado.", 404);
   }
 
-  await garantirPosseDaEstacao(sensor.estacao_id, municipioUsuario);
+  await garantirPosseDaEstacao(sensor.estacao_id, usuario);
   await garantirTipoDisponivel(sensor.estacao_id, data.tipo, sensorId);
 
   const atualizado = await sensorRepository.update(sensorId, {
@@ -97,7 +101,7 @@ export const update = async (
 
 export const updateStatus = async (
   sensorId: string,
-  municipioUsuario: string,
+  usuario: UserContext,
   status: StatusSensor
 ) => {
   const sensor = await sensorRepository.findById(sensorId);
@@ -106,7 +110,7 @@ export const updateStatus = async (
     throw new AppError("Sensor não encontrado.", 404);
   }
 
-  await garantirPosseDaEstacao(sensor.estacao_id, municipioUsuario);
+  await garantirPosseDaEstacao(sensor.estacao_id, usuario);
 
   const atualizado = await sensorRepository.updateStatus(sensorId, status);
   return atualizado!;

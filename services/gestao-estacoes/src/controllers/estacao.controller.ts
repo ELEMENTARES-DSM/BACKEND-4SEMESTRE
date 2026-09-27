@@ -119,19 +119,18 @@ export const status = async (
     const papel = usuario?.papel;
     let municipio = usuario?.municipio;
 
-    // Se for ADMINISTRADOR, aceita o município enviado via Query String (?municipio=...)
     if (papel === "ADMINISTRADOR") {
-      municipio = (req.query.municipio as string) || municipio;
+      municipio = (req.query.municipio as string) || undefined;
     }
 
-    if (!municipio) {
+    if (papel !== "ADMINISTRADOR" && !municipio) {
       throw new AppError(
         "O parâmetro de município é obrigatório para consultar o status.",
         400,
       );
     }
 
-    const resultado = await estacaoService.getStatusPorMunicipio(municipio);
+    const resultado = await estacaoService.getStatusPorMunicipio(municipio ?? null);
 
     return res.status(200).json(resultado);
   } catch (err) {

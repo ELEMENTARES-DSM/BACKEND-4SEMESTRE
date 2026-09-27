@@ -119,18 +119,18 @@ import {
 
 
 export const findStatusByMunicipio = async (
-  municipio: string
+  municipio: string | null
 ): Promise<EstacaoComStatusOperacional[]> => {
   const result = await pool.query<EstacaoComStatusOperacional>(
     `SELECT id, codigo, nome, ultimo_ping,
             CASE
               WHEN status = 'Inativa' THEN 'Inativa'
               WHEN status = 'Ativa'
-                   AND (NOW() - ultimo_ping) <= INTERVAL '45 minutes' THEN 'Ativa'
+                   AND (NOW() - ultimo_ping) <= INTERVAL '15 minutes' THEN 'Ativa'
               ELSE 'Com Falha'
             END AS status_operacional
      FROM estacoes
-     WHERE municipio = $1
+     WHERE ($1::text IS NULL OR municipio = $1)
      ORDER BY codigo`,
     [municipio]
   );
