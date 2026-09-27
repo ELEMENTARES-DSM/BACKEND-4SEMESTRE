@@ -53,6 +53,8 @@ export const create = async (
   await garantirTipoDisponivel(estacaoId, data.tipo);
 
   return sensorRepository.create(estacaoId, {
+    codigo: data.codigo,
+    nome: data.nome,
     tipo: data.tipo,
     unidadeMedida: CATALOGO_TIPO_UNIDADE[data.tipo],
     fator: data.fator ?? 1.0,

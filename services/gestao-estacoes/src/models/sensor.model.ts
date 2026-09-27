@@ -22,6 +22,8 @@ export const TIPOS_SENSOR = Object.keys(
 export interface Sensor {
   id: string;
   estacao_id: string;
+  codigo: string | null;
+  nome: string | null;
   tipo: TipoSensor;
   unidade_medida: string;
   fator: string;
