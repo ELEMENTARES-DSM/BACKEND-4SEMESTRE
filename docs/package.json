@@ -1,0 +1,15 @@
+{
+  "name": "elementares-api-docs-validation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Validação dos contratos OpenAPI dos microsserviços Elementares",
+  "scripts": {
+    "validate": "node validate.cjs"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "devDependencies": {
+    "@apidevtools/swagger-parser": "13.0.0"
+  }
+}
