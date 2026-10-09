@@ -1,0 +1,19 @@
+module.exports = {
+  preset: "ts-jest",
+  testEnvironment: "node",
+  roots: ["<rootDir>/src"],
+  testMatch: ["**/*.test.ts"],
+  clearMocks: true,
+  collectCoverageFrom: [
+    "src/services/rejection-metrics.service.ts",
+    "src/services/registro-rejeicao.service.ts",
+    "src/utils/logger.ts",
+    "src/validations/motivos-rejeicao.ts",
+  ],
+  coverageThreshold: {
+    global: {
+      lines: 90,
+      functions: 90,
+    },
+  },
+};
