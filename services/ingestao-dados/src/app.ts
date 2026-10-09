@@ -4,10 +4,14 @@ import openapi from "./docs/openapi.json";
 
 const app = express();
 
-// Necessário no desenvolvimento: Swagger UI e API usam portas diferentes.
-if (process.env.SWAGGER_UI_ORIGIN) {
-  app.use(cors({ origin: process.env.SWAGGER_UI_ORIGIN }));
-}
+// Libera CORS para qualquer IP/Origem
+app.use(
+  cors({
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 
 app.use(express.json());
 
