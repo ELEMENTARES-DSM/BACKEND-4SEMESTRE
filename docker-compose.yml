@@ -97,6 +97,29 @@ services:
       timeout: 5s
       retries: 5
 
+  mosquitto:
+    image: eclipse-mosquitto:2.1.2-alpine
+    restart: unless-stopped
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/acl.conf:/mosquitto/config/acl.conf:ro
+      - ./mosquitto/passwd:/mosquitto/config/passwd:ro
+      - ./mosquitto/certs:/mosquitto/certs:ro
+      - mosquitto-data:/mosquitto/data
+    ports:
+      - "8883:8883"
+    # 1883 fica só na rede Docker
+    expose:
+      - "1883"
+    networks:
+      - app-network
+    # 1884 é o listener de loopback, sem senha
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h 127.0.0.1 -p 1884 -t '$$SYS/broker/version' -C 1 -W 5 | grep -q ."]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
   auth-service:
     build:
       context: ./services/auth-service
@@ -243,6 +266,10 @@ services:
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      MQTT_BROKER_URL: mqtt://mosquitto:1883
+      MQTT_USER: ${MOSQUITTO_USER}
+      MQTT_PASSWORD: ${MOSQUITTO_PASSWORD}
+      MQTT_QOS: ${MQTT_QOS:-1}
     volumes:
       - ./services/ingestao-dados/src:/app/src
       - ./services/ingestao-dados/tsconfig.json:/app/tsconfig.json
@@ -251,6 +278,8 @@ services:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      mosquitto:
         condition: service_healthy
     networks:
       - app-network
@@ -311,3 +340,4 @@ volumes:
   postgres-data:
   rabbitmq-data:
   redis-data:
+  mosquitto-data:
