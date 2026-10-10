@@ -2,7 +2,7 @@ module.exports = {
   preset: "ts-jest",
   testEnvironment: "node",
   roots: ["<rootDir>/src"],
-  testMatch: ["**/*.test.ts"],
+  testMatch: ["**/*.spec.ts", "**/*.test.ts"],
   clearMocks: true,
   collectCoverageFrom: [
     "src/services/rejection-metrics.service.ts",
