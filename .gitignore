@@ -21,6 +21,11 @@ infra/**/*.pem
 infra/**/*.key
 infra/**/secrets/
 
+# MQTT: senhas, chaves e certificados gerados
+mosquitto/passwd
+mosquitto/certs/
+mosquitto/credenciais/
+
 # Node
 node_modules/
 
