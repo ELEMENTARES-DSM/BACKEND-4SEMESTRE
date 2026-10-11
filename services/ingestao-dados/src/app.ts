@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import openapi from "./docs/openapi.json";
+import metricasRoutes from "./routes/metricas.routes";
 
 const app = express();
 
@@ -28,4 +29,7 @@ app.get("/ingestao/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
+app.use("/ingestao/metricas", metricasRoutes);
+
 export default app;
+
