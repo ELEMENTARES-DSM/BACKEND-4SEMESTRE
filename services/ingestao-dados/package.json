@@ -15,14 +15,6 @@
   "author": "",
   "license": "ISC",
   "type": "commonjs",
-  "jest": {
-    "preset": "ts-jest",
-    "testEnvironment": "node",
-    "testMatch": [
-      "**/*.spec.ts",
-      "**/*.test.ts"
-    ]
-  },
   "dependencies": {
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
@@ -42,9 +34,11 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^26.5.0",
     "@types/pg": "^8.23.1",
+    "@types/supertest": "^7.2.1",
     "eslint": "^10.10.0",
     "jest": "^30.5.2",
     "node-pg-migrate": "^9.0.0",
+    "supertest": "^7.3.1",
     "ts-jest": "^29.4.14",
     "tsc-alias": "^1.9.4",
     "tsx": "^4.23.13",
