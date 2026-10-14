@@ -10,7 +10,6 @@ const app = express();
 if (process.env.SWAGGER_UI_ORIGIN) {
   app.use(cors({ origin: process.env.SWAGGER_UI_ORIGIN }));
 }
-
 app.use(express.json());
 
 app.get("/alertas/openapi.json", (_req, res) => {

@@ -7,10 +7,10 @@ import openapi from "./docs/openapi.json";
 
 const app = express();
 
+// Necessário no desenvolvimento: Swagger UI e API usam portas diferentes.
 if (process.env.SWAGGER_UI_ORIGIN) {
   app.use(cors({ origin: process.env.SWAGGER_UI_ORIGIN }));
 }
-
 app.use(express.json());
 
 app.get("/health", (_req, res) => {
