@@ -1,0 +1,100 @@
+import { MensagemIngestaoInput } from "../dto/mensagem-ingestao.dto";
+import { inserirStaging } from "../repositories/staging.repository";
+import { ValidarPayloadService } from "./validar-payload.service";
+
+export type ResultadoGravacao =
+  | "recebida"
+  | "rejeitada"
+  | "duplicata";
+
+const validador = new ValidarPayloadService();
+
+function lerJson(
+  payloadBruto: string,
+): { valido: boolean; valor: unknown } {
+  try {
+    return {
+      valido: true,
+      valor: JSON.parse(payloadBruto),
+    };
+  } catch {
+    return {
+      valido: false,
+      valor: null,
+    };
+  }
+}
+
+function extrairUnixtime(payload: unknown): number | null {
+  if (
+    typeof payload !== "object" ||
+    payload === null ||
+    Array.isArray(payload) ||
+    !("timestamp" in payload) ||
+    typeof payload.timestamp !== "string"
+  ) {
+    return null;
+  }
+
+  const timestamp = Date.parse(payload.timestamp);
+
+  if (!Number.isFinite(timestamp)) {
+    return null;
+  }
+
+  return Math.floor(timestamp / 1000);
+}
+
+export async function gravarAceita(
+  mensagem: MensagemIngestaoInput,
+): Promise<ResultadoGravacao> {
+  const validacao = validador.validar(mensagem);
+
+  if (!validacao.sucesso || !validacao.payloadValidado) {
+    throw new Error(
+      validacao.motivoRejeicao ??
+        "Mensagem inválida enviada para gravação como aceita",
+    );
+  }
+
+  const unixtime = Math.floor(
+    Date.parse(validacao.payloadValidado.timestamp) / 1000,
+  );
+
+  const gravou = await inserirStaging({
+    estacaoId: mensagem.estacaoId,
+    unixtime,
+    recebidoEm: mensagem.recebidoEm,
+    payloadBruto: mensagem.payloadBruto,
+    payloadJson: mensagem.payloadBruto,
+    status: "recebida",
+    motivoRejeicao: null,
+  });
+
+  return gravou ? "recebida" : "duplicata";
+}
+
+export async function gravarRejeitada(
+  mensagem: MensagemIngestaoInput,
+  motivo: string,
+): Promise<ResultadoGravacao> {
+  if (!motivo.trim() || motivo.length > 255) {
+    throw new Error(
+      "O motivo da rejeição deve ter entre 1 e 255 caracteres",
+    );
+  }
+
+  const json = lerJson(mensagem.payloadBruto);
+
+  await inserirStaging({
+    estacaoId: mensagem.estacaoId,
+    unixtime: extrairUnixtime(json.valor),
+    recebidoEm: mensagem.recebidoEm,
+    payloadBruto: mensagem.payloadBruto,
+    payloadJson: json.valido ? mensagem.payloadBruto : null,
+    status: "rejeitada",
+    motivoRejeicao: motivo,
+  });
+
+  return "rejeitada";
+}
