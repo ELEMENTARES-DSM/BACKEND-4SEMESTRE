@@ -1,17 +1,14 @@
+import { pool } from "../config/db";
 import { MensagemIngestaoInput } from "../dto/mensagem-ingestao.dto";
 import { inserirStaging } from "../repositories/staging.repository";
+import { atualizarSinalEstacao } from "../repositories/estacao.repository";
 import { ValidarPayloadService } from "./validar-payload.service";
 
-export type ResultadoGravacao =
-  | "recebida"
-  | "rejeitada"
-  | "duplicata";
+export type ResultadoGravacao = "recebida" | "rejeitada" | "duplicata";
 
 const validador = new ValidarPayloadService();
 
-function lerJson(
-  payloadBruto: string,
-): { valido: boolean; valor: unknown } {
+function lerJson(payloadBruto: string): { valido: boolean; valor: unknown } {
   try {
     return {
       valido: true,
@@ -61,17 +58,42 @@ export async function gravarAceita(
     Date.parse(validacao.payloadValidado.timestamp) / 1000,
   );
 
-  const gravou = await inserirStaging({
-    estacaoId: mensagem.estacaoId,
-    unixtime,
-    recebidoEm: mensagem.recebidoEm,
-    payloadBruto: mensagem.payloadBruto,
-    payloadJson: mensagem.payloadBruto,
-    status: "recebida",
-    motivoRejeicao: null,
-  });
+  const client = await pool.connect();
 
-  return gravou ? "recebida" : "duplicata";
+  try {
+    await client.query("BEGIN");
+
+    const gravou = await inserirStaging(
+      {
+        estacaoId: mensagem.estacaoId,
+        unixtime,
+        recebidoEm: mensagem.recebidoEm,
+        payloadBruto: mensagem.payloadBruto,
+        payloadJson: mensagem.payloadBruto,
+        status: "recebida",
+        motivoRejeicao: null,
+      },
+      client,
+    );
+
+    if (!gravou) {
+      await client.query("COMMIT");
+      return "duplicata";
+    }
+
+    await atualizarSinalEstacao(client, {
+      estacaoId: mensagem.estacaoId,
+      ultimoPing: mensagem.recebidoEm,
+      nivelBateria: validacao.payloadValidado.nivel_bateria,
+    });
+    await client.query("COMMIT");
+    return "recebida";
+  } catch (erro) {
+    await client.query("ROLLBACK");
+    throw erro;
+  } finally {
+    client.release();
+  }
 }
 
 export async function gravarRejeitada(
@@ -79,9 +101,7 @@ export async function gravarRejeitada(
   motivo: string,
 ): Promise<ResultadoGravacao> {
   if (!motivo.trim() || motivo.length > 255) {
-    throw new Error(
-      "O motivo da rejeição deve ter entre 1 e 255 caracteres",
-    );
+    throw new Error("O motivo da rejeição deve ter entre 1 e 255 caracteres");
   }
 
   const json = lerJson(mensagem.payloadBruto);
