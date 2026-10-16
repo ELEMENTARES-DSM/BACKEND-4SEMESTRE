@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { PoolClient } from "pg";
 import { pool } from "../config/db";
 
 export interface RegistroStaging {
@@ -13,8 +14,11 @@ export interface RegistroStaging {
 
 export async function inserirStaging(
   registro: RegistroStaging,
+  client?: PoolClient,
 ): Promise<boolean> {
-  const resultado = await pool.query<{ id: string }>(
+  const executor = client ?? pool;
+
+  const resultado = await executor.query<{ id: string }>(
     `
       INSERT INTO staging_telemetria (
         id,
