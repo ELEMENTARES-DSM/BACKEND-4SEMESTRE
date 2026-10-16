@@ -1,11 +1,12 @@
 process.env.JWT_SECRET = "segredo-teste-supertest-jwt";
 
-import { describe, it, expect, beforeEach } from "@jest/globals";
+import { describe, it, expect, beforeEach, jest } from "@jest/globals";
 import request from "supertest";
 import jwt from "jsonwebtoken";
 
 import app from "../../app";
 import { rejectionMetricsService } from "../../services/rejection-metrics.service";
+import { duplicateMetricsService } from "../../services/duplicate-metrics.service";
 import {
   PAYLOAD_MALFORMADO,
   TIMESTAMP_INVALIDO,
@@ -26,6 +27,7 @@ describe("GET /ingestao/metricas", () => {
 
   beforeEach(() => {
     rejectionMetricsService.reset();
+    duplicateMetricsService.reset();
   });
 
   it("deve retornar 200 e leiturasRejeitadas como {} quando não há rejeições registradas", async () => {
@@ -38,6 +40,7 @@ describe("GET /ingestao/metricas", () => {
     expect(resposta.status).toBe(200);
     expect(resposta.body).toEqual({
       leiturasRejeitadas: {},
+      duplicadasIgnoradas: 0,
     });
   });
 
@@ -58,7 +61,76 @@ describe("GET /ingestao/metricas", () => {
         [PAYLOAD_MALFORMADO]: 2,
         [TIMESTAMP_INVALIDO]: 1,
       },
+      duplicadasIgnoradas: 0,
     });
+  });
+
+  it("deve retornar duplicadasIgnoradas 0 quando não há duplicatas registradas", async () => {
+    const resposta = await request(app)
+      .get("/ingestao/metricas")
+      .set("Authorization", `Bearer ${criarToken("ADMINISTRADOR")}`);
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body.duplicadasIgnoradas).toBe(0);
+  });
+
+  it("deve retornar duplicadasIgnoradas 2 e leiturasRejeitadas {} após 2 duplicatas", async () => {
+    duplicateMetricsService.incrementar();
+    duplicateMetricsService.incrementar();
+
+    const resposta = await request(app)
+      .get("/ingestao/metricas")
+      .set("Authorization", `Bearer ${criarToken("ADMINISTRADOR")}`);
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body).toEqual({
+      leiturasRejeitadas: {},
+      duplicadasIgnoradas: 2,
+    });
+  });
+
+  it("deve manter rejeições e duplicatas cada uma no seu campo", async () => {
+    rejectionMetricsService.incrementarRejeicao(PAYLOAD_MALFORMADO);
+    duplicateMetricsService.incrementar();
+    rejectionMetricsService.incrementarRejeicao(TIMESTAMP_INVALIDO);
+    duplicateMetricsService.incrementar();
+    duplicateMetricsService.incrementar();
+
+    const resposta = await request(app)
+      .get("/ingestao/metricas")
+      .set("Authorization", `Bearer ${criarToken("ADMINISTRADOR")}`);
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body).toEqual({
+      leiturasRejeitadas: {
+        [PAYLOAD_MALFORMADO]: 1,
+        [TIMESTAMP_INVALIDO]: 1,
+      },
+      duplicadasIgnoradas: 3,
+    });
+  });
+
+  it("deve zerar duplicadasIgnoradas ao reiniciar o serviço", async () => {
+    duplicateMetricsService.incrementar();
+    duplicateMetricsService.incrementar();
+
+    // Recarregar os módulos simula um novo início do processo.
+    await jest.isolateModulesAsync(async () => {
+      const { default: appReiniciado } = await import("../../app");
+
+      const resposta = await request(appReiniciado)
+        .get("/ingestao/metricas")
+        .set("Authorization", `Bearer ${criarToken("ADMINISTRADOR")}`);
+
+      expect(resposta.status).toBe(200);
+      expect(resposta.body).toEqual({
+        leiturasRejeitadas: {},
+        duplicadasIgnoradas: 0,
+      });
+    });
+
+    // O singleton da instância anterior não foi afetado: foi mesmo outra instância.
+    expect(duplicateMetricsService.obterTotal()).toBe(2);
   });
 
   it("deve retornar 401 quando o token não for informado", async () => {

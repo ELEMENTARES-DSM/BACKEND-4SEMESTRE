@@ -7,6 +7,8 @@ module.exports = {
   collectCoverageFrom: [
     "src/services/rejection-metrics.service.ts",
     "src/services/registro-rejeicao.service.ts",
+    "src/services/duplicate-metrics.service.ts",
+    "src/services/registro-duplicada.service.ts",
     "src/utils/logger.ts",
     "src/validations/motivos-rejeicao.ts",
   ],

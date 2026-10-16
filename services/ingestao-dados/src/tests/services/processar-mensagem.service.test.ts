@@ -1,10 +1,12 @@
 import { MensagemIngestaoInput } from "../../dto/mensagem-ingestao.dto";
 import { inserirStaging } from "../../repositories/staging.repository";
 import { registrarRejeicao } from "../../services/registro-rejeicao.service";
+import { registrarDuplicadaIgnorada } from "../../services/registro-duplicada.service";
 import { processarMensagem } from "../../services/processar-mensagem.service";
 
 jest.mock("../../repositories/staging.repository");
 jest.mock("../../services/registro-rejeicao.service");
+jest.mock("../../services/registro-duplicada.service");
 
 const inserir = jest.mocked(inserirStaging);
 const registrar = jest.mocked(registrarRejeicao);
@@ -90,4 +92,50 @@ describe("processarMensagem", () => {
       expect(registrar).not.toHaveBeenCalled();
     },
   );
+});
+
+describe("processarMensagem - registro de duplicatas (TASK 13.02)", () => {
+  const registrarDuplicada = jest.mocked(registrarDuplicadaIgnorada);
+
+  beforeEach(() => {
+    inserir.mockReset();
+    inserir.mockResolvedValue(true);
+  });
+
+  it("registra a duplicata 1 vez com estacaoId e timestamp e não registra rejeição", async () => {
+    inserir.mockResolvedValue(false);
+
+    await expect(processarMensagem(mensagem)).resolves.toBe("duplicata");
+
+    expect(registrarDuplicada).toHaveBeenCalledTimes(1);
+    expect(registrarDuplicada).toHaveBeenCalledWith({
+      estacaoId: mensagem.estacaoId,
+      timestamp: "2026-10-14T12:00:00Z",
+    });
+    expect(registrar).not.toHaveBeenCalled();
+  });
+
+  it("não registra duplicata quando a mensagem é recebida", async () => {
+    await expect(processarMensagem(mensagem)).resolves.toBe("recebida");
+    expect(registrarDuplicada).not.toHaveBeenCalled();
+  });
+
+  it("não registra duplicata quando o payload é rejeitado", async () => {
+    await expect(processarMensagem({ ...mensagem, payloadBruto: "não é JSON" }))
+      .resolves.toBe("rejeitada");
+    expect(registrarDuplicada).not.toHaveBeenCalled();
+  });
+
+  it("não registra duplicata para rejeição de negócio da US-12", async () => {
+    await expect(processarMensagem(mensagem, "Estação inativa")).resolves.toBe("rejeitada");
+    expect(registrarDuplicada).not.toHaveBeenCalled();
+  });
+
+  it("não registra duplicata quando a gravação falha", async () => {
+    const erro = new Error("Banco indisponível");
+    inserir.mockRejectedValue(erro);
+
+    await expect(processarMensagem(mensagem)).rejects.toBe(erro);
+    expect(registrarDuplicada).not.toHaveBeenCalled();
+  });
 });
