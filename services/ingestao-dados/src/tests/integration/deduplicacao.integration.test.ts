@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { pool } from "../../config/db";
 import { MensagemIngestaoInput } from "../../dto/mensagem-ingestao.dto";
 import { processarMensagem } from "../../services/processar-mensagem.service";
+import { duplicateMetricsService } from "../../services/duplicate-metrics.service";
+import { rejectionMetricsService } from "../../services/rejection-metrics.service";
 import { logger } from "../../utils/logger";
 
 // Critérios da TASK 13.01 (duplicata por estação e timestamp).
@@ -40,6 +42,7 @@ integration("deduplicação na staging PostgreSQL", () => {
     migration.up({ sql: (sql: string) => comandos.push(sql) });
     for (const sql of comandos) await pool.query(sql);
     jest.spyOn(logger, "warn").mockImplementation(() => undefined);
+    jest.spyOn(logger, "info").mockImplementation(() => undefined);
   });
 
   afterAll(async () => {
@@ -53,6 +56,8 @@ integration("deduplicação na staging PostgreSQL", () => {
 
   beforeEach(async () => {
     await pool.query("TRUNCATE staging_telemetria");
+    duplicateMetricsService.reset();
+    rejectionMetricsService.reset();
   });
 
   it("mesma estação e mesmo timestamp: ignora a segunda e não altera a original", async () => {
@@ -78,6 +83,8 @@ integration("deduplicação na staging PostgreSQL", () => {
     expect(depois[0]).toEqual(antes[0]);
     expect(depois[0]).toMatchObject({ status: "recebida", payload_bruto: original.payloadBruto });
     expect(depois[0].criado_em.toISOString()).toBe("2026-10-14T12:00:05.000Z");
+    expect(duplicateMetricsService.obterTotal()).toBe(1);
+    expect(rejectionMetricsService.obterMetricas()).toEqual({});
   });
 
   it("mesmo instante com fuso diferente é duplicata", async () => {
@@ -112,6 +119,8 @@ integration("deduplicação na staging PostgreSQL", () => {
     expect(resultados.filter((r) => r === "recebida")).toHaveLength(1);
     expect(resultados.filter((r) => r === "duplicata")).toHaveLength(9);
     expect(await contarLinhas()).toBe("1");
+    expect(duplicateMetricsService.obterTotal()).toBe(9);
+    expect(rejectionMetricsService.obterMetricas()).toEqual({});
   });
 
   it("dois timestamps no mesmo segundo são duplicata", async () => {

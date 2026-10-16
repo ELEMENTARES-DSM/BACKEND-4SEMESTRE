@@ -6,6 +6,7 @@ import {
   ResultadoGravacao,
 } from "./gravar-staging.service";
 import { registrarRejeicao } from "./registro-rejeicao.service";
+import { registrarDuplicadaIgnorada } from "./registro-duplicada.service";
 import { logger } from "../utils/logger";
 
 const validador = new ValidarPayloadService();
@@ -48,6 +49,14 @@ async function persistirMensagem(
   // A detecção de duplicata da TASK 13.01 é o índice único da staging
   // (uq_staging_estacao_unixtime) com o ON CONFLICT do inserirStaging.
   // "duplicata" significa que a mensagem foi ignorada: não grava e não segue.
-  // TASK 13.02: quando o resultado for "duplicata", registrar log e contador aqui
-  return gravarAceita(mensagem);
+  // TASK 13.02: só depois que gravarAceita resolve, a duplicata é registrada
+  // (log INFO + contador); se a gravação falhar, nada é contado.
+  const resultado = await gravarAceita(mensagem);
+  if (resultado === "duplicata") {
+    registrarDuplicadaIgnorada({
+      estacaoId: mensagem.estacaoId,
+      timestamp: validacao.payloadValidado?.timestamp ?? "",
+    });
+  }
+  return resultado;
 }
