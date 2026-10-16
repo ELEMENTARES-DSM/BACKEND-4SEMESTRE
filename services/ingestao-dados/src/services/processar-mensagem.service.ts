@@ -45,5 +45,9 @@ async function persistirMensagem(
     return "rejeitada";
   }
 
+  // A detecção de duplicata da TASK 13.01 é o índice único da staging
+  // (uq_staging_estacao_unixtime) com o ON CONFLICT do inserirStaging.
+  // "duplicata" significa que a mensagem foi ignorada: não grava e não segue.
+  // TASK 13.02: quando o resultado for "duplicata", registrar log e contador aqui
   return gravarAceita(mensagem);
 }
