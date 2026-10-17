@@ -59,8 +59,8 @@
           "Métricas"
         ],
         "operationId": "ingestao_dados_metricas",
-        "summary": "Obter métricas de leituras rejeitadas",
-        "description": "Retorna o total de leituras rejeitadas agrupadas por motivo. Restrito ao perfil ADMINISTRADOR.",
+        "summary": "Obter métricas de ingestão (rejeitadas e duplicadas)",
+        "description": "Retorna o total de leituras rejeitadas agrupadas por motivo e, em campo separado, o total de mensagens duplicadas ignoradas. Os contadores ficam em memória e zeram ao reiniciar o serviço. Restrito ao perfil ADMINISTRADOR.",
         "security": [
           {
             "bearerAuth": []
@@ -81,13 +81,15 @@
                       "leiturasRejeitadas": {
                         "VALOR_FORA_DA_FAIXA": 3,
                         "PAYLOAD_INVALIDO": 1
-                      }
+                      },
+                      "duplicadasIgnoradas": 2
                     }
                   },
                   "semRejeicoes": {
                     "summary": "Nenhuma rejeição registrada",
                     "value": {
-                      "leiturasRejeitadas": {}
+                      "leiturasRejeitadas": {},
+                      "duplicadasIgnoradas": 0
                     }
                   }
                 }
@@ -161,7 +163,8 @@
       "MetricasResponse": {
         "type": "object",
         "required": [
-          "leiturasRejeitadas"
+          "leiturasRejeitadas",
+          "duplicadasIgnoradas"
         ],
         "properties": {
           "leiturasRejeitadas": {
@@ -170,6 +173,11 @@
               "type": "integer"
             },
             "description": "Contagem de leituras rejeitadas agrupadas por motivo."
+          },
+          "duplicadasIgnoradas": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Mensagens duplicadas ignoradas desde o último início do serviço; não entram em leiturasRejeitadas e zeram ao reiniciar."
           }
         }
       },

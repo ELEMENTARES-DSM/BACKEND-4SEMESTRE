@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { rejectionMetricsService } from "../services/rejection-metrics.service";
+import { duplicateMetricsService } from "../services/duplicate-metrics.service";
 
 export const obterMetricas = (_req: Request, res: Response): void => {
   const metricas = rejectionMetricsService.obterMetricas();
@@ -7,6 +8,7 @@ export const obterMetricas = (_req: Request, res: Response): void => {
 
   res.status(200).json({
     leiturasRejeitadas,
+    duplicadasIgnoradas: duplicateMetricsService.obterTotal(),
   });
 };
 
