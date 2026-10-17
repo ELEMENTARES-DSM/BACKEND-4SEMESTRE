@@ -342,6 +342,10 @@ services:
       MQTT_PASSWORD: ${SIMULADOR_PASSWORD}
       SIM_ESTACAO_IDS: ${SIM_ESTACAO_IDS}
       SIM_INTERVALO_S: ${SIM_INTERVALO_S:-5}
+      SIM_TAXA_ERRO: ${SIM_TAXA_ERRO:-0}
+      SIM_TIPOS_ERRO: ${SIM_TIPOS_ERRO:-}
+      SIM_SEED: ${SIM_SEED:-}
+      SIM_ESTACAO_INATIVA_ID: ${SIM_ESTACAO_INATIVA_ID:-}
     depends_on:
       mosquitto:
         condition: service_healthy

@@ -1,4 +1,4 @@
-
+import type { Rng } from "./random.js";
 import { SENSORES, gerarValorSensor } from "./sensores.js";
 
 export interface LeituraItem {
@@ -12,15 +12,15 @@ export interface PayloadTelemetria {
   leituras: LeituraItem[];
 }
 
-export function gerarTelemetria(): PayloadTelemetria {
+export function gerarTelemetria(rng: Rng = Math.random): PayloadTelemetria {
   const leituras = SENSORES.map((sensor) => ({
     sensor: sensor.codigo,
-    valor: gerarValorSensor(sensor),
+    valor: gerarValorSensor(sensor, rng),
   }));
 
   return {
     timestamp: new Date().toISOString(),
-    nivel_bateria: Math.floor(Math.random() * 46) + 55,
+    nivel_bateria: Math.floor(rng() * 46) + 55,
     leituras,
   };
 }

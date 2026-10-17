@@ -41,7 +41,9 @@ export function publicar(
   payload: unknown,
 ): Promise<void> {
   const topico = `pulso/estacoes/${estacaoId}/telemetria`;
-  const mensagem = JSON.stringify(payload);
+  // Texto pronto é enviado como está (permite enviar payload malformado).
+  const mensagem =
+    typeof payload === "string" ? payload : JSON.stringify(payload);
 
   return new Promise((resolve, reject) => {
     client.publish(
