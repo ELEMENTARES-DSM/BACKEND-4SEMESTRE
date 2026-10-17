@@ -1,14 +1,23 @@
-
 FROM node:22-alpine AS build
 
 WORKDIR /app
 
-# Instala as dependências do projeto
-COPY package*.json ./
+COPY package.json package-lock.json ./
 RUN npm ci
 
-# Copia os arquivos necessários para o desenvolvimento
 COPY tsconfig.json ./
 COPY src ./src
 
-CMD ["npm", "run", "dev"]
+RUN npm run build
+
+FROM node:22-alpine AS production
+
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
+COPY --from=build /app/dist ./dist
+
+CMD ["npm", "start"]
