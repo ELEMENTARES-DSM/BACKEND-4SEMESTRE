@@ -14,7 +14,7 @@ fi
 
 UUID="$1"
 # ingestao-dados é o único usuário que não é UUID: é um serviço, não uma estação
-if [ "$UUID" != "ingestao-dados" ] && ! [[ "$UUID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+if [ "$UUID" != "ingestao-dados" ] && [ "$UUID" != "simulador" ] && ! [[ "$UUID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
   echo "UUID inválido: use o estacao_id no formato 8-4-4-4-12 em minúsculas." >&2
   exit 1
 fi

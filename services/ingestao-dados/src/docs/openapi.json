@@ -15,6 +15,10 @@
     {
       "name": "Saúde",
       "description": "Verificação básica do processo HTTP"
+    },
+    {
+      "name": "Métricas",
+      "description": "Métricas operacionais de ingestão de dados"
     }
   ],
   "paths": {
@@ -48,6 +52,94 @@
           }
         }
       }
+    },
+    "/metricas": {
+      "get": {
+        "tags": [
+          "Métricas"
+        ],
+        "operationId": "ingestao_dados_metricas",
+        "summary": "Obter métricas de ingestão (rejeitadas e duplicadas)",
+        "description": "Retorna o total de leituras rejeitadas agrupadas por motivo e, em campo separado, o total de mensagens duplicadas ignoradas. Os contadores ficam em memória e zeram ao reiniciar o serviço. Restrito ao perfil ADMINISTRADOR.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Métricas retornadas com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricasResponse"
+                },
+                "examples": {
+                  "comRejeicoes": {
+                    "summary": "Métricas com rejeições registradas",
+                    "value": {
+                      "leiturasRejeitadas": {
+                        "VALOR_FORA_DA_FAIXA": 3,
+                        "PAYLOAD_INVALIDO": 1
+                      },
+                      "duplicadasIgnoradas": 2
+                    }
+                  },
+                  "semRejeicoes": {
+                    "summary": "Nenhuma rejeição registrada",
+                    "value": {
+                      "leiturasRejeitadas": {},
+                      "duplicadasIgnoradas": 0
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido ou expirado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroAutenticacaoResponse"
+                },
+                "examples": {
+                  "tokenNaoInformado": {
+                    "summary": "Token não informado",
+                    "value": {
+                      "erro": "Autenticação necessária. Token não informado ou formato inválido."
+                    }
+                  },
+                  "tokenInvalido": {
+                    "summary": "Token inválido",
+                    "value": {
+                      "erro": "Token inválido ou expirado."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acesso negado para o perfil do usuário.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroAutenticacaoResponse"
+                },
+                "examples": {
+                  "perfilInsuficiente": {
+                    "summary": "Perfil insuficiente",
+                    "value": {
+                      "erro": "Acesso negado. Perfil insuficiente para esta ação."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -67,6 +159,47 @@
             "example": "ok"
           }
         }
+      },
+      "MetricasResponse": {
+        "type": "object",
+        "required": [
+          "leiturasRejeitadas",
+          "duplicadasIgnoradas"
+        ],
+        "properties": {
+          "leiturasRejeitadas": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Contagem de leituras rejeitadas agrupadas por motivo."
+          },
+          "duplicadasIgnoradas": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Mensagens duplicadas ignoradas desde o último início do serviço; não entram em leiturasRejeitadas e zeram ao reiniciar."
+          }
+        }
+      },
+      "ErroAutenticacaoResponse": {
+        "type": "object",
+        "required": [
+          "erro"
+        ],
+        "properties": {
+          "erro": {
+            "type": "string",
+            "description": "Descrição do erro de autenticação/autorização."
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Token JWT emitido pelo auth-service."
       }
     }
   }
