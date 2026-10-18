@@ -1,3 +1,4 @@
+import type { Rng } from "./random.js";
 
 export type TipoSensor =
   | "Temperatura"
@@ -53,10 +54,13 @@ export const SENSORES: SensorSimulado[] = [
   },
 ];
 
-export function gerarValorSensor(sensor: SensorSimulado): number {
+export function gerarValorSensor(
+  sensor: SensorSimulado,
+  rng: Rng = Math.random,
+): number {
   const valor =
     sensor.minimo +
-    Math.random() * (sensor.maximo - sensor.minimo);
+    rng() * (sensor.maximo - sensor.minimo);
 
   return Number(valor.toFixed(sensor.casasDecimais));
 }
