@@ -2,6 +2,11 @@ import mqtt, { type DoneCallback, type IPublishPacket, type MqttClient } from "m
 import { MensagemIngestaoInput } from "../../dto/mensagem-ingestao.dto";
 import { ConfigMqtt } from "../../config/mqtt.config";
 import { extrairEstacaoId, TOPICO_ASSINATURA } from "../../utils/topico-estacao";
+import {
+  receivedMetricsService,
+  ReceivedMetricsService,
+} from "../../services/received-metrics.service";
+import { mqttStatusService, MqttStatusService } from "../../services/mqtt-status.service";
 
 export type ProximoPasso = (mensagem: MensagemIngestaoInput) => Promise<void>;
 
@@ -10,6 +15,8 @@ export interface OpcoesConsumidorMqtt {
   proximoPasso: ProximoPasso;
   agora?: () => Date;
   conectar?: typeof mqtt.connect;
+  metricasRecebidas?: Pick<ReceivedMetricsService, "incrementar">;
+  estadoConexao?: Pick<MqttStatusService, "marcarConectado" | "marcarDesconectado">;
 }
 
 // clientId fixo: com clean=false, o broker associa a sessão e as mensagens
@@ -27,6 +34,7 @@ export class ConsumidorMqttTelemetria {
   iniciar(): void {
     const { config } = this.opcoes;
     const conectar = this.opcoes.conectar ?? mqtt.connect;
+    const estadoConexao = this.opcoes.estadoConexao ?? mqttStatusService;
 
     this.client = conectar(config.brokerUrl, {
       clientId: CLIENT_ID,
@@ -40,11 +48,17 @@ export class ConsumidorMqttTelemetria {
 
     // A reconexão é automática (reconnectPeriod padrão do mqtt.js). A cada
     // conexão, inclusive as reconexões, a assinatura é refeita.
-    this.client.on("connect", () => this.assinar());
+    this.client.on("connect", () => {
+      estadoConexao.marcarConectado();
+      this.assinar();
+    });
     this.client.on("error", (erro) => {
       console.error(`[mqtt] erro de conexão: ${erro.message}`);
     });
+    // O mqtt.js emite "close" em toda queda, inclusive antes de cada nova
+    // tentativa de reconexão, então o estado fica desconectado até o "connect".
     this.client.on("close", () => {
+      estadoConexao.marcarDesconectado();
       console.warn("[mqtt] conexão com o broker encerrada");
     });
 
@@ -96,6 +110,9 @@ export class ConsumidorMqttTelemetria {
 
     try {
       await this.opcoes.proximoPasso(mensagem);
+      // Conta só depois da entrega: se ela falhar, o broker reenvia e a
+      // mensagem é contada uma única vez, quando for entregue de fato.
+      (this.opcoes.metricasRecebidas ?? receivedMetricsService).incrementar();
       confirmar();
     } catch (erro) {
       // Sem confirmação o broker mantém a mensagem e a reenvia na próxima

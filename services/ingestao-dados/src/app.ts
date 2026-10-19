@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import openapi from "./docs/openapi.json";
 import metricasRoutes from "./routes/metricas.routes";
+import { obterSaude } from "./controllers/health.controller";
 
 const app = express();
 
@@ -20,10 +21,8 @@ app.get("/ingestao/openapi.json", (_req, res) => {
   });
 });
 
-// Verificação básica do processo HTTP.
-app.get("/ingestao/health", (_req, res) => {
-  res.json({ status: "ok" });
-});
+// Público: informa se o serviço está no ar e conectado ao broker MQTT.
+app.get("/ingestao/health", obterSaude);
 
 app.use("/ingestao/metricas", metricasRoutes);
 
