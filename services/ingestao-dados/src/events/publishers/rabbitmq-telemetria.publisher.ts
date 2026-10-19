@@ -166,9 +166,9 @@ export class RabbitMqTelemetriaPublisher {
       let confirmada = false;
       let finalizada = false;
       let timer: NodeJS.Timeout | undefined;
-      let timeoutConfirmacao: NodeJS.Timeout | undefined;
+      const timeoutConfirmacao: { handle?: NodeJS.Timeout } = {};
       const limpar = (): void => {
-        if (timeoutConfirmacao) clearTimeout(timeoutConfirmacao);
+        if (timeoutConfirmacao.handle) clearTimeout(timeoutConfirmacao.handle);
         if (timer) clearTimeout(timer);
         channel.removeListener("return", retornada);
       };
@@ -184,7 +184,7 @@ export class RabbitMqTelemetriaPublisher {
         devolvida = `RabbitMQ ${campos.replyCode ?? ""}: ${campos.replyText ?? "mensagem devolvida sem rota"}`;
         terminar();
       };
-      timeoutConfirmacao = setTimeout(() => {
+      timeoutConfirmacao.handle = setTimeout(() => {
         if (finalizada) return;
         finalizada = true;
         limpar();
@@ -206,7 +206,7 @@ export class RabbitMqTelemetriaPublisher {
             limpar();
             reject(erro);
           } else {
-            if (timeoutConfirmacao) clearTimeout(timeoutConfirmacao);
+            if (timeoutConfirmacao.handle) clearTimeout(timeoutConfirmacao.handle);
             confirmada = true;
             // RabbitMQ envia Basic.Return antes do Basic.Ack para mandatory.
             // Um tick dá ao cliente tempo de despachar o retorno antes de marcar sucesso.
