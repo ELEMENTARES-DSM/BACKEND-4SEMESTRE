@@ -68,6 +68,7 @@ describe("GET /ingestao/metricas", () => {
       leiturasRecebidas: 3,
       leiturasRejeitadas: {},
       duplicadasIgnoradas: 0,
+      mensagensPendentes: 0,
     });
   });
 
@@ -87,6 +88,7 @@ describe("GET /ingestao/metricas", () => {
       leiturasRecebidas: 2,
       leiturasRejeitadas: { [PAYLOAD_MALFORMADO]: 1 },
       duplicadasIgnoradas: 1,
+      mensagensPendentes: 0,
     });
   });
 

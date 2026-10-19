@@ -11,6 +11,7 @@ export const obterMetricas = async (_req: Request, res: Response): Promise<void>
   try {
     const mensagensPendentes = await contarPendentes();
     res.status(200).json({
+      leiturasRecebidas: receivedMetricsService.obterTotal(),
       leiturasRejeitadas,
       duplicadasIgnoradas: duplicateMetricsService.obterTotal(),
       mensagensPendentes,
@@ -18,11 +19,6 @@ export const obterMetricas = async (_req: Request, res: Response): Promise<void>
   } catch {
     res.status(500).json({ erro: "Não foi possível consultar métricas de ingestão." });
   }
-  res.status(200).json({
-    leiturasRecebidas: receivedMetricsService.obterTotal(),
-    leiturasRejeitadas,
-    duplicadasIgnoradas: duplicateMetricsService.obterTotal(),
-  });
 };
 
 export default {

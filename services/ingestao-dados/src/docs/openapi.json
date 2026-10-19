@@ -14,7 +14,7 @@
   "tags": [
     {
       "name": "Saúde",
-      "description": "Estado do serviço e da conexão com o broker MQTT"
+      "description": "Estado do serviço e das conexões com os brokers MQTT e RabbitMQ"
     },
     {
       "name": "Métricas",
@@ -28,33 +28,29 @@
           "Saúde"
         ],
         "operationId": "ingestao_dados_health",
-        "summary": "Verificar o serviço e a conexão com o broker MQTT",
-        "description": "Rota pública. Informa se o serviço está conectado ao broker MQTT, por onde chegam as leituras das estações. Com o broker fora do ar, o serviço continua tentando reconectar e responde 503 até conseguir.\n\nExemplo de requisição:\n\n```\ncurl http://localhost/ingestao/health\n```",
+        "summary": "Verificar o serviço e as conexões com MQTT e RabbitMQ",
+        "description": "Rota pública. Informa se o serviço está conectado aos brokers MQTT e RabbitMQ. Responde 503 enquanto qualquer uma das conexões estiver indisponível.",
         "security": [],
         "responses": {
           "200": {
-            "description": "Serviço no ar e conectado ao broker MQTT.",
+            "description": "Serviço conectado aos brokers MQTT e RabbitMQ.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HealthResponse"
                 },
-                "examples": {
-                  "mqttConectado": {
-                    "summary": "Broker MQTT conectado",
-                    "value": {
-                      "status": "ok",
-                      "conexoes": {
-                        "mqtt": "conectado"
-                      }
-                    }
+                "example": {
+                  "status": "ok",
+                  "conexoes": {
+                    "mqtt": "conectado",
+                    "rabbitmq": "conectado"
                   }
                 }
               }
             }
           },
           "503": {
-            "description": "Serviço no ar, mas sem conexão com o broker MQTT: nenhuma leitura é recebida até a reconexão.",
+            "description": "Serviço no ar, mas sem conexão com pelo menos um dos brokers.",
             "content": {
               "application/json": {
                 "schema": {
@@ -66,24 +62,21 @@
                     "value": {
                       "status": "indisponivel",
                       "conexoes": {
-                        "mqtt": "desconectado"
+                        "mqtt": "desconectado",
+                        "rabbitmq": "conectado"
+                      }
+                    }
+                  },
+                  "rabbitmqDesconectado": {
+                    "summary": "RabbitMQ desconectado",
+                    "value": {
+                      "status": "indisponivel",
+                      "conexoes": {
+                        "mqtt": "conectado",
+                        "rabbitmq": "desconectado"
                       }
                     }
                   }
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "RabbitMQ indisponível.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HealthResponse"
-                },
-                "example": {
-                  "status": "ok",
-                  "rabbitmq": "desconectado"
                 }
               }
             }
@@ -199,13 +192,14 @@
               "ok",
               "indisponivel"
             ],
-            "description": "\"ok\" quando todas as conexões estão ativas; \"indisponivel\" quando alguma caiu.",
+            "description": "\"ok\" quando ambos os brokers estão conectados; \"indisponivel\" quando qualquer conexão caiu.",
             "example": "ok"
           },
           "conexoes": {
             "type": "object",
             "required": [
-              "mqtt"
+              "mqtt",
+              "rabbitmq"
             ],
             "description": "Estado de cada conexão externa do serviço.",
             "properties": {
@@ -216,6 +210,15 @@
                   "desconectado"
                 ],
                 "description": "Conexão com o broker MQTT que entrega as leituras das estações.",
+                "example": "conectado"
+              },
+              "rabbitmq": {
+                "type": "string",
+                "enum": [
+                  "conectado",
+                  "desconectado"
+                ],
+                "description": "Conexão com o RabbitMQ usado para publicar as telemetrias do staging.",
                 "example": "conectado"
               }
             }

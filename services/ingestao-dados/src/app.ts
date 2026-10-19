@@ -2,7 +2,6 @@ import express from "express";
 import cors from "cors";
 import openapi from "./docs/openapi.json";
 import metricasRoutes from "./routes/metricas.routes";
-import { rabbitMqConectado } from "./services/staging-publisher.service";
 import { obterSaude } from "./controllers/health.controller";
 
 const app = express();
@@ -22,15 +21,7 @@ app.get("/ingestao/openapi.json", (_req, res) => {
   });
 });
 
-// Health verifica o processo HTTP e a disponibilidade do RabbitMQ.
-app.get("/ingestao/health", (_req, res) => {
-  const conectado = rabbitMqConectado();
-  res.status(conectado ? 200 : 503).json({
-    status: "ok",
-    rabbitmq: conectado ? "conectado" : "desconectado",
-  });
-});
-// Público: informa se o serviço está no ar e conectado ao broker MQTT.
+// Health informa o estado dos dois brokers usados pelo serviço.
 app.get("/ingestao/health", obterSaude);
 
 app.use("/ingestao/metricas", metricasRoutes);
