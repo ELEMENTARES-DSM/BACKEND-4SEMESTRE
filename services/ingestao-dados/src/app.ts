@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import openapi from "./docs/openapi.json";
 import metricasRoutes from "./routes/metricas.routes";
+import { rabbitMqConectado } from "./services/staging-publisher.service";
 
 const app = express();
 
@@ -20,12 +21,15 @@ app.get("/ingestao/openapi.json", (_req, res) => {
   });
 });
 
-// Verificação básica do processo HTTP.
+// Health verifica o processo HTTP e a disponibilidade do RabbitMQ.
 app.get("/ingestao/health", (_req, res) => {
-  res.json({ status: "ok" });
+  const conectado = rabbitMqConectado();
+  res.status(conectado ? 200 : 503).json({
+    status: "ok",
+    rabbitmq: conectado ? "conectado" : "desconectado",
+  });
 });
 
 app.use("/ingestao/metricas", metricasRoutes);
 
 export default app;
-

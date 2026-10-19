@@ -29,7 +29,7 @@
         ],
         "operationId": "ingestao_dados_health",
         "summary": "Verificar se o serviço responde",
-        "description": "Verifica se o processo HTTP responde. Não verifica a disponibilidade de bancos de dados, filas ou outros serviços.",
+        "description": "Verifica se o processo HTTP responde e informa a conexão com o RabbitMQ.",
         "security": [],
         "responses": {
           "200": {
@@ -43,9 +43,24 @@
                   "processoDisponivel": {
                     "summary": "Serviço disponível",
                     "value": {
-                      "status": "ok"
+                      "status": "ok",
+                      "rabbitmq": "conectado"
                     }
                   }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "RabbitMQ indisponível.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                },
+                "example": {
+                  "status": "ok",
+                  "rabbitmq": "desconectado"
                 }
               }
             }
@@ -59,8 +74,8 @@
           "Métricas"
         ],
         "operationId": "ingestao_dados_metricas",
-        "summary": "Obter métricas de ingestão (rejeitadas e duplicadas)",
-        "description": "Retorna o total de leituras rejeitadas agrupadas por motivo e, em campo separado, o total de mensagens duplicadas ignoradas. Os contadores ficam em memória e zeram ao reiniciar o serviço. Restrito ao perfil ADMINISTRADOR.",
+        "summary": "Obter métricas de ingestão",
+        "description": "Retorna leituras rejeitadas, duplicatas ignoradas e mensagens pendentes no staging. Restrito ao perfil ADMINISTRADOR.",
         "security": [
           {
             "bearerAuth": []
@@ -82,14 +97,16 @@
                         "VALOR_FORA_DA_FAIXA": 3,
                         "PAYLOAD_INVALIDO": 1
                       },
-                      "duplicadasIgnoradas": 2
+                      "duplicadasIgnoradas": 2,
+                      "mensagensPendentes": 4
                     }
                   },
                   "semRejeicoes": {
                     "summary": "Nenhuma rejeição registrada",
                     "value": {
                       "leiturasRejeitadas": {},
-                      "duplicadasIgnoradas": 0
+                      "duplicadasIgnoradas": 0,
+                      "mensagensPendentes": 0
                     }
                   }
                 }
@@ -147,7 +164,8 @@
       "HealthResponse": {
         "type": "object",
         "required": [
-          "status"
+          "status",
+          "rabbitmq"
         ],
         "properties": {
           "status": {
@@ -157,6 +175,13 @@
             ],
             "description": "Estado do processo HTTP.",
             "example": "ok"
+          },
+          "rabbitmq": {
+            "type": "string",
+            "enum": [
+              "conectado",
+              "desconectado"
+            ]
           }
         }
       },
@@ -164,7 +189,8 @@
         "type": "object",
         "required": [
           "leiturasRejeitadas",
-          "duplicadasIgnoradas"
+          "duplicadasIgnoradas",
+          "mensagensPendentes"
         ],
         "properties": {
           "leiturasRejeitadas": {
@@ -178,6 +204,11 @@
             "type": "integer",
             "minimum": 0,
             "description": "Mensagens duplicadas ignoradas desde o último início do serviço; não entram em leiturasRejeitadas e zeram ao reiniciar."
+          },
+          "mensagensPendentes": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Quantidade de mensagens com status recebida ou pendente no staging."
           }
         }
       },
