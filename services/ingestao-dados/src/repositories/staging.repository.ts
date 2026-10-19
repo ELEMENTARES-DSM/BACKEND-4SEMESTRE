@@ -68,6 +68,15 @@ export async function marcarPendente(id: string, motivo: string): Promise<void> 
   `, [id, motivo.slice(0, 4000)]);
 }
 
+/** Move mensagens ainda não reservadas para pendente quando o broker está indisponível. */
+export async function marcarRecebidasPendentes(motivo: string): Promise<void> {
+  await pool.query(`
+    UPDATE staging_telemetria
+    SET status = 'pendente', tentativas = tentativas + 1, ultimo_erro = $1
+    WHERE status = 'recebida' AND processando = FALSE
+  `, [motivo.slice(0, 4000)]);
+}
+
 export async function contarPendentes(): Promise<number> {
   const { rows } = await pool.query<{ total: string }>(`
     SELECT COUNT(*) AS total FROM staging_telemetria

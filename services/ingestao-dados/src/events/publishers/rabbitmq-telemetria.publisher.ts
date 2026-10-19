@@ -2,6 +2,7 @@ import amqp, { ChannelModel, ConfirmChannel, Message } from "amqplib";
 import {
   marcarPendente,
   marcarPublicada,
+  marcarRecebidasPendentes,
   liberarReservasAbandonadas,
   reservarProximaPendente,
 } from "../../repositories/staging.repository";
@@ -15,12 +16,15 @@ export interface RabbitMqPublisherOptions {
   url: string;
   conectar?: typeof amqp.connect;
   reconectarMs?: number;
+  reprocessarMs?: number;
+  confirmTimeoutMs?: number;
 }
 
 export class RabbitMqTelemetriaPublisher {
   private connection?: ChannelModel;
   private channel?: ConfirmChannel;
   private reconectarTimer?: NodeJS.Timeout;
+  private reprocessarTimer?: NodeJS.Timeout;
   private processando = false;
   private encerrando = false;
   private reservasRestauradas = false;
@@ -34,6 +38,7 @@ export class RabbitMqTelemetriaPublisher {
   async encerrar(): Promise<void> {
     this.encerrando = true;
     if (this.reconectarTimer) clearTimeout(this.reconectarTimer);
+    if (this.reprocessarTimer) clearTimeout(this.reprocessarTimer);
     await this.channel?.close().catch(() => undefined);
     await this.connection?.close().catch(() => undefined);
   }
@@ -54,6 +59,7 @@ export class RabbitMqTelemetriaPublisher {
       connection.on("close", () => {
         this.channel = undefined;
         this.connection = undefined;
+        void this.marcarRecebidasSemRabbit("Conexão com RabbitMQ encerrada");
         this.agendarReconexao();
       });
       const channel = await connection.createConfirmChannel();
@@ -71,6 +77,7 @@ export class RabbitMqTelemetriaPublisher {
     } catch (erro) {
       this.channel = undefined;
       console.error(`[rabbitmq] indisponível: ${this.motivo(erro)}`);
+      await this.marcarRecebidasSemRabbit(`RabbitMQ indisponível: ${this.motivo(erro)}`);
       this.agendarReconexao();
     }
   }
@@ -100,7 +107,11 @@ export class RabbitMqTelemetriaPublisher {
   }
 
   async processarPendentes(): Promise<void> {
-    if (this.processando || !this.channel || this.encerrando) return;
+    if (this.processando || this.encerrando) return;
+    if (!this.channel) {
+      await this.marcarRecebidasSemRabbit("RabbitMQ indisponível: sem conexão ativa");
+      return;
+    }
     this.processando = true;
     try {
       while (this.channel && !this.encerrando) {
@@ -121,8 +132,9 @@ export class RabbitMqTelemetriaPublisher {
           await marcarPublicada(registro.id);
         } catch (erro) {
           await marcarPendente(registro.id, this.motivo(erro));
-          // A conexão pode ter caído; aguarda a reconexão para tentar de novo.
-          if (!this.channel) break;
+          // Não repete imediatamente a mesma mensagem; aguarda o backoff ou reconexão.
+          if (this.channel) this.agendarReprocessamento();
+          break;
         }
       }
     } catch (erro) {
@@ -132,17 +144,37 @@ export class RabbitMqTelemetriaPublisher {
     }
   }
 
+  private async marcarRecebidasSemRabbit(motivo: string): Promise<void> {
+    try {
+      await marcarRecebidasPendentes(motivo);
+    } catch (erro) {
+      console.error(`[rabbitmq] falha ao marcar mensagens pendentes: ${this.motivo(erro)}`);
+    }
+  }
+
+  private agendarReprocessamento(): void {
+    if (this.encerrando || this.reprocessarTimer || !this.channel) return;
+    this.reprocessarTimer = setTimeout(() => {
+      this.reprocessarTimer = undefined;
+      void this.processarPendentes();
+    }, this.options.reprocessarMs ?? 5000);
+  }
+
   private publicarConfirmado(channel: ConfirmChannel, evento: unknown): Promise<void> {
     return new Promise((resolve, reject) => {
       let devolvida: string | undefined;
       let confirmada = false;
+      let finalizada = false;
       let timer: NodeJS.Timeout | undefined;
+      let timeoutConfirmacao: NodeJS.Timeout | undefined;
       const limpar = (): void => {
+        if (timeoutConfirmacao) clearTimeout(timeoutConfirmacao);
         if (timer) clearTimeout(timer);
         channel.removeListener("return", retornada);
       };
       const terminar = (): void => {
-        if (!confirmada) return;
+        if (!confirmada || finalizada) return;
+        finalizada = true;
         limpar();
         if (devolvida) reject(new Error(`Mensagem devolvida pelo RabbitMQ: ${devolvida}`));
         else resolve();
@@ -152,6 +184,12 @@ export class RabbitMqTelemetriaPublisher {
         devolvida = `RabbitMQ ${campos.replyCode ?? ""}: ${campos.replyText ?? "mensagem devolvida sem rota"}`;
         terminar();
       };
+      timeoutConfirmacao = setTimeout(() => {
+        if (finalizada) return;
+        finalizada = true;
+        limpar();
+        reject(new Error("RabbitMQ não confirmou a publicação dentro do prazo"));
+      }, this.options.confirmTimeoutMs ?? 10000);
       channel.once("return", retornada);
       const payload = Buffer.from(JSON.stringify(evento));
       try {
@@ -162,10 +200,13 @@ export class RabbitMqTelemetriaPublisher {
           messageId: (evento as { staging_id: string }).staging_id,
           timestamp: (evento as { unixtime: number }).unixtime,
         }, (erro) => {
+          if (finalizada) return;
           if (erro) {
+            finalizada = true;
             limpar();
             reject(erro);
           } else {
+            if (timeoutConfirmacao) clearTimeout(timeoutConfirmacao);
             confirmada = true;
             // RabbitMQ envia Basic.Return antes do Basic.Ack para mandatory.
             // Um tick dá ao cliente tempo de despachar o retorno antes de marcar sucesso.
@@ -176,6 +217,7 @@ export class RabbitMqTelemetriaPublisher {
           // ConfirmChannel mantém o callback até drenar; não é falha de publicação.
         }
       } catch (erro) {
+        finalizada = true;
         limpar();
         reject(erro);
       }
