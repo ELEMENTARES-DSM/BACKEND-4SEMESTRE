@@ -5,6 +5,11 @@ import { RabbitMqTelemetriaPublisher } from "./events/publishers/rabbitmq-teleme
 import { configurarPublisherStaging, encerrarPublisherStaging } from "./services/staging-publisher.service";
 
 const PORT = process.env.PORT || 3005;
+const intervaloRecuperacaoConfigurado = Number(process.env.RABBITMQ_RECOVERY_INTERVAL_MS);
+const intervaloRecuperacaoMs = Number.isSafeInteger(intervaloRecuperacaoConfigurado)
+  && intervaloRecuperacaoConfigurado > 0
+  ? intervaloRecuperacaoConfigurado
+  : 10000;
 
 // Provisório até a US-12: o próximo passo ainda não existe, então a mensagem só é registrada.
 const encaminharProximoPasso: ProximoPasso = async (mensagem) => {
@@ -18,6 +23,7 @@ const clienteMqtt = new ConsumidorMqttTelemetria({
 
 const rabbitMqPublisher = new RabbitMqTelemetriaPublisher({
   url: process.env.RABBITMQ_URL ?? "amqp://localhost:5672",
+  intervaloRecuperacaoMs,
 });
 configurarPublisherStaging(rabbitMqPublisher);
 
