@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { rejectionMetricsService } from "../services/rejection-metrics.service";
 import { duplicateMetricsService } from "../services/duplicate-metrics.service";
 import { contarPendentes } from "../repositories/staging.repository";
+import { receivedMetricsService } from "../services/received-metrics.service";
 
 export const obterMetricas = async (_req: Request, res: Response): Promise<void> => {
   const metricas = rejectionMetricsService.obterMetricas();
@@ -17,6 +18,11 @@ export const obterMetricas = async (_req: Request, res: Response): Promise<void>
   } catch {
     res.status(500).json({ erro: "Não foi possível consultar métricas de ingestão." });
   }
+  res.status(200).json({
+    leiturasRecebidas: receivedMetricsService.obterTotal(),
+    leiturasRejeitadas,
+    duplicadasIgnoradas: duplicateMetricsService.obterTotal(),
+  });
 };
 
 export default {

@@ -3,6 +3,7 @@ import cors from "cors";
 import openapi from "./docs/openapi.json";
 import metricasRoutes from "./routes/metricas.routes";
 import { rabbitMqConectado } from "./services/staging-publisher.service";
+import { obterSaude } from "./controllers/health.controller";
 
 const app = express();
 
@@ -29,6 +30,8 @@ app.get("/ingestao/health", (_req, res) => {
     rabbitmq: conectado ? "conectado" : "desconectado",
   });
 });
+// Público: informa se o serviço está no ar e conectado ao broker MQTT.
+app.get("/ingestao/health", obterSaude);
 
 app.use("/ingestao/metricas", metricasRoutes);
 

@@ -14,7 +14,7 @@
   "tags": [
     {
       "name": "Saúde",
-      "description": "Verificação básica do processo HTTP"
+      "description": "Estado do serviço e da conexão com o broker MQTT"
     },
     {
       "name": "Métricas",
@@ -28,23 +28,46 @@
           "Saúde"
         ],
         "operationId": "ingestao_dados_health",
-        "summary": "Verificar se o serviço responde",
-        "description": "Verifica se o processo HTTP responde e informa a conexão com o RabbitMQ.",
+        "summary": "Verificar o serviço e a conexão com o broker MQTT",
+        "description": "Rota pública. Informa se o serviço está conectado ao broker MQTT, por onde chegam as leituras das estações. Com o broker fora do ar, o serviço continua tentando reconectar e responde 503 até conseguir.\n\nExemplo de requisição:\n\n```\ncurl http://localhost/ingestao/health\n```",
         "security": [],
         "responses": {
           "200": {
-            "description": "Serviço disponível para receber requisições HTTP.",
+            "description": "Serviço no ar e conectado ao broker MQTT.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HealthResponse"
                 },
                 "examples": {
-                  "processoDisponivel": {
-                    "summary": "Serviço disponível",
+                  "mqttConectado": {
+                    "summary": "Broker MQTT conectado",
                     "value": {
                       "status": "ok",
-                      "rabbitmq": "conectado"
+                      "conexoes": {
+                        "mqtt": "conectado"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Serviço no ar, mas sem conexão com o broker MQTT: nenhuma leitura é recebida até a reconexão.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                },
+                "examples": {
+                  "mqttDesconectado": {
+                    "summary": "Broker MQTT desconectado",
+                    "value": {
+                      "status": "indisponivel",
+                      "conexoes": {
+                        "mqtt": "desconectado"
+                      }
                     }
                   }
                 }
@@ -74,8 +97,8 @@
           "Métricas"
         ],
         "operationId": "ingestao_dados_metricas",
-        "summary": "Obter métricas de ingestão",
-        "description": "Retorna leituras rejeitadas, duplicatas ignoradas e mensagens pendentes no staging. Restrito ao perfil ADMINISTRADOR.",
+        "summary": "Obter métricas de ingestão (recebidas, rejeitadas e duplicadas)",
+        "description": "Retorna o total de leituras recebidas pelo MQTT, o total de leituras rejeitadas agrupadas por motivo e, em campo separado, o total de mensagens duplicadas ignoradas. Os contadores ficam em memória e zeram ao reiniciar o serviço. Restrito ao perfil ADMINISTRADOR.\n\nExemplo de requisição:\n\n```\ncurl http://localhost/ingestao/metricas \\\n  -H \"Authorization: Bearer <token>\"\n```",
         "security": [
           {
             "bearerAuth": []
@@ -93,9 +116,10 @@
                   "comRejeicoes": {
                     "summary": "Métricas com rejeições registradas",
                     "value": {
+                      "leiturasRecebidas": 120,
                       "leiturasRejeitadas": {
-                        "VALOR_FORA_DA_FAIXA": 3,
-                        "PAYLOAD_INVALIDO": 1
+                        "Payload malformado": 3,
+                        "Estação inativa": 1
                       },
                       "duplicadasIgnoradas": 2,
                       "mensagensPendentes": 4
@@ -104,6 +128,7 @@
                   "semRejeicoes": {
                     "summary": "Nenhuma rejeição registrada",
                     "value": {
+                      "leiturasRecebidas": 48,
                       "leiturasRejeitadas": {},
                       "duplicadasIgnoradas": 0,
                       "mensagensPendentes": 0
@@ -165,34 +190,52 @@
         "type": "object",
         "required": [
           "status",
-          "rabbitmq"
+          "conexoes"
         ],
         "properties": {
           "status": {
             "type": "string",
             "enum": [
-              "ok"
+              "ok",
+              "indisponivel"
             ],
-            "description": "Estado do processo HTTP.",
+            "description": "\"ok\" quando todas as conexões estão ativas; \"indisponivel\" quando alguma caiu.",
             "example": "ok"
           },
-          "rabbitmq": {
-            "type": "string",
-            "enum": [
-              "conectado",
-              "desconectado"
-            ]
+          "conexoes": {
+            "type": "object",
+            "required": [
+              "mqtt"
+            ],
+            "description": "Estado de cada conexão externa do serviço.",
+            "properties": {
+              "mqtt": {
+                "type": "string",
+                "enum": [
+                  "conectado",
+                  "desconectado"
+                ],
+                "description": "Conexão com o broker MQTT que entrega as leituras das estações.",
+                "example": "conectado"
+              }
+            }
           }
         }
       },
       "MetricasResponse": {
         "type": "object",
         "required": [
+          "leiturasRecebidas",
           "leiturasRejeitadas",
           "duplicadasIgnoradas",
           "mensagensPendentes"
         ],
         "properties": {
+          "leiturasRecebidas": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Mensagens de tópico válido entregues ao processamento desde o último início do serviço, inclusive as que depois forem rejeitadas ou ignoradas como duplicata. Tópico fora do padrão não conta. Zera ao reiniciar."
+          },
           "leiturasRejeitadas": {
             "type": "object",
             "additionalProperties": {

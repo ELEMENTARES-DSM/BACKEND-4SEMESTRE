@@ -2,6 +2,11 @@ import { EventEmitter } from "events";
 import mqtt, { type IPublishPacket } from "mqtt";
 import { ConfigMqtt } from "../../../config/mqtt.config";
 import { ConsumidorMqttTelemetria, CLIENT_ID } from "../../../events/consumers/mqtt-telemetria.consumer";
+import {
+  ReceivedMetricsService,
+  receivedMetricsService,
+} from "../../../services/received-metrics.service";
+import { MqttStatusService, mqttStatusService } from "../../../services/mqtt-status.service";
 
 const UUID_A = "8723c462-e79c-4e58-9751-eef8868a5312";
 const UUID_B = "e30a57e3-0d33-4f9e-86b2-6cb1690a7891";
@@ -45,6 +50,8 @@ describe("ConsumidorMqttTelemetria", () => {
   let conectar: jest.Mock;
   let encaminhados: unknown[];
   let proximoPasso: jest.Mock;
+  let recebidas: ReceivedMetricsService;
+  let estado: MqttStatusService;
   let warn: jest.SpyInstance;
   let error: jest.SpyInstance;
   let log: jest.SpyInstance;
@@ -58,6 +65,8 @@ describe("ConsumidorMqttTelemetria", () => {
       proximoPasso,
       agora: () => dataFixa,
       conectar: conectar as unknown as typeof mqtt.connect,
+      metricasRecebidas: recebidas,
+      estadoConexao: estado,
     });
     servico.iniciar();
     return servico;
@@ -67,6 +76,8 @@ describe("ConsumidorMqttTelemetria", () => {
     cliente = new ClienteFalso();
     conectar = jest.fn(() => cliente);
     encaminhados = [];
+    recebidas = new ReceivedMetricsService();
+    estado = new MqttStatusService();
     warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
     error = jest.spyOn(console, "error").mockImplementation(() => undefined);
     log = jest.spyOn(console, "log").mockImplementation(() => undefined);
@@ -289,6 +300,105 @@ describe("ConsumidorMqttTelemetria", () => {
     expect(recebidoEm).toMatch(/Z$/);
     expect(Date.parse(recebidoEm)).toBeGreaterThanOrEqual(antes);
     expect(Date.parse(recebidoEm)).toBeLessThanOrEqual(Date.now());
+  });
+
+  describe("estado da conexão", () => {
+    test("começa desconectado enquanto o broker não responde", () => {
+      criarServico();
+      cliente.emit("error", new Error("ECONNREFUSED"));
+
+      expect(estado.estaConectado()).toBe(false);
+    });
+
+    test("fica conectado ao conectar no broker", () => {
+      criarServico();
+      cliente.emit("connect");
+
+      expect(estado.estaConectado()).toBe(true);
+    });
+
+    test("fica desconectado quando a conexão cai e volta a conectado na reconexão", () => {
+      criarServico();
+      cliente.emit("connect");
+
+      cliente.emit("close");
+      expect(estado.estaConectado()).toBe(false);
+
+      cliente.emit("connect");
+      expect(estado.estaConectado()).toBe(true);
+    });
+  });
+
+  describe("contador de leituras recebidas", () => {
+    test("soma 1 a cada mensagem entregue", async () => {
+      criarServico();
+      await entregar(cliente, TOPICO_A, "{}");
+
+      expect(recebidas.obterTotal()).toBe(1);
+    });
+
+    test("soma uma por estação quando várias publicam ao mesmo tempo", async () => {
+      criarServico();
+
+      await Promise.all([
+        entregar(cliente, TOPICO_A, "a"),
+        entregar(cliente, TOPICO_B, "b"),
+        entregar(cliente, TOPICO_A, "c"),
+      ]);
+
+      expect(recebidas.obterTotal()).toBe(3);
+    });
+
+    test("payload malformado também conta como recebido", async () => {
+      criarServico();
+      await entregar(cliente, TOPICO_A, "não é json");
+
+      expect(recebidas.obterTotal()).toBe(1);
+    });
+
+    test("a mesma mensagem entregue duas vezes conta duas vezes", async () => {
+      criarServico();
+      await entregar(cliente, TOPICO_A, "{}");
+      await entregar(cliente, TOPICO_A, "{}");
+
+      expect(recebidas.obterTotal()).toBe(2);
+    });
+
+    test("tópico fora do padrão não conta", async () => {
+      criarServico();
+      await entregar(cliente, "pulso/estacoes/telemetria", "{}");
+
+      expect(recebidas.obterTotal()).toBe(0);
+    });
+
+    test("falha na entrega não conta; a mensagem conta quando o reenvio é entregue", async () => {
+      criarServico(
+        jest.fn().mockRejectedValueOnce(new Error("falhou")).mockResolvedValueOnce(undefined),
+      );
+
+      await entregar(cliente, TOPICO_A, "{}");
+      expect(recebidas.obterTotal()).toBe(0);
+
+      await entregar(cliente, TOPICO_A, "{}");
+      expect(recebidas.obterTotal()).toBe(1);
+    });
+  });
+
+  test("sem contador e estado injetados, usa os globais lidos pelas rotas", async () => {
+    receivedMetricsService.reset();
+    mqttStatusService.marcarDesconectado();
+    const servico = new ConsumidorMqttTelemetria({
+      config,
+      proximoPasso: async () => undefined,
+      conectar: conectar as unknown as typeof mqtt.connect,
+    });
+    servico.iniciar();
+
+    cliente.emit("connect");
+    await entregar(cliente, TOPICO_A, "{}");
+
+    expect(mqttStatusService.estaConectado()).toBe(true);
+    expect(receivedMetricsService.obterTotal()).toBe(1);
   });
 
   test("assinatura inicial registra o tópico e o QoS no log", () => {
