@@ -19,6 +19,46 @@ export interface MensagemPendente {
   payload: { leituras?: Array<{ sensor: string; valor: number }> };
 }
 
+export interface BloqueioPublicador {
+  liberar(): Promise<void>;
+}
+
+const CHAVE_BLOQUEIO_PUBLICADOR = "ingestao-dados.staging-telemetria.publisher";
+
+/** Coordena o lote inteiro entre instâncias sem manter estado de mensagens em memória. */
+export async function tentarBloquearPublicador(): Promise<BloqueioPublicador | null> {
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query<{ adquirido: boolean }>(
+      "SELECT pg_try_advisory_lock(hashtext($1), 0) AS adquirido",
+      [CHAVE_BLOQUEIO_PUBLICADOR],
+    );
+    if (!rows[0]?.adquirido) {
+      client.release();
+      return null;
+    }
+
+    let liberado = false;
+    return {
+      liberar: async () => {
+        if (liberado) return;
+        liberado = true;
+        try {
+          await client.query(
+            "SELECT pg_advisory_unlock(hashtext($1), 0)",
+            [CHAVE_BLOQUEIO_PUBLICADOR],
+          );
+        } finally {
+          client.release();
+        }
+      },
+    };
+  } catch (erro) {
+    client.release();
+    throw erro;
+  }
+}
+
 /** Reserva uma mensagem por vez para preservar ordem e evitar concorrência entre instâncias. */
 export async function reservarProximaPendente(): Promise<MensagemPendente | null> {
   const client = await pool.connect();

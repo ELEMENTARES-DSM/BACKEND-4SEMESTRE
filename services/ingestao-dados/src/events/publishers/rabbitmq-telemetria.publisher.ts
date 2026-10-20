@@ -5,6 +5,7 @@ import {
   marcarRecebidasPendentes,
   liberarReservasAbandonadas,
   reservarProximaPendente,
+  tentarBloquearPublicador,
 } from "../../repositories/staging.repository";
 
 export const EXCHANGE_TELEMETRIA_BRUTA = "telemetria.bruta";
@@ -14,9 +15,9 @@ export const FILA_VALIDACAO_DLQ = "validacao.dlq";
 
 export interface RabbitMqPublisherOptions {
   url: string;
-  conectar?: typeof amqp.connect;
+  conectar?: (url: string) => Promise<ChannelModel>;
   reconectarMs?: number;
-  reprocessarMs?: number;
+  intervaloRecuperacaoMs?: number;
   confirmTimeoutMs?: number;
 }
 
@@ -24,21 +25,26 @@ export class RabbitMqTelemetriaPublisher {
   private connection?: ChannelModel;
   private channel?: ConfirmChannel;
   private reconectarTimer?: NodeJS.Timeout;
-  private reprocessarTimer?: NodeJS.Timeout;
+  private recuperacaoTimer?: NodeJS.Timeout;
   private processando = false;
   private encerrando = false;
-  private reservasRestauradas = false;
 
   constructor(private readonly options: RabbitMqPublisherOptions) {}
 
   async iniciar(): Promise<void> {
+    if (!this.recuperacaoTimer) {
+      this.recuperacaoTimer = setInterval(
+        () => void this.processarPendentes(),
+        this.options.intervaloRecuperacaoMs ?? 10000,
+      );
+    }
     await this.conectar();
   }
 
   async encerrar(): Promise<void> {
     this.encerrando = true;
     if (this.reconectarTimer) clearTimeout(this.reconectarTimer);
-    if (this.reprocessarTimer) clearTimeout(this.reprocessarTimer);
+    if (this.recuperacaoTimer) clearInterval(this.recuperacaoTimer);
     await this.channel?.close().catch(() => undefined);
     await this.connection?.close().catch(() => undefined);
   }
@@ -57,25 +63,33 @@ export class RabbitMqTelemetriaPublisher {
         console.error(`[rabbitmq] erro de conexão: ${erro.message}`);
       });
       connection.on("close", () => {
-        this.channel = undefined;
-        this.connection = undefined;
-        void this.marcarRecebidasSemRabbit("Conexão com RabbitMQ encerrada");
-        this.agendarReconexao();
+        if (this.connection === connection) {
+          this.channel = undefined;
+          this.connection = undefined;
+          void this.marcarRecebidasSemRabbit("Conexão com RabbitMQ encerrada");
+          this.agendarReconexao();
+        }
       });
       const channel = await connection.createConfirmChannel();
       channel.on("close", () => {
-        if (this.channel === channel) this.channel = undefined;
+        if (this.channel === channel) {
+          this.channel = undefined;
+          this.connection = undefined;
+          void connection.close().catch(() => undefined);
+          this.agendarReconexao();
+        }
       });
       this.channel = channel;
       await this.declararTopologia(channel);
-      if (!this.reservasRestauradas) {
-        await liberarReservasAbandonadas();
-        this.reservasRestauradas = true;
-      }
       console.log("[rabbitmq] conectado e topologia de telemetria declarada");
       void this.processarPendentes();
     } catch (erro) {
+      const channel = this.channel;
+      const connection = this.connection;
       this.channel = undefined;
+      this.connection = undefined;
+      await channel?.close().catch(() => undefined);
+      await connection?.close().catch(() => undefined);
       console.error(`[rabbitmq] indisponível: ${this.motivo(erro)}`);
       await this.marcarRecebidasSemRabbit(`RabbitMQ indisponível: ${this.motivo(erro)}`);
       this.agendarReconexao();
@@ -113,11 +127,20 @@ export class RabbitMqTelemetriaPublisher {
       return;
     }
     this.processando = true;
+    let bloqueio: Awaited<ReturnType<typeof tentarBloquearPublicador>> = null;
     try {
-      while (this.channel && !this.encerrando) {
+      bloqueio = await tentarBloquearPublicador();
+      if (!bloqueio) return;
+
+      const channel = this.channel;
+      if (!channel) return;
+      await this.declararTopologia(channel);
+      // Com exclusividade obtida, qualquer reserva restante pertence a um processo que caiu.
+      await liberarReservasAbandonadas();
+
+      while (this.channel === channel && !this.encerrando) {
         const registro = await reservarProximaPendente();
         if (!registro) break;
-        const channel = this.channel;
         try {
           if (!Array.isArray(registro.payload?.leituras) || registro.payload.leituras.length < 1) {
             throw new Error("Payload do staging não contém leituras válidas");
@@ -132,14 +155,16 @@ export class RabbitMqTelemetriaPublisher {
           await marcarPublicada(registro.id);
         } catch (erro) {
           await marcarPendente(registro.id, this.motivo(erro));
-          // Não repete imediatamente a mesma mensagem; aguarda o backoff ou reconexão.
-          if (this.channel) this.agendarReprocessamento();
+          // A próxima tentativa ocorre no scanner periódico ou após reconexão.
           break;
         }
       }
     } catch (erro) {
       console.error(`[rabbitmq] falha ao buscar mensagens pendentes: ${this.motivo(erro)}`);
     } finally {
+      await bloqueio?.liberar().catch((erro: unknown) => {
+        console.error(`[rabbitmq] falha ao liberar bloqueio do publicador: ${this.motivo(erro)}`);
+      });
       this.processando = false;
     }
   }
@@ -150,14 +175,6 @@ export class RabbitMqTelemetriaPublisher {
     } catch (erro) {
       console.error(`[rabbitmq] falha ao marcar mensagens pendentes: ${this.motivo(erro)}`);
     }
-  }
-
-  private agendarReprocessamento(): void {
-    if (this.encerrando || this.reprocessarTimer || !this.channel) return;
-    this.reprocessarTimer = setTimeout(() => {
-      this.reprocessarTimer = undefined;
-      void this.processarPendentes();
-    }, this.options.reprocessarMs ?? 5000);
   }
 
   private publicarConfirmado(channel: ConfirmChannel, evento: unknown): Promise<void> {
