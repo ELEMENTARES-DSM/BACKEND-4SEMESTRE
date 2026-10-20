@@ -14,7 +14,7 @@
   "tags": [
     {
       "name": "Saúde",
-      "description": "Verificação básica do processo HTTP"
+      "description": "Estado do serviço, conexões com PostgreSQL e RabbitMQ e disponibilidade da fila validacao.telemetria"
     }
   ],
   "paths": {
@@ -24,22 +24,67 @@
           "Saúde"
         ],
         "operationId": "servico_validacao_health",
-        "summary": "Verificar se o serviço responde",
-        "description": "Verifica se o processo HTTP responde. Não verifica a disponibilidade de bancos de dados, filas ou outros serviços.",
+        "summary": "Verificar o serviço, as conexões com PostgreSQL e RabbitMQ e a fila de telemetria",
+        "description": "Rota pública. Informa se o serviço está conectado ao banco PostgreSQL e ao RabbitMQ e se a fila validacao.telemetria está disponível para consumo. Responde 503 enquanto qualquer dependência estiver indisponível.",
         "security": [],
         "responses": {
           "200": {
-            "description": "Serviço disponível para receber requisições HTTP.",
+            "description": "Serviço conectado ao PostgreSQL e ao RabbitMQ com a fila validacao.telemetria disponível.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                },
+                "example": {
+                  "status": "ok",
+                  "conexoes": {
+                    "postgres": "conectado",
+                    "rabbitmq": "conectado"
+                  },
+                  "fila": "disponivel"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Serviço no ar, mas sem conexão com o banco, RabbitMQ ou com a fila validacao.telemetria indisponível.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HealthResponse"
                 },
                 "examples": {
-                  "processoDisponivel": {
-                    "summary": "Serviço disponível",
+                  "filaIndisponivel": {
+                    "summary": "Fila validacao.telemetria ausente",
                     "value": {
-                      "status": "ok"
+                      "status": "indisponivel",
+                      "conexoes": {
+                        "postgres": "conectado",
+                        "rabbitmq": "conectado"
+                      },
+                      "fila": "indisponivel"
+                    }
+                  },
+                  "rabbitmqDesconectado": {
+                    "summary": "RabbitMQ desconectado",
+                    "value": {
+                      "status": "indisponivel",
+                      "conexoes": {
+                        "postgres": "conectado",
+                        "rabbitmq": "desconectado"
+                      },
+                      "fila": "indisponivel"
+                    }
+                  },
+                  "postgresDesconectado": {
+                    "summary": "PostgreSQL desconectado",
+                    "value": {
+                      "status": "indisponivel",
+                      "conexoes": {
+                        "postgres": "desconectado",
+                        "rabbitmq": "conectado"
+                      },
+                      "fila": "disponivel"
                     }
                   }
                 }
@@ -55,16 +100,56 @@
       "HealthResponse": {
         "type": "object",
         "required": [
-          "status"
+          "status",
+          "conexoes",
+          "fila"
         ],
         "properties": {
           "status": {
             "type": "string",
             "enum": [
-              "ok"
+              "ok",
+              "indisponivel"
             ],
-            "description": "Estado do processo HTTP.",
+            "description": "\"ok\" quando PostgreSQL, RabbitMQ e a fila validacao.telemetria estão disponíveis; \"indisponivel\" caso contrário.",
             "example": "ok"
+          },
+          "conexoes": {
+            "type": "object",
+            "required": [
+              "postgres",
+              "rabbitmq"
+            ],
+            "description": "Estado de cada conexão externa do serviço.",
+            "properties": {
+              "postgres": {
+                "type": "string",
+                "enum": [
+                  "conectado",
+                  "desconectado"
+                ],
+                "description": "Conexão com o banco de dados PostgreSQL.",
+                "example": "conectado"
+              },
+              "rabbitmq": {
+                "type": "string",
+                "enum": [
+                  "conectado",
+                  "desconectado"
+                ],
+                "description": "Conexão com o broker RabbitMQ.",
+                "example": "conectado"
+              }
+            }
+          },
+          "fila": {
+            "type": "string",
+            "enum": [
+              "disponivel",
+              "indisponivel"
+            ],
+            "description": "Situação da fila validacao.telemetria.",
+            "example": "disponivel"
           }
         }
       }
