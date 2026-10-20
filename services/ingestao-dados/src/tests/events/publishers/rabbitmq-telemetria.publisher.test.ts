@@ -17,25 +17,34 @@ const registro = {
   payload: { leituras: [{ sensor: "TMP", valor: 23 }] },
 };
 
+type MockAsync = jest.Mock<(...args: unknown[]) => Promise<unknown>>;
+type MockChannel = EventEmitter & {
+  assertExchange: MockAsync;
+  assertQueue: MockAsync;
+  bindQueue: MockAsync;
+  close: MockAsync;
+  publish: jest.Mock<(...args: unknown[]) => boolean>;
+};
+
 describe("RabbitMqTelemetriaPublisher", () => {
-  let channel: EventEmitter & Record<string, jest.Mock>;
+  let channel: MockChannel;
   let publisher: RabbitMqTelemetriaPublisher;
 
   beforeEach(() => {
     jest.clearAllMocks();
     channel = Object.assign(new EventEmitter(), {
-      assertExchange: jest.fn().mockResolvedValue(undefined),
-      assertQueue: jest.fn().mockResolvedValue(undefined),
-      bindQueue: jest.fn().mockResolvedValue(undefined),
-      close: jest.fn().mockResolvedValue(undefined),
-      publish: jest.fn(),
-    });
+      assertExchange: jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined),
+      assertQueue: jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined),
+      bindQueue: jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined),
+      close: jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined),
+      publish: jest.fn<(...args: unknown[]) => boolean>(),
+    }) as MockChannel;
 
     const connection = Object.assign(new EventEmitter(), {
-      close: jest.fn().mockResolvedValue(undefined),
-      createConfirmChannel: jest.fn().mockResolvedValue(channel),
+      close: jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined),
+      createConfirmChannel: jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(channel),
     });
-    const conectar = jest.fn().mockResolvedValue(connection) as never;
+    const conectar = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(connection) as never;
     publisher = new RabbitMqTelemetriaPublisher({ url: "amqp://test", conectar });
     jest.mocked(tentarBloquearPublicador).mockResolvedValue({
       liberar: async () => undefined,
