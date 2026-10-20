@@ -9,13 +9,14 @@
     "build": "tsc -p tsconfig.json && tsc-alias -p tsconfig.json",
     "start": "node dist/server.js",
     "lint": "eslint src/",
-    "migrate": "node-pg-migrate -m src/db/migrations"
+    "migrate": "node-pg-migrate -m src/db/migrations --migrations-table pgmigrations_validacao"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "amqplib": "^2.2.0",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
