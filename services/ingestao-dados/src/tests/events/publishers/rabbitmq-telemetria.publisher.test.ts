@@ -4,6 +4,7 @@ import {
   marcarPendente,
   marcarPublicada,
   reservarProximaPendente,
+  tentarBloquearPublicador,
 } from "../../../repositories/staging.repository";
 import { RabbitMqTelemetriaPublisher } from "../../../events/publishers/rabbitmq-telemetria.publisher";
 
@@ -36,6 +37,9 @@ describe("RabbitMqTelemetriaPublisher", () => {
     });
     const conectar = jest.fn().mockResolvedValue(connection) as never;
     publisher = new RabbitMqTelemetriaPublisher({ url: "amqp://test", conectar });
+    jest.mocked(tentarBloquearPublicador).mockResolvedValue({
+      liberar: async () => undefined,
+    });
     jest.mocked(reservarProximaPendente).mockResolvedValueOnce(registro).mockResolvedValue(null);
   });
 
