@@ -21,10 +21,9 @@ app.get("/ingestao/openapi.json", (_req, res) => {
   });
 });
 
-// Público: informa se o serviço está no ar e conectado ao broker MQTT.
+// Health informa o estado dos dois brokers usados pelo serviço.
 app.get("/ingestao/health", obterSaude);
 
 app.use("/ingestao/metricas", metricasRoutes);
 
 export default app;
-

@@ -5,6 +5,7 @@ import request from "supertest";
 import jwt from "jsonwebtoken";
 
 import app from "../../app";
+import { contarPendentes } from "../../repositories/staging.repository";
 import { rejectionMetricsService } from "../../services/rejection-metrics.service";
 import { duplicateMetricsService } from "../../services/duplicate-metrics.service";
 import { receivedMetricsService } from "../../services/received-metrics.service";
@@ -12,6 +13,10 @@ import {
   PAYLOAD_MALFORMADO,
   TIMESTAMP_INVALIDO,
 } from "../../validations/motivos-rejeicao";
+
+jest.mock("../../repositories/staging.repository", () => ({
+  contarPendentes: jest.fn(),
+}));
 
 describe("GET /ingestao/metricas", () => {
   const JWT_SECRET = process.env.JWT_SECRET as string;
@@ -27,6 +32,7 @@ describe("GET /ingestao/metricas", () => {
   };
 
   beforeEach(() => {
+    jest.mocked(contarPendentes).mockResolvedValue(0);
     rejectionMetricsService.reset();
     duplicateMetricsService.reset();
     receivedMetricsService.reset();
@@ -44,6 +50,7 @@ describe("GET /ingestao/metricas", () => {
       leiturasRecebidas: 0,
       leiturasRejeitadas: {},
       duplicadasIgnoradas: 0,
+      mensagensPendentes: 0,
     });
   });
 
@@ -61,6 +68,7 @@ describe("GET /ingestao/metricas", () => {
       leiturasRecebidas: 3,
       leiturasRejeitadas: {},
       duplicadasIgnoradas: 0,
+      mensagensPendentes: 0,
     });
   });
 
@@ -80,6 +88,7 @@ describe("GET /ingestao/metricas", () => {
       leiturasRecebidas: 2,
       leiturasRejeitadas: { [PAYLOAD_MALFORMADO]: 1 },
       duplicadasIgnoradas: 1,
+      mensagensPendentes: 0,
     });
   });
 
@@ -102,6 +111,7 @@ describe("GET /ingestao/metricas", () => {
         [TIMESTAMP_INVALIDO]: 1,
       },
       duplicadasIgnoradas: 0,
+      mensagensPendentes: 0,
     });
   });
 
@@ -127,6 +137,7 @@ describe("GET /ingestao/metricas", () => {
       leiturasRecebidas: 0,
       leiturasRejeitadas: {},
       duplicadasIgnoradas: 2,
+      mensagensPendentes: 0,
     });
   });
 
@@ -149,6 +160,7 @@ describe("GET /ingestao/metricas", () => {
         [TIMESTAMP_INVALIDO]: 1,
       },
       duplicadasIgnoradas: 3,
+      mensagensPendentes: 0,
     });
   });
 
@@ -170,6 +182,7 @@ describe("GET /ingestao/metricas", () => {
         leiturasRecebidas: 0,
         leiturasRejeitadas: {},
         duplicadasIgnoradas: 0,
+        mensagensPendentes: 0,
       });
     });
 

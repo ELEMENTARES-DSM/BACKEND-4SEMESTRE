@@ -3,6 +3,7 @@ import { MensagemIngestaoInput } from "../dto/mensagem-ingestao.dto";
 import { inserirStaging } from "../repositories/staging.repository";
 import { atualizarSinalEstacao } from "../repositories/estacao.repository";
 import { ValidarPayloadService } from "./validar-payload.service";
+import { solicitarProcessamentoPendentes } from "./staging-publisher.service";
 
 export type ResultadoGravacao = "recebida" | "rejeitada" | "duplicata";
 
@@ -87,6 +88,7 @@ export async function gravarAceita(
       nivelBateria: validacao.payloadValidado.nivel_bateria,
     });
     await client.query("COMMIT");
+    solicitarProcessamentoPendentes();
     return "recebida";
   } catch (erro) {
     await client.query("ROLLBACK");

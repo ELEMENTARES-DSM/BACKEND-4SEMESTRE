@@ -1,6 +1,8 @@
 import app from "./app";
 import { carregarConfigMqtt } from "./config/mqtt.config";
 import { ConsumidorMqttTelemetria, ProximoPasso } from "./events/consumers/mqtt-telemetria.consumer";
+import { RabbitMqTelemetriaPublisher } from "./events/publishers/rabbitmq-telemetria.publisher";
+import { configurarPublisherStaging, encerrarPublisherStaging } from "./services/staging-publisher.service";
 
 const PORT = process.env.PORT || 3005;
 
@@ -14,14 +16,21 @@ const clienteMqtt = new ConsumidorMqttTelemetria({
   proximoPasso: encaminharProximoPasso,
 });
 
+const rabbitMqPublisher = new RabbitMqTelemetriaPublisher({
+  url: process.env.RABBITMQ_URL ?? "amqp://localhost:5672",
+});
+configurarPublisherStaging(rabbitMqPublisher);
+
 app.listen(PORT, () => {
   console.log(`ingestao-dados running on port ${PORT}`);
 });
 
 clienteMqtt.iniciar();
+void rabbitMqPublisher.iniciar();
 
 const encerrar = async () => {
   await clienteMqtt.encerrar();
+  await encerrarPublisherStaging();
   process.exit(0);
 };
 
