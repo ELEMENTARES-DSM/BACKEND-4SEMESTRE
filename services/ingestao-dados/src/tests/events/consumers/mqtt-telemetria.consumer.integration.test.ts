@@ -2,7 +2,11 @@ import net from "net";
 import mqtt from "mqtt";
 import { createBroker } from "aedes";
 import { MensagemIngestaoInput } from "../../../dto/mensagem-ingestao.dto";
-import { ConsumidorMqttTelemetria } from "../../../events/consumers/mqtt-telemetria.consumer";
+import {
+  ConsumidorMqttTelemetria,
+  OpcoesConsumidorMqtt,
+} from "../../../events/consumers/mqtt-telemetria.consumer";
+import { MqttStatusService } from "../../../services/mqtt-status.service";
 
 // Broker MQTT em memória (aedes) e clientes reais do mqtt.js: testa o protocolo de verdade,
 // sem Docker. Cobre sessão persistente e reconexão, que o cliente falso não consegue provar.
@@ -64,7 +68,11 @@ async function conectarEstacao(porta: number, uuid: string): Promise<mqtt.MqttCl
   return cliente;
 }
 
-function criarConsumidor(porta: number, recebidas: MensagemIngestaoInput[]) {
+function criarConsumidor(
+  porta: number,
+  recebidas: MensagemIngestaoInput[],
+  deps: Pick<OpcoesConsumidorMqtt, "estadoConexao"> = {},
+) {
   const consumidor = new ConsumidorMqttTelemetria({
     config: {
       brokerUrl: `mqtt://127.0.0.1:${porta}`,
@@ -75,6 +83,7 @@ function criarConsumidor(porta: number, recebidas: MensagemIngestaoInput[]) {
     proximoPasso: async (mensagem) => {
       recebidas.push(mensagem);
     },
+    ...deps,
   });
   consumidores.push(consumidor);
   return consumidor;
@@ -245,5 +254,38 @@ describe("ConsumidorMqttTelemetria (integração com broker MQTT)", () => {
 
     expect(warn).toHaveBeenCalledWith("[mqtt] conexão com o broker encerrada");
     expect(log).toHaveBeenCalledWith(expect.stringContaining("assinado pulso/estacoes/+/telemetria"));
+  }, 30000);
+
+  test("informa a conexão como desconectada com o broker fora e como ativa quando ele volta", async () => {
+    const broker = await iniciarBroker();
+    const porta = broker.porta;
+    const estado = new MqttStatusService();
+    criarConsumidor(porta, [], { estadoConexao: estado }).iniciar();
+
+    await esperar(() => estado.estaConectado());
+
+    await derrubarBroker(broker);
+    brokers.splice(brokers.indexOf(broker), 1);
+    await esperar(() => !estado.estaConectado());
+
+    await iniciarBroker(porta);
+    await esperar(() => estado.estaConectado());
+  }, 30000);
+
+  test("continua desconectado enquanto o broker não sobe", async () => {
+    // Porta livre sem broker: o cliente fica tentando, sem nunca conectar.
+    const semBroker = await iniciarBroker();
+    const porta = semBroker.porta;
+    await derrubarBroker(semBroker);
+    brokers.splice(brokers.indexOf(semBroker), 1);
+
+    const estado = new MqttStatusService();
+    criarConsumidor(porta, [], { estadoConexao: estado }).iniciar();
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    expect(estado.estaConectado()).toBe(false);
+
+    await iniciarBroker(porta);
+    await esperar(() => estado.estaConectado());
   }, 30000);
 });

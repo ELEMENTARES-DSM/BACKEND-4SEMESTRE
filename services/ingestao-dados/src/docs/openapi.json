@@ -14,7 +14,7 @@
   "tags": [
     {
       "name": "Saúde",
-      "description": "Verificação básica do processo HTTP"
+      "description": "Estado do serviço e das conexões com os brokers MQTT e RabbitMQ"
     },
     {
       "name": "Métricas",
@@ -28,22 +28,53 @@
           "Saúde"
         ],
         "operationId": "ingestao_dados_health",
-        "summary": "Verificar se o serviço responde",
-        "description": "Verifica se o processo HTTP responde. Não verifica a disponibilidade de bancos de dados, filas ou outros serviços.",
+        "summary": "Verificar o serviço e as conexões com MQTT e RabbitMQ",
+        "description": "Rota pública. Informa se o serviço está conectado aos brokers MQTT e RabbitMQ. Responde 503 enquanto qualquer uma das conexões estiver indisponível.",
         "security": [],
         "responses": {
           "200": {
-            "description": "Serviço disponível para receber requisições HTTP.",
+            "description": "Serviço conectado aos brokers MQTT e RabbitMQ.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                },
+                "example": {
+                  "status": "ok",
+                  "conexoes": {
+                    "mqtt": "conectado",
+                    "rabbitmq": "conectado"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Serviço no ar, mas sem conexão com pelo menos um dos brokers.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HealthResponse"
                 },
                 "examples": {
-                  "processoDisponivel": {
-                    "summary": "Serviço disponível",
+                  "mqttDesconectado": {
+                    "summary": "Broker MQTT desconectado",
                     "value": {
-                      "status": "ok"
+                      "status": "indisponivel",
+                      "conexoes": {
+                        "mqtt": "desconectado",
+                        "rabbitmq": "conectado"
+                      }
+                    }
+                  },
+                  "rabbitmqDesconectado": {
+                    "summary": "RabbitMQ desconectado",
+                    "value": {
+                      "status": "indisponivel",
+                      "conexoes": {
+                        "mqtt": "conectado",
+                        "rabbitmq": "desconectado"
+                      }
                     }
                   }
                 }
@@ -59,8 +90,8 @@
           "Métricas"
         ],
         "operationId": "ingestao_dados_metricas",
-        "summary": "Obter métricas de ingestão (rejeitadas e duplicadas)",
-        "description": "Retorna o total de leituras rejeitadas agrupadas por motivo e, em campo separado, o total de mensagens duplicadas ignoradas. Os contadores ficam em memória e zeram ao reiniciar o serviço. Restrito ao perfil ADMINISTRADOR.",
+        "summary": "Obter métricas de ingestão (recebidas, rejeitadas e duplicadas)",
+        "description": "Retorna o total de leituras recebidas pelo MQTT, o total de leituras rejeitadas agrupadas por motivo e, em campo separado, o total de mensagens duplicadas ignoradas. Os contadores ficam em memória e zeram ao reiniciar o serviço. Restrito ao perfil ADMINISTRADOR.\n\nExemplo de requisição:\n\n```\ncurl http://localhost/ingestao/metricas \\\n  -H \"Authorization: Bearer <token>\"\n```",
         "security": [
           {
             "bearerAuth": []
@@ -78,18 +109,22 @@
                   "comRejeicoes": {
                     "summary": "Métricas com rejeições registradas",
                     "value": {
+                      "leiturasRecebidas": 120,
                       "leiturasRejeitadas": {
-                        "VALOR_FORA_DA_FAIXA": 3,
-                        "PAYLOAD_INVALIDO": 1
+                        "Payload malformado": 3,
+                        "Estação inativa": 1
                       },
-                      "duplicadasIgnoradas": 2
+                      "duplicadasIgnoradas": 2,
+                      "mensagensPendentes": 4
                     }
                   },
                   "semRejeicoes": {
                     "summary": "Nenhuma rejeição registrada",
                     "value": {
+                      "leiturasRecebidas": 48,
                       "leiturasRejeitadas": {},
-                      "duplicadasIgnoradas": 0
+                      "duplicadasIgnoradas": 0,
+                      "mensagensPendentes": 0
                     }
                   }
                 }
@@ -147,26 +182,63 @@
       "HealthResponse": {
         "type": "object",
         "required": [
-          "status"
+          "status",
+          "conexoes"
         ],
         "properties": {
           "status": {
             "type": "string",
             "enum": [
-              "ok"
+              "ok",
+              "indisponivel"
             ],
-            "description": "Estado do processo HTTP.",
+            "description": "\"ok\" quando ambos os brokers estão conectados; \"indisponivel\" quando qualquer conexão caiu.",
             "example": "ok"
+          },
+          "conexoes": {
+            "type": "object",
+            "required": [
+              "mqtt",
+              "rabbitmq"
+            ],
+            "description": "Estado de cada conexão externa do serviço.",
+            "properties": {
+              "mqtt": {
+                "type": "string",
+                "enum": [
+                  "conectado",
+                  "desconectado"
+                ],
+                "description": "Conexão com o broker MQTT que entrega as leituras das estações.",
+                "example": "conectado"
+              },
+              "rabbitmq": {
+                "type": "string",
+                "enum": [
+                  "conectado",
+                  "desconectado"
+                ],
+                "description": "Conexão com o RabbitMQ usado para publicar as telemetrias do staging.",
+                "example": "conectado"
+              }
+            }
           }
         }
       },
       "MetricasResponse": {
         "type": "object",
         "required": [
+          "leiturasRecebidas",
           "leiturasRejeitadas",
-          "duplicadasIgnoradas"
+          "duplicadasIgnoradas",
+          "mensagensPendentes"
         ],
         "properties": {
+          "leiturasRecebidas": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Mensagens de tópico válido entregues ao processamento desde o último início do serviço, inclusive as que depois forem rejeitadas ou ignoradas como duplicata. Tópico fora do padrão não conta. Zera ao reiniciar."
+          },
           "leiturasRejeitadas": {
             "type": "object",
             "additionalProperties": {
@@ -178,6 +250,11 @@
             "type": "integer",
             "minimum": 0,
             "description": "Mensagens duplicadas ignoradas desde o último início do serviço; não entram em leiturasRejeitadas e zeram ao reiniciar."
+          },
+          "mensagensPendentes": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Quantidade de mensagens com status recebida ou pendente no staging."
           }
         }
       },

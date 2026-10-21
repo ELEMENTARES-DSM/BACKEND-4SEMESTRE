@@ -209,6 +209,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       JWT_SECRET: ${JWT_SECRET}
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      RABBITMQ_RECOVERY_INTERVAL_MS: ${RABBITMQ_RECOVERY_INTERVAL_MS:-10000}
     depends_on:
       postgres:
         condition: service_healthy

@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import openapi from "./docs/openapi.json";
-import metricasRoutes from "./routes/metricas.routes";
+import { obterSaude } from "./controllers/health.controller";
 
 const app = express();
 
@@ -12,18 +12,16 @@ if (process.env.SWAGGER_UI_ORIGIN) {
 app.use(express.json());
 
 app.get("/validacao/openapi.json", (_req, res) => {
-  const publicUrl = process.env.PUBLIC_API_URL || `http://localhost:${process.env.PORT || 3000}`;
+  const publicUrl =
+    process.env.PUBLIC_API_URL ||
+    `http://localhost:${process.env.PORT || 3000}`;
   res.json({
     ...openapi,
     servers: [{ url: publicUrl }],
   });
 });
 
-// Verificação básica do processo HTTP.
-app.get("/validacao/health", (_req, res) => {
-  res.json({ status: "ok" });
-});
-
-app.use("/validacao/metricas", metricasRoutes);
+// Informa o estado das conexões com PostgreSQL, RabbitMQ e a fila validacao.telemetria.
+app.get("/validacao/health", obterSaude);
 
 export default app;

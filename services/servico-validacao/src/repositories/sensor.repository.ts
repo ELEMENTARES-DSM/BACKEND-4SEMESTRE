@@ -1,44 +1,45 @@
-import { Pool } from "pg";
+import { Pool, PoolClient, QueryResult } from "pg";
 import { pool } from "../config/db";
-import { SensorDaEstacao } from "../models/sensor.model";
+import { SensorEventoRow } from "../dto/evento-telemetria.dto";
+
+export type DbQueryable = Pick<Pool | PoolClient, "query">;
 
 /**
- * Busca o sensor da estação pelo código, SEM filtrar por status: a TASK 18.01
- * precisa distinguir sensor inativo de sensor inexistente.
- *
- * O banco não garante código único por estação (sensores.codigo não tem UNIQUE).
- * Se houver código repetido, o ativo tem preferência.
+ * Busca os sensores da estação correspondentes aos códigos informados no evento
+ * em uma única consulta SQL, sem cache em memória, trazendo também o município
+ * herdado da estação (sensores -> estacoes.municipio).
  */
-export async function buscarSensorDaEstacao(
-  estacaoId: string,
-  codigo: string,
-  db: Pick<Pool, "query"> = pool,
-): Promise<SensorDaEstacao | null> {
-  const resultado = await db.query<{
-    id: string;
-    codigo: string;
-    status: SensorDaEstacao["status"];
-    fator: string;
-    ganho: string;
-  }>(
-    `SELECT id, codigo, status, fator, ganho FROM sensores
-     WHERE estacao_id = $1 AND codigo = $2
-     ORDER BY (status = 'Ativo') DESC
-     LIMIT 1`,
-    [estacaoId, codigo],
-  );
+export const buscarSensoresPorEvento = async (
+  estacaoUuid: string,
+  codigosSensores: string[],
+  db: DbQueryable = pool,
+): Promise<Map<string, SensorEventoRow>> => {
+  const codigosUnicos = Array.from(new Set(codigosSensores));
+  const mapa = new Map<string, SensorEventoRow>();
 
-  const linha = resultado.rows[0];
-  if (!linha) {
-    return null;
+  if (codigosUnicos.length === 0) {
+    return mapa;
   }
 
-  // NUMERIC volta como string do pg.
-  return {
-    id: linha.id,
-    codigo: linha.codigo,
-    status: linha.status,
-    fator: Number(linha.fator),
-    ganho: Number(linha.ganho),
-  };
-}
+  const resultado: QueryResult<SensorEventoRow> = await db.query<SensorEventoRow>(
+    `SELECT
+       s.id,
+       s.estacao_id,
+       s.codigo,
+       s.fator,
+       s.ganho,
+       s.status,
+       e.municipio
+     FROM sensores s
+     JOIN estacoes e ON e.id = s.estacao_id
+     WHERE s.estacao_id = $1
+       AND s.codigo = ANY($2::varchar[])`,
+    [estacaoUuid, codigosUnicos],
+  );
+
+  for (const row of resultado.rows) {
+    mapa.set(row.codigo, row);
+  }
+
+  return mapa;
+};
