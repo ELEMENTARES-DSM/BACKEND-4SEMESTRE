@@ -1,156 +1,133 @@
 import { describe, it, expect, jest } from "@jest/globals";
 import {
-  EnviarLeituraParaDlq,
+  concluirLeiturasIgnoradas,
+  ConcluirLeiturasIgnoradasDeps,
   MOTIVO_SENSOR_INEXISTENTE,
-  processarLeiturasDoEvento,
-  ProcessarLeiturasDeps,
-  SeguirParaUS17,
+  PublicarLeituraNaDlq,
 } from "../../services/processar-leituras.service";
-import { BuscarSensor } from "../../services/classificar-leituras.service";
-import { EventoTelemetria } from "../../dto/evento-telemetria.dto";
-import { SensorDaEstacao } from "../../models/sensor.model";
+import {
+  EventoTelemetriaDTO,
+  SensorEventoRow,
+} from "../../dto/evento-telemetria.dto";
 
-type RegistrarInativa = NonNullable<ProcessarLeiturasDeps["registrarInativa"]>;
+type RegistrarInativa = NonNullable<ConcluirLeiturasIgnoradasDeps["registrarInativa"]>;
 
 const ESTACAO = "e30a57e3-0d33-4f9e-86b2-6cb1690a7891";
 const UNIXTIME = 1792411200;
 
-const sensor = (codigo: string, status: SensorDaEstacao["status"]): SensorDaEstacao => ({
-  id: `id-${codigo}`,
-  codigo,
-  status,
-  fator: 1.1,
-  ganho: 0.5,
-});
-
-const evento = (leituras: EventoTelemetria["leituras"]): EventoTelemetria => ({
+const evento: EventoTelemetriaDTO = {
   staging_id: "staging-1",
   estacao_uuid: ESTACAO,
   unixtime: UNIXTIME,
-  leituras,
-});
-
-const criarDeps = (tabela: Record<string, SensorDaEstacao | null>) => {
-  const deps = {
-    seguirParaUS17: jest.fn<SeguirParaUS17>().mockResolvedValue(undefined),
-    enviarLeituraParaDlq: jest.fn<EnviarLeituraParaDlq>().mockResolvedValue(undefined),
-    buscarSensor: jest.fn<BuscarSensor>(async (_estacaoId, codigo) => tabela[codigo] ?? null),
-    registrarInativa: jest.fn<RegistrarInativa>(),
-  };
-  return deps;
+  leituras: [
+    { sensor: "T-01", valor: 25.4 },
+    { sensor: "PM-01", valor: 12 },
+    { sensor: "X-99", valor: 7 },
+  ],
 };
 
-describe("processarLeiturasDoEvento", () => {
-  it("a) separa ativo, inativo e inexistente no mesmo evento", async () => {
-    const t01 = sensor("T-01", "Ativo");
-    const deps = criarDeps({ "T-01": t01, "PM-01": sensor("PM-01", "Inativo") });
-    const ev = evento([
-      { sensor: "T-01", valor: 25.4 },
-      { sensor: "PM-01", valor: 12 },
-      { sensor: "X-99", valor: 7 },
-    ]);
+const sensorInativo = (codigo: string): SensorEventoRow => ({
+  id: `sensor-${codigo}-id`,
+  estacao_id: ESTACAO,
+  codigo,
+  fator: "1.000000",
+  ganho: "0.000000",
+  status: "Inativo",
+  municipio: "São José dos Campos",
+});
 
-    const res = await processarLeiturasDoEvento(ev, deps);
+describe("concluirLeiturasIgnoradas", () => {
+  it("publica as inexistentes na DLQ antes de registrar as inativas", async () => {
+    const ordem: string[] = [];
+    const publicarLeituraNaDlq = jest
+      .fn<PublicarLeituraNaDlq>()
+      .mockImplementation(async ({ leitura }) => {
+        ordem.push(`dlq:${leitura.sensor}`);
+      });
+    const registrarInativa = jest.fn<RegistrarInativa>().mockImplementation(({ codigo }) => {
+      ordem.push(`inativa:${codigo}`);
+    });
 
-    expect(deps.seguirParaUS17).toHaveBeenCalledTimes(1);
-    expect(deps.seguirParaUS17).toHaveBeenCalledWith(
-      [{ leitura: { sensor: "T-01", valor: 25.4 }, sensor: t01 }],
-      ev,
+    await concluirLeiturasIgnoradas(
+      evento,
+      {
+        inexistentes: [{ sensor: "X-99", valor: 7 }],
+        inativas: [{ leitura: { sensor: "PM-01", valor: 12 }, sensor: sensorInativo("PM-01") }],
+      },
+      { publicarLeituraNaDlq, registrarInativa },
     );
-    expect(deps.enviarLeituraParaDlq).toHaveBeenCalledTimes(1);
-    expect(deps.enviarLeituraParaDlq).toHaveBeenCalledWith(
-      { sensor: "X-99", valor: 7 },
-      ev,
-      MOTIVO_SENSOR_INEXISTENTE,
-    );
-    expect(deps.registrarInativa).toHaveBeenCalledTimes(1);
-    expect(deps.registrarInativa).toHaveBeenCalledWith({
+
+    expect(ordem).toEqual(["dlq:X-99", "inativa:PM-01"]);
+    expect(publicarLeituraNaDlq).toHaveBeenCalledWith({
+      evento,
+      leitura: { sensor: "X-99", valor: 7 },
+      motivo: MOTIVO_SENSOR_INEXISTENTE,
+    });
+    expect(registrarInativa).toHaveBeenCalledWith({
       estacaoId: ESTACAO,
       codigo: "PM-01",
       unixtime: UNIXTIME,
       valorBruto: 12,
     });
-    expect(res).toEqual({ gravadas: 1, ignoradasInativas: 1, enviadasDlq: 1 });
   });
 
-  it("b) todos inativos: não grava nem envia para a DLQ, registra cada um", async () => {
-    const deps = criarDeps({
-      "T-01": sensor("T-01", "Inativo"),
-      "U-01": sensor("U-01", "Inativo"),
-      "PM-01": sensor("PM-01", "Inativo"),
-    });
-
-    const res = await processarLeiturasDoEvento(
-      evento([
-        { sensor: "T-01", valor: 1 },
-        { sensor: "U-01", valor: 2 },
-        { sensor: "PM-01", valor: 3 },
-      ]),
-      deps,
-    );
-
-    expect(deps.seguirParaUS17).not.toHaveBeenCalled();
-    expect(deps.enviarLeituraParaDlq).not.toHaveBeenCalled();
-    expect(deps.registrarInativa).toHaveBeenCalledTimes(3);
-    expect(res).toEqual({ gravadas: 0, ignoradasInativas: 3, enviadasDlq: 0 });
-  });
-
-  it("c) sensor reativado volta a seguir para a US-17 no evento seguinte", async () => {
-    const tabela: Record<string, SensorDaEstacao | null> = {
-      "PM-01": sensor("PM-01", "Inativo"),
-    };
-    const deps = criarDeps(tabela);
-    const ev = evento([{ sensor: "PM-01", valor: 12 }]);
-
-    await processarLeiturasDoEvento(ev, deps);
-    expect(deps.seguirParaUS17).not.toHaveBeenCalled();
-    expect(deps.registrarInativa).toHaveBeenCalledTimes(1);
-
-    tabela["PM-01"] = sensor("PM-01", "Ativo");
-    const res = await processarLeiturasDoEvento(ev, deps);
-
-    expect(deps.seguirParaUS17).toHaveBeenCalledTimes(1);
-    expect(deps.seguirParaUS17).toHaveBeenCalledWith(
-      [{ leitura: { sensor: "PM-01", valor: 12 }, sensor: tabela["PM-01"] }],
-      ev,
-    );
-    expect(deps.registrarInativa).toHaveBeenCalledTimes(1);
-    expect(res).toEqual({ gravadas: 1, ignoradasInativas: 0, enviadasDlq: 0 });
-  });
-
-  it("d) erro em seguirParaUS17 propaga e não envia DLQ nem registra inativas", async () => {
-    const erro = new Error("falha ao gravar medidas");
-    const deps = criarDeps({ "T-01": sensor("T-01", "Ativo"), "PM-01": sensor("PM-01", "Inativo") });
-    deps.seguirParaUS17.mockRejectedValue(erro);
-
-    await expect(
-      processarLeiturasDoEvento(
-        evento([
-          { sensor: "T-01", valor: 25 },
-          { sensor: "PM-01", valor: 12 },
-          { sensor: "X-99", valor: 7 },
-        ]),
-        deps,
-      ),
-    ).rejects.toBe(erro);
-    expect(deps.enviarLeituraParaDlq).not.toHaveBeenCalled();
-    expect(deps.registrarInativa).not.toHaveBeenCalled();
-  });
-
-  it("e) erro em enviarLeituraParaDlq propaga e não registra inativas", async () => {
+  it("propaga o erro da DLQ e não registra as inativas", async () => {
     const erro = new Error("falha ao publicar na DLQ");
-    const deps = criarDeps({ "PM-01": sensor("PM-01", "Inativo") });
-    deps.enviarLeituraParaDlq.mockRejectedValue(erro);
+    const publicarLeituraNaDlq = jest.fn<PublicarLeituraNaDlq>().mockRejectedValue(erro);
+    const registrarInativa = jest.fn<RegistrarInativa>();
 
     await expect(
-      processarLeiturasDoEvento(
-        evento([
-          { sensor: "PM-01", valor: 12 },
-          { sensor: "X-99", valor: 7 },
-        ]),
-        deps,
+      concluirLeiturasIgnoradas(
+        evento,
+        {
+          inexistentes: [{ sensor: "X-99", valor: 7 }],
+          inativas: [{ leitura: { sensor: "PM-01", valor: 12 }, sensor: sensorInativo("PM-01") }],
+        },
+        { publicarLeituraNaDlq, registrarInativa },
       ),
     ).rejects.toBe(erro);
-    expect(deps.registrarInativa).not.toHaveBeenCalled();
+    expect(registrarInativa).not.toHaveBeenCalled();
+  });
+
+  it("não chama a DLQ quando não há inexistentes", async () => {
+    const publicarLeituraNaDlq = jest.fn<PublicarLeituraNaDlq>();
+    const registrarInativa = jest.fn<RegistrarInativa>();
+
+    await concluirLeiturasIgnoradas(
+      evento,
+      {
+        inexistentes: [],
+        inativas: [{ leitura: { sensor: "PM-01", valor: 12 }, sensor: sensorInativo("PM-01") }],
+      },
+      { publicarLeituraNaDlq, registrarInativa },
+    );
+
+    expect(publicarLeituraNaDlq).not.toHaveBeenCalled();
+    expect(registrarInativa).toHaveBeenCalledTimes(1);
+  });
+
+  it("todos inativos: registra cada leitura e não chama a DLQ", async () => {
+    const publicarLeituraNaDlq = jest.fn<PublicarLeituraNaDlq>();
+    const registrarInativa = jest.fn<RegistrarInativa>();
+
+    await concluirLeiturasIgnoradas(
+      evento,
+      {
+        inexistentes: [],
+        inativas: ["T-01", "U-01", "PM-01"].map((codigo, i) => ({
+          leitura: { sensor: codigo, valor: i + 1 },
+          sensor: sensorInativo(codigo),
+        })),
+      },
+      { publicarLeituraNaDlq, registrarInativa },
+    );
+
+    expect(publicarLeituraNaDlq).not.toHaveBeenCalled();
+    expect(registrarInativa).toHaveBeenCalledTimes(3);
+    expect(registrarInativa.mock.calls.map(([dados]) => dados.codigo)).toEqual([
+      "T-01",
+      "U-01",
+      "PM-01",
+    ]);
   });
 });

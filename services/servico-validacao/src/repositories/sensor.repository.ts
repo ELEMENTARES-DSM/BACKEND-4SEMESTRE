@@ -33,10 +33,13 @@ export const buscarSensoresPorEvento = async (
      FROM sensores s
      JOIN estacoes e ON e.id = s.estacao_id
      WHERE s.estacao_id = $1
-       AND s.codigo = ANY($2::varchar[])`,
+       AND s.codigo = ANY($2::varchar[])
+     ORDER BY (s.status = 'Ativo') ASC`,
     [estacaoUuid, codigosUnicos],
   );
 
+  // sensores.codigo não tem UNIQUE: se o código se repetir na estação, o ORDER BY
+  // deixa o sensor ativo por último, e ele prevalece no Map.
   for (const row of resultado.rows) {
     mapa.set(row.codigo, row);
   }

@@ -199,7 +199,7 @@ describe("US-17 (Task 17.1) — Cenários 1 a 13 de ponta a ponta", () => {
         .mockResolvedValue(undefined),
     });
     const connection = Object.assign(new EventEmitter(), {
-      createChannel: jest
+      createConfirmChannel: jest
         .fn<(...args: unknown[]) => Promise<unknown>>()
         .mockResolvedValue(channel),
       close: jest
@@ -325,7 +325,7 @@ describe("US-17 (Task 17.1) — Cenários 1 a 13 de ponta a ponta", () => {
     });
 
     const connection = Object.assign(new EventEmitter(), {
-      createChannel: jest
+      createConfirmChannel: jest
         .fn<() => Promise<unknown>>()
         .mockResolvedValue(channel),
       close: jest.fn<() => Promise<unknown>>().mockResolvedValue(undefined),
@@ -532,7 +532,7 @@ describe("US-17 (Task 17.1) — Cenários 1 a 13 de ponta a ponta", () => {
     });
 
     const connection = Object.assign(new EventEmitter(), {
-      createChannel: jest
+      createConfirmChannel: jest
         .fn<() => Promise<unknown>>()
         .mockResolvedValue(channel),
       close: jest.fn<() => Promise<unknown>>().mockResolvedValue(undefined),

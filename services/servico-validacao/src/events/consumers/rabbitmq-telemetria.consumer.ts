@@ -1,14 +1,24 @@
-import amqp, { Channel, ChannelModel, ConsumeMessage } from "amqplib";
-import { EventoTelemetriaDTO } from "../../dto/evento-telemetria.dto";
-import { processarEventoTelemetria } from "../../services/processar-telemetria.service";
+import amqp, { ChannelModel, ConfirmChannel, ConsumeMessage } from "amqplib";
+import {
+  EventoTelemetriaDTO,
+  LeituraEventoDTO,
+} from "../../dto/evento-telemetria.dto";
+import {
+  processarEventoTelemetria,
+  ResultadoProcessamentoEvento,
+} from "../../services/processar-telemetria.service";
+import { concluirLeiturasIgnoradas } from "../../services/processar-leituras.service";
 import logger from "../../utils/logger";
 
 export const FILA_VALIDACAO_TELEMETRIA = "validacao.telemetria";
 export const PREFETCH_VALIDACAO_TELEMETRIA = 10;
+// Mesmo nome do exchange declarado pelo publisher do ingestao-dados (dono da topologia).
+export const EXCHANGE_VALIDACAO_DLX = "validacao.dlx";
+export const TIPO_LEITURA_SENSOR_INEXISTENTE = "leitura_sensor_inexistente";
 
 export type ProcessadorEventoTelemetria = (
   evento: EventoTelemetriaDTO,
-) => Promise<unknown>;
+) => Promise<ResultadoProcessamentoEvento>;
 
 export interface RabbitMqConsumerOptions {
   url: string;
@@ -26,7 +36,7 @@ export interface EstadoSaudeRabbitMq {
 
 export class ConsumidorRabbitMqTelemetria {
   private connection?: ChannelModel;
-  private channel?: Channel;
+  private channel?: ConfirmChannel;
   private reconectarTimer?: NodeJS.Timeout;
   private encerrando = false;
   private conectando = false;
@@ -132,9 +142,10 @@ export class ConsumidorRabbitMqTelemetria {
   }
 
   private async iniciarConsumoNoCanal(connection: ChannelModel): Promise<void> {
-    let channel: Channel | undefined;
+    let channel: ConfirmChannel | undefined;
     try {
-      channel = await connection.createChannel();
+      // Canal com confirmação: a publicação de leituras na DLQ espera o ack do broker.
+      channel = await connection.createConfirmChannel();
       const canalAtual = channel;
 
       canalAtual.on("error", (erro: Error) => {
@@ -183,7 +194,7 @@ export class ConsumidorRabbitMqTelemetria {
   }
 
   private async tratarMensagem(
-    channel: Channel,
+    channel: ConfirmChannel,
     msg: ConsumeMessage | null,
   ): Promise<void> {
     if (!msg) {
@@ -202,9 +213,17 @@ export class ConsumidorRabbitMqTelemetria {
       const conteudo = msg.content.toString("utf-8");
       const evento = JSON.parse(conteudo) as EventoTelemetriaDTO;
 
-      await this.processarEvento(evento);
+      const resultado = await this.processarEvento(evento);
 
-      // Confirma no RabbitMQ somente após o commit da transação no banco
+      // TASK 18.01: depois do COMMIT, publica as leituras de sensor inexistente na
+      // DLQ (esperando a confirmação do broker) e registra as de sensor inativo.
+      // No reenvio do mesmo evento as medidas não duplicam (UNIQUE sensor_id, unixtime),
+      // mas a leitura inexistente pode ser publicada de novo na DLQ, o que é aceitável.
+      await concluirLeiturasIgnoradas(evento, resultado, {
+        publicarLeituraNaDlq: (dados) => this.publicarLeituraNaDlq(channel, dados),
+      });
+
+      // Confirma no RabbitMQ somente após o commit no banco e a confirmação da DLQ
       channel.ack(msg);
     } catch (erro) {
       logger.error("Falha ao processar mensagem da fila; ack não enviado", {
@@ -217,6 +236,38 @@ export class ConsumidorRabbitMqTelemetria {
         // Canal pode ter fechado durante o processamento
       }
     }
+  }
+
+  private publicarLeituraNaDlq(
+    channel: ConfirmChannel,
+    dados: { evento: EventoTelemetriaDTO; leitura: LeituraEventoDTO; motivo: string },
+  ): Promise<void> {
+    const conteudo = Buffer.from(
+      JSON.stringify({
+        // Distingue da mensagem do evento inteiro que o broker manda à DLQ após 3 entregas.
+        tipo: TIPO_LEITURA_SENSOR_INEXISTENTE,
+        motivo: dados.motivo,
+        falhou_em: new Date().toISOString(),
+        staging_id: dados.evento.staging_id,
+        estacao_uuid: dados.evento.estacao_uuid,
+        unixtime: dados.evento.unixtime,
+        leitura: { sensor: dados.leitura.sensor, valor: dados.leitura.valor },
+      }),
+    );
+
+    return new Promise<void>((resolve, reject) => {
+      channel.publish(
+        EXCHANGE_VALIDACAO_DLX,
+        "",
+        conteudo,
+        {
+          persistent: true,
+          contentType: "application/json",
+          headers: { "x-motivo": dados.motivo },
+        },
+        (erro) => (erro ? reject(erro) : resolve()),
+      );
+    });
   }
 
   private agendarNovaTentativa(): void {

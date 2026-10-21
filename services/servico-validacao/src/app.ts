@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import openapi from "./docs/openapi.json";
 import { obterSaude } from "./controllers/health.controller";
+import metricasRoutes from "./routes/metricas.routes";
 
 const app = express();
 
@@ -23,5 +24,7 @@ app.get("/validacao/openapi.json", (_req, res) => {
 
 // Informa o estado das conexões com PostgreSQL, RabbitMQ e a fila validacao.telemetria.
 app.get("/validacao/health", obterSaude);
+
+app.use("/validacao/metricas", metricasRoutes);
 
 export default app;

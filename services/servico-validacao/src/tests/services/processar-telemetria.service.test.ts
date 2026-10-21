@@ -271,4 +271,115 @@ describe("processar-telemetria.service", () => {
     expect(releaseClientMock).toHaveBeenCalledTimes(1);
     expect(errorSpy).toHaveBeenCalled();
   });
+
+  describe("TASK 18.01 — sensor inativo e inexistente", () => {
+    const sensorRow = (codigo: string, status: string) => ({
+      id: `sensor-${codigo}-id`,
+      estacao_id: "estacao-uuid-1",
+      codigo,
+      fator: "1.000000",
+      ganho: "0.000000",
+      status,
+      municipio: "São José dos Campos",
+    });
+
+    const medidaInserida = (sensorId: string) => ({
+      inserida: true,
+      medida: {
+        id: `medida-${sensorId}`,
+        sensor_id: sensorId,
+        unixtime: "1792400000",
+        valor_bruto: "25.400000",
+        valor: "25.400000",
+        valida: true,
+        staging_id: "staging-uuid-1",
+        criado_em: dataFixa,
+      },
+    });
+
+    const processar = (leituras: Array<{ sensor: string; valor: number }>) =>
+      processarEventoTelemetria(
+        { ...eventoBase, leituras },
+        { dbPool: { connect: connectPoolMock as never }, agora: () => dataFixa },
+      );
+
+    it("a) só calibra e grava o sensor ativo; devolve inativas e inexistentes sem ROLLBACK", async () => {
+      const errorSpy = jest.spyOn(logger, "error").mockImplementation(() => {});
+      const pm01 = sensorRow("PM-01", "Inativo");
+      jest.mocked(sensorRepository.buscarSensoresPorEvento).mockResolvedValue(
+        new Map([
+          ["T-01", sensorRow("T-01", "Ativo")],
+          ["PM-01", pm01],
+        ]),
+      );
+      jest
+        .mocked(medidaRepository.inserirMedidaIdempotente)
+        .mockResolvedValue(medidaInserida("sensor-T-01-id"));
+
+      const resultado = await processar([
+        { sensor: "T-01", valor: 25.4 },
+        { sensor: "PM-01", valor: 12 },
+        { sensor: "X-99", valor: 7 },
+      ]);
+
+      expect(medidaRepository.inserirMedidaIdempotente).toHaveBeenCalledTimes(1);
+      expect(medidaRepository.inserirMedidaIdempotente).toHaveBeenCalledWith(
+        expect.objectContaining({ sensor_id: "sensor-T-01-id", valor_bruto: 25.4, valor: "25.40" }),
+        expect.objectContaining({ query: queryClientMock }),
+      );
+      expect(queryClientMock).toHaveBeenLastCalledWith("COMMIT");
+      expect(queryClientMock).not.toHaveBeenCalledWith("ROLLBACK");
+      expect(errorSpy).not.toHaveBeenCalled();
+      expect(resultado.inseridas).toBe(1);
+      expect(resultado.inativas).toEqual([{ leitura: { sensor: "PM-01", valor: 12 }, sensor: pm01 }]);
+      expect(resultado.inexistentes).toEqual([{ sensor: "X-99", valor: 7 }]);
+    });
+
+    it("b) todos inativos: nenhum insert, COMMIT e 3 inativas", async () => {
+      jest.mocked(sensorRepository.buscarSensoresPorEvento).mockResolvedValue(
+        new Map([
+          ["T-01", sensorRow("T-01", "Inativo")],
+          ["U-01", sensorRow("U-01", "Inativo")],
+          ["PM-01", sensorRow("PM-01", "Inativo")],
+        ]),
+      );
+
+      const resultado = await processar([
+        { sensor: "T-01", valor: 1 },
+        { sensor: "U-01", valor: 2 },
+        { sensor: "PM-01", valor: 3 },
+      ]);
+
+      expect(medidaRepository.inserirMedidaIdempotente).not.toHaveBeenCalled();
+      expect(queryClientMock).toHaveBeenLastCalledWith("COMMIT");
+      expect(queryClientMock).not.toHaveBeenCalledWith("ROLLBACK");
+      expect(resultado.inseridas).toBe(0);
+      expect(resultado.inativas).toHaveLength(3);
+      expect(resultado.inexistentes).toEqual([]);
+    });
+
+    it("c) reativação: o segundo evento, com o sensor Ativo, insere", async () => {
+      jest
+        .mocked(sensorRepository.buscarSensoresPorEvento)
+        .mockResolvedValueOnce(new Map([["PM-01", sensorRow("PM-01", "Inativo")]]))
+        .mockResolvedValueOnce(new Map([["PM-01", sensorRow("PM-01", "Ativo")]]));
+      jest
+        .mocked(medidaRepository.inserirMedidaIdempotente)
+        .mockResolvedValue(medidaInserida("sensor-PM-01-id"));
+
+      const primeiro = await processar([{ sensor: "PM-01", valor: 12 }]);
+      expect(medidaRepository.inserirMedidaIdempotente).not.toHaveBeenCalled();
+      expect(primeiro.inativas).toHaveLength(1);
+
+      const segundo = await processar([{ sensor: "PM-01", valor: 12 }]);
+      expect(sensorRepository.buscarSensoresPorEvento).toHaveBeenCalledTimes(2);
+      expect(medidaRepository.inserirMedidaIdempotente).toHaveBeenCalledTimes(1);
+      expect(medidaRepository.inserirMedidaIdempotente).toHaveBeenCalledWith(
+        expect.objectContaining({ sensor_id: "sensor-PM-01-id" }),
+        expect.anything(),
+      );
+      expect(segundo.inseridas).toBe(1);
+      expect(segundo.inativas).toEqual([]);
+    });
+  });
 });
