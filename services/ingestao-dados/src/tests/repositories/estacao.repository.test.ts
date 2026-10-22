@@ -1,6 +1,34 @@
-import { describe, it, expect, jest, beforeEach } from "@jest/globals";
+import { describe, it, expect, jest, beforeEach, afterEach } from "@jest/globals";
 import { PoolClient } from "pg";
-import { atualizarSinalEstacao } from "../../repositories/estacao.repository";
+import { pool } from "../../config/db";
+import {
+  atualizarSinalEstacao,
+  buscarStatusEstacao,
+} from "../../repositories/estacao.repository";
+
+describe("estacao.repository - buscarStatusEstacao", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it("retorna o status do cadastro lendo só a tabela estacoes", async () => {
+    const consulta = jest
+      .spyOn(pool, "query")
+      .mockResolvedValue({ rows: [{ status: "Inativa" }] } as never);
+
+    await expect(buscarStatusEstacao("estacao-123")).resolves.toBe("Inativa");
+    expect(consulta.mock.calls[0]).toEqual([
+      "SELECT status FROM estacoes WHERE id = $1",
+      ["estacao-123"],
+    ]);
+  });
+
+  it("retorna null quando a estação não existe", async () => {
+    jest.spyOn(pool, "query").mockResolvedValue({ rows: [] } as never);
+
+    await expect(buscarStatusEstacao("estacao-inexistente")).resolves.toBeNull();
+  });
+});
 
 describe("estacao.repository - atualizarSinalEstacao", () => {
   let mockClient: jest.Mocked<PoolClient>;

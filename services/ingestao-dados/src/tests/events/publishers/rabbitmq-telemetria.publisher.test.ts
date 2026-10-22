@@ -30,6 +30,14 @@ describe("RabbitMqTelemetriaPublisher", () => {
   let channel: MockChannel;
   let publisher: RabbitMqTelemetriaPublisher;
 
+  // Espera o ciclo de publicação chegar ao ponto conferido, sem depender da velocidade da máquina.
+  const aguardar = async (predicado: () => boolean, timeoutMs = 2000): Promise<void> => {
+    const limite = Date.now() + timeoutMs;
+    while (!predicado() && Date.now() < limite) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
     channel = Object.assign(new EventEmitter(), {
@@ -60,7 +68,7 @@ describe("RabbitMqTelemetriaPublisher", () => {
     });
 
     await publisher.iniciar();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await aguardar(() => jest.mocked(marcarPublicada).mock.calls.length > 0);
 
     expect(marcarPublicada).toHaveBeenCalledWith(registro.id);
     expect(marcarPendente).not.toHaveBeenCalled();
@@ -74,7 +82,7 @@ describe("RabbitMqTelemetriaPublisher", () => {
     });
 
     await publisher.iniciar();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await aguardar(() => jest.mocked(marcarPendente).mock.calls.length > 0);
 
     expect(marcarPublicada).not.toHaveBeenCalled();
     expect(marcarPendente).toHaveBeenCalledWith(registro.id, "nack");
@@ -91,7 +99,7 @@ describe("RabbitMqTelemetriaPublisher", () => {
     });
 
     await publisher.iniciar();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await aguardar(() => jest.mocked(marcarPendente).mock.calls.length > 0);
 
     expect(marcarPublicada).not.toHaveBeenCalled();
     expect(marcarPendente).toHaveBeenCalledWith(

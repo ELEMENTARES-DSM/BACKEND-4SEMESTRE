@@ -5,6 +5,7 @@ import { processarMensagem } from "../../services/processar-mensagem.service";
 import { duplicateMetricsService } from "../../services/duplicate-metrics.service";
 import { rejectionMetricsService } from "../../services/rejection-metrics.service";
 import { logger } from "../../utils/logger";
+import { cadastrarEstacao, criarTabelaEstacoes } from "./helpers/estacoes";
 
 // Critérios da TASK 13.01 (duplicata por estação e timestamp).
 // Execute somente contra um banco de teste; cada execução usa um schema isolado.
@@ -25,6 +26,12 @@ integration("deduplicação na staging PostgreSQL", () => {
     ...extras,
   });
 
+  const novaEstacao = async (): Promise<string> => {
+    const id = randomUUID();
+    await cadastrarEstacao(pool, id);
+    return id;
+  };
+
   const contarLinhas = async (): Promise<string> => {
     const { rows } = await pool.query("SELECT count(*) FROM staging_telemetria");
     return rows[0].count;
@@ -41,6 +48,7 @@ integration("deduplicação na staging PostgreSQL", () => {
     const comandos: string[] = [];
     migration.up({ sql: (sql: string) => comandos.push(sql) });
     for (const sql of comandos) await pool.query(sql);
+    await criarTabelaEstacoes(pool);
     jest.spyOn(logger, "warn").mockImplementation(() => undefined);
     jest.spyOn(logger, "info").mockImplementation(() => undefined);
   });
@@ -55,13 +63,13 @@ integration("deduplicação na staging PostgreSQL", () => {
   });
 
   beforeEach(async () => {
-    await pool.query("TRUNCATE staging_telemetria");
+    await pool.query("TRUNCATE staging_telemetria, estacoes");
     duplicateMetricsService.reset();
     rejectionMetricsService.reset();
   });
 
   it("mesma estação e mesmo timestamp: ignora a segunda e não altera a original", async () => {
-    const estacaoId = randomUUID();
+    const estacaoId = await novaEstacao();
     const original = mensagem(estacaoId, "2026-10-14T12:00:00Z");
     // Reenvio com outro horário de recebimento e outro espaçamento, mesmo timestamp.
     const reenvio = mensagem(estacaoId, "2026-10-14T12:00:00Z", {
@@ -88,7 +96,7 @@ integration("deduplicação na staging PostgreSQL", () => {
   });
 
   it("mesmo instante com fuso diferente é duplicata", async () => {
-    const estacaoId = randomUUID();
+    const estacaoId = await novaEstacao();
 
     expect(await processarMensagem(mensagem(estacaoId, "2026-10-14T21:00:00-03:00"))).toBe("recebida");
     expect(await processarMensagem(mensagem(estacaoId, "2026-10-15T00:00:00Z"))).toBe("duplicata");
@@ -96,7 +104,7 @@ integration("deduplicação na staging PostgreSQL", () => {
   });
 
   it("mesma estação com horário diferente grava as duas", async () => {
-    const estacaoId = randomUUID();
+    const estacaoId = await novaEstacao();
 
     expect(await processarMensagem(mensagem(estacaoId, "2026-10-14T12:00:00Z"))).toBe("recebida");
     expect(await processarMensagem(mensagem(estacaoId, "2026-10-14T12:00:01Z"))).toBe("recebida");
@@ -104,13 +112,13 @@ integration("deduplicação na staging PostgreSQL", () => {
   });
 
   it("estação diferente com o mesmo horário grava as duas", async () => {
-    expect(await processarMensagem(mensagem(randomUUID(), "2026-10-14T12:00:00Z"))).toBe("recebida");
-    expect(await processarMensagem(mensagem(randomUUID(), "2026-10-14T12:00:00Z"))).toBe("recebida");
+    expect(await processarMensagem(mensagem(await novaEstacao(), "2026-10-14T12:00:00Z"))).toBe("recebida");
+    expect(await processarMensagem(mensagem(await novaEstacao(), "2026-10-14T12:00:00Z"))).toBe("recebida");
     expect(await contarLinhas()).toBe("2");
   });
 
   it("10 cópias idênticas simultâneas: só uma é gravada", async () => {
-    const copia = mensagem(randomUUID(), "2026-10-14T12:00:00Z");
+    const copia = mensagem(await novaEstacao(), "2026-10-14T12:00:00Z");
 
     const resultados = await Promise.all(
       Array.from({ length: 10 }, () => processarMensagem(copia)),
@@ -125,7 +133,7 @@ integration("deduplicação na staging PostgreSQL", () => {
 
   it("dois timestamps no mesmo segundo são duplicata", async () => {
     // A chave é o unixtime em segundos (decisão do índice): frações são truncadas.
-    const estacaoId = randomUUID();
+    const estacaoId = await novaEstacao();
 
     expect(await processarMensagem(mensagem(estacaoId, "2026-10-14T12:00:00.200Z"))).toBe("recebida");
     expect(await processarMensagem(mensagem(estacaoId, "2026-10-14T12:00:00.700Z"))).toBe("duplicata");

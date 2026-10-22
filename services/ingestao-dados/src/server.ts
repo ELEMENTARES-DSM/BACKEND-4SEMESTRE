@@ -1,7 +1,8 @@
 import app from "./app";
 import { carregarConfigMqtt } from "./config/mqtt.config";
-import { ConsumidorMqttTelemetria, ProximoPasso } from "./events/consumers/mqtt-telemetria.consumer";
+import { ConsumidorMqttTelemetria } from "./events/consumers/mqtt-telemetria.consumer";
 import { RabbitMqTelemetriaPublisher } from "./events/publishers/rabbitmq-telemetria.publisher";
+import { encaminharParaIngestao } from "./services/processar-mensagem.service";
 import { configurarPublisherStaging, encerrarPublisherStaging } from "./services/staging-publisher.service";
 
 const PORT = process.env.PORT || 3005;
@@ -11,14 +12,11 @@ const intervaloRecuperacaoMs = Number.isSafeInteger(intervaloRecuperacaoConfigur
   ? intervaloRecuperacaoConfigurado
   : 10000;
 
-// Provisório até a US-12: o próximo passo ainda não existe, então a mensagem só é registrada.
-const encaminharProximoPasso: ProximoPasso = async (mensagem) => {
-  console.log(`[ingestao] mensagem de ${mensagem.estacaoId} recebida em ${mensagem.recebidoEm}`);
-};
-
+// Cada mensagem segue o fluxo da ingestão; o broker só recebe a confirmação
+// depois que a mensagem foi gravada no staging (ou rejeitada com motivo).
 const clienteMqtt = new ConsumidorMqttTelemetria({
   config: carregarConfigMqtt(),
-  proximoPasso: encaminharProximoPasso,
+  proximoPasso: encaminharParaIngestao,
 });
 
 const rabbitMqPublisher = new RabbitMqTelemetriaPublisher({
