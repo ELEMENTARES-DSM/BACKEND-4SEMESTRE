@@ -4,6 +4,7 @@ import { inserirStaging } from "../repositories/staging.repository";
 import { atualizarSinalEstacao } from "../repositories/estacao.repository";
 import { ValidarPayloadService } from "./validar-payload.service";
 import { solicitarProcessamentoPendentes } from "./staging-publisher.service";
+import { protegerCliente } from "../utils/conexao-pg";
 
 export type ResultadoGravacao = "recebida" | "rejeitada" | "duplicata";
 
@@ -60,6 +61,7 @@ export async function gravarAceita(
   );
 
   const client = await pool.connect();
+  const liberarCliente = protegerCliente(client, "gravar mensagem aceita no staging");
 
   try {
     await client.query("BEGIN");
@@ -91,10 +93,11 @@ export async function gravarAceita(
     solicitarProcessamentoPendentes();
     return "recebida";
   } catch (erro) {
-    await client.query("ROLLBACK");
+    // Com a conexão perdida o ROLLBACK também falha; o erro que importa é o original.
+    await client.query("ROLLBACK").catch(() => undefined);
     throw erro;
   } finally {
-    client.release();
+    liberarCliente();
   }
 }
 

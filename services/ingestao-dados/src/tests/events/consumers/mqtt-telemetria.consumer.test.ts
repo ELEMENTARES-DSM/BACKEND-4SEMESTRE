@@ -32,6 +32,7 @@ class ClienteFalso extends EventEmitter {
     return this;
   });
   handleMessage = jest.fn((_pacote: IPublishPacket, callback: (erro?: Error) => void) => callback());
+  reconnect = jest.fn(() => this);
 }
 
 function pacote(topic: string, payload: string): IPublishPacket {
@@ -56,7 +57,7 @@ describe("ConsumidorMqttTelemetria", () => {
   let error: jest.SpyInstance;
   let log: jest.SpyInstance;
 
-  function criarServico(passo?: jest.Mock) {
+  function criarServico(passo?: jest.Mock, reentregaMs?: number) {
     proximoPasso = passo ?? jest.fn(async (mensagem) => {
       encaminhados.push(mensagem);
     });
@@ -67,6 +68,7 @@ describe("ConsumidorMqttTelemetria", () => {
       conectar: conectar as unknown as typeof mqtt.connect,
       metricasRecebidas: recebidas,
       estadoConexao: estado,
+      reentregaMs,
     });
     servico.iniciar();
     return servico;
@@ -406,5 +408,85 @@ describe("ConsumidorMqttTelemetria", () => {
     cliente.emit("connect");
 
     expect(log).toHaveBeenCalledWith(expect.stringContaining("pulso/estacoes/+/telemetria"));
+  });
+
+  describe("reentrega quando a gravação falha (TASK 14.03)", () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    test("não confirma e reconecta depois da espera para o broker reenviar", async () => {
+      criarServico(jest.fn().mockRejectedValue(new Error("staging indisponível")), 3000);
+
+      const { erro } = await entregar(cliente, TOPICO_A, "{}");
+      expect(erro).toEqual(new Error("staging indisponível"));
+      expect(cliente.end).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(2999);
+      expect(cliente.end).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(1);
+      expect(cliente.end).toHaveBeenCalledWith(true, {}, expect.any(Function));
+      expect(cliente.reconnect).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("reconectando"));
+    });
+
+    test("várias falhas seguidas geram uma única reconexão", async () => {
+      criarServico(jest.fn().mockRejectedValue(new Error("staging indisponível")), 1000);
+
+      await entregar(cliente, TOPICO_A, "{}");
+      await entregar(cliente, TOPICO_B, "{}");
+      await entregar(cliente, TOPICO_A, "{}");
+      jest.advanceTimersByTime(1000);
+
+      expect(cliente.reconnect).toHaveBeenCalledTimes(1);
+    });
+
+    test("depois de uma reconexão, nova falha agenda nova reentrega", async () => {
+      criarServico(jest.fn().mockRejectedValue(new Error("staging indisponível")), 1000);
+
+      await entregar(cliente, TOPICO_A, "{}");
+      jest.advanceTimersByTime(1000);
+      await entregar(cliente, TOPICO_A, "{}");
+      jest.advanceTimersByTime(1000);
+
+      expect(cliente.reconnect).toHaveBeenCalledTimes(2);
+    });
+
+    test("entrega com sucesso não reconecta", async () => {
+      criarServico(undefined, 1000);
+
+      await entregar(cliente, TOPICO_A, "{}");
+      jest.advanceTimersByTime(5000);
+
+      expect(cliente.end).not.toHaveBeenCalled();
+      expect(cliente.reconnect).not.toHaveBeenCalled();
+    });
+
+    test("encerrar cancela a reentrega agendada", async () => {
+      const servico = criarServico(jest.fn().mockRejectedValue(new Error("staging indisponível")), 1000);
+
+      await entregar(cliente, TOPICO_A, "{}");
+      await servico.encerrar();
+      cliente.end.mockClear();
+      jest.advanceTimersByTime(1000);
+
+      expect(cliente.end).not.toHaveBeenCalled();
+      expect(cliente.reconnect).not.toHaveBeenCalled();
+    });
+
+    test("sem espera configurada, reconecta depois de 5 segundos", async () => {
+      criarServico(jest.fn().mockRejectedValue(new Error("staging indisponível")));
+
+      await entregar(cliente, TOPICO_A, "{}");
+      jest.advanceTimersByTime(4999);
+      expect(cliente.reconnect).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(1);
+      expect(cliente.reconnect).toHaveBeenCalledTimes(1);
+    });
   });
 });

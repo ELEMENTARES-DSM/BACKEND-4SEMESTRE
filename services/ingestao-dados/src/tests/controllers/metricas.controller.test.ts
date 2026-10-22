@@ -9,6 +9,7 @@ import { contarPendentes } from "../../repositories/staging.repository";
 import { rejectionMetricsService } from "../../services/rejection-metrics.service";
 import { duplicateMetricsService } from "../../services/duplicate-metrics.service";
 import { receivedMetricsService } from "../../services/received-metrics.service";
+import { gravacaoMetricsService } from "../../services/gravacao-metrics.service";
 import {
   PAYLOAD_MALFORMADO,
   TIMESTAMP_INVALIDO,
@@ -36,6 +37,7 @@ describe("GET /ingestao/metricas", () => {
     rejectionMetricsService.reset();
     duplicateMetricsService.reset();
     receivedMetricsService.reset();
+    gravacaoMetricsService.reset();
   });
 
   it("deve retornar 200 e leiturasRejeitadas como {} quando não há rejeições registradas", async () => {
@@ -50,6 +52,8 @@ describe("GET /ingestao/metricas", () => {
       leiturasRecebidas: 0,
       leiturasRejeitadas: {},
       duplicadasIgnoradas: 0,
+      mensagensGravadas: 0,
+      rejeitadasGravadas: 0,
       mensagensPendentes: 0,
     });
   });
@@ -68,6 +72,8 @@ describe("GET /ingestao/metricas", () => {
       leiturasRecebidas: 3,
       leiturasRejeitadas: {},
       duplicadasIgnoradas: 0,
+      mensagensGravadas: 0,
+      rejeitadasGravadas: 0,
       mensagensPendentes: 0,
     });
   });
@@ -88,6 +94,8 @@ describe("GET /ingestao/metricas", () => {
       leiturasRecebidas: 2,
       leiturasRejeitadas: { [PAYLOAD_MALFORMADO]: 1 },
       duplicadasIgnoradas: 1,
+      mensagensGravadas: 0,
+      rejeitadasGravadas: 0,
       mensagensPendentes: 0,
     });
   });
@@ -111,6 +119,8 @@ describe("GET /ingestao/metricas", () => {
         [TIMESTAMP_INVALIDO]: 1,
       },
       duplicadasIgnoradas: 0,
+      mensagensGravadas: 0,
+      rejeitadasGravadas: 0,
       mensagensPendentes: 0,
     });
   });
@@ -137,6 +147,8 @@ describe("GET /ingestao/metricas", () => {
       leiturasRecebidas: 0,
       leiturasRejeitadas: {},
       duplicadasIgnoradas: 2,
+      mensagensGravadas: 0,
+      rejeitadasGravadas: 0,
       mensagensPendentes: 0,
     });
   });
@@ -160,6 +172,32 @@ describe("GET /ingestao/metricas", () => {
         [TIMESTAMP_INVALIDO]: 1,
       },
       duplicadasIgnoradas: 3,
+      mensagensGravadas: 0,
+      rejeitadasGravadas: 0,
+      mensagensPendentes: 0,
+    });
+  });
+
+  it("deve retornar mensagensGravadas e rejeitadasGravadas, cada uma no seu campo (TASK 14.03)", async () => {
+    receivedMetricsService.incrementar();
+    receivedMetricsService.incrementar();
+    receivedMetricsService.incrementar();
+    gravacaoMetricsService.incrementarGravada();
+    gravacaoMetricsService.incrementarGravada();
+    gravacaoMetricsService.incrementarRejeitadaGravada();
+    rejectionMetricsService.incrementarRejeicao(PAYLOAD_MALFORMADO);
+
+    const resposta = await request(app)
+      .get("/ingestao/metricas")
+      .set("Authorization", `Bearer ${criarToken("ADMINISTRADOR")}`);
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body).toEqual({
+      leiturasRecebidas: 3,
+      leiturasRejeitadas: { [PAYLOAD_MALFORMADO]: 1 },
+      duplicadasIgnoradas: 0,
+      mensagensGravadas: 2,
+      rejeitadasGravadas: 1,
       mensagensPendentes: 0,
     });
   });
@@ -168,6 +206,7 @@ describe("GET /ingestao/metricas", () => {
     duplicateMetricsService.incrementar();
     duplicateMetricsService.incrementar();
     receivedMetricsService.incrementar();
+    gravacaoMetricsService.incrementarGravada();
 
     // Recarregar os módulos simula um novo início do processo.
     await jest.isolateModulesAsync(async () => {
@@ -182,6 +221,8 @@ describe("GET /ingestao/metricas", () => {
         leiturasRecebidas: 0,
         leiturasRejeitadas: {},
         duplicadasIgnoradas: 0,
+        mensagensGravadas: 0,
+        rejeitadasGravadas: 0,
         mensagensPendentes: 0,
       });
     });
@@ -189,6 +230,7 @@ describe("GET /ingestao/metricas", () => {
     // O singleton da instância anterior não foi afetado: foi mesmo outra instância.
     expect(duplicateMetricsService.obterTotal()).toBe(2);
     expect(receivedMetricsService.obterTotal()).toBe(1);
+    expect(gravacaoMetricsService.obterMensagensGravadas()).toBe(1);
   });
 
   it("deve retornar 401 quando o token não for informado", async () => {

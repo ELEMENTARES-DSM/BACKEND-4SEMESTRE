@@ -8,6 +8,7 @@ import {
 import { conferirEstacao } from "./validar-estacao.service";
 import { registrarRejeicao } from "./registro-rejeicao.service";
 import { registrarDuplicadaIgnorada } from "./registro-duplicada.service";
+import { gravacaoMetricsService } from "./gravacao-metrics.service";
 import { logger } from "../utils/logger";
 
 const validador = new ValidarPayloadService();
@@ -44,6 +45,8 @@ async function rejeitar(
   motivo: string,
 ): Promise<ResultadoGravacao> {
   await gravarRejeitada(mensagem, motivo);
+  // TASK 14.03: conta só depois que a linha foi gravada no staging.
+  gravacaoMetricsService.incrementarRejeitadaGravada();
   registrarRejeicao(motivo, mensagem.estacaoId);
   return "rejeitada";
 }
@@ -75,6 +78,9 @@ async function persistirMensagem(
   // TASK 13.02: só depois que gravarAceita resolve, a duplicata é registrada
   // (log INFO + contador); se a gravação falhar, nada é contado.
   const resultado = await gravarAceita(mensagem);
+  if (resultado === "recebida") {
+    gravacaoMetricsService.incrementarGravada();
+  }
   if (resultado === "duplicata") {
     registrarDuplicadaIgnorada({
       estacaoId: mensagem.estacaoId,

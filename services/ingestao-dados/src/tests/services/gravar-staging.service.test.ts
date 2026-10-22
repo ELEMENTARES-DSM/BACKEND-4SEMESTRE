@@ -29,6 +29,8 @@ describe("gravar-staging.service - Task 14.02", () => {
     mockClient = {
       query: mockQuery,
       release: jest.fn(),
+      on: jest.fn(),
+      removeListener: jest.fn(),
     } as unknown as jest.Mocked<PoolClient>;
 
     jest.mocked(pool.connect).mockResolvedValue(mockClient);

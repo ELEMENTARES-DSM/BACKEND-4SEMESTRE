@@ -17,7 +17,11 @@ export interface OpcoesConsumidorMqtt {
   conectar?: typeof mqtt.connect;
   metricasRecebidas?: Pick<ReceivedMetricsService, "incrementar">;
   estadoConexao?: Pick<MqttStatusService, "marcarConectado" | "marcarDesconectado">;
+  reentregaMs?: number;
 }
+
+// Espera entre uma falha de gravação e a reconexão que pede a reentrega.
+export const REENTREGA_PADRAO_MS = 5000;
 
 // clientId fixo: com clean=false, o broker associa a sessão e as mensagens
 // pendentes a este identificador. Não pode mudar entre reinicializações.
@@ -28,10 +32,13 @@ const PROTOCOLO_MQTT_3_1_1 = 4;
 
 export class ConsumidorMqttTelemetria {
   private client?: MqttClient;
+  private reentregaTimer?: NodeJS.Timeout;
+  private encerrando = false;
 
   constructor(private readonly opcoes: OpcoesConsumidorMqtt) {}
 
   iniciar(): void {
+    this.encerrando = false;
     const { config } = this.opcoes;
     const conectar = this.opcoes.conectar ?? mqtt.connect;
     const estadoConexao = this.opcoes.estadoConexao ?? mqttStatusService;
@@ -71,6 +78,11 @@ export class ConsumidorMqttTelemetria {
   }
 
   encerrar(): Promise<void> {
+    this.encerrando = true;
+    if (this.reentregaTimer) {
+      clearTimeout(this.reentregaTimer);
+      this.reentregaTimer = undefined;
+    }
     if (!this.client) return Promise.resolve();
 
     return new Promise((resolve) => {
@@ -119,6 +131,26 @@ export class ConsumidorMqttTelemetria {
       // reconexão da sessão persistente.
       console.error(`[mqtt] falha ao encaminhar mensagem de ${topico}: ${(erro as Error).message}`);
       confirmar(erro as Error);
+      this.agendarReentrega();
     }
+  }
+
+  // TASK 14.03: no MQTT 3.1.1 o broker só reenvia a mensagem sem PUBACK quando
+  // a sessão reconecta. Com o staging fora do ar, reconectar depois de uma
+  // espera faz a mensagem voltar sem ser descartada. Várias falhas seguidas
+  // geram uma única reconexão.
+  private agendarReentrega(): void {
+    if (this.reentregaTimer || this.encerrando) return;
+
+    this.reentregaTimer = setTimeout(() => {
+      this.reentregaTimer = undefined;
+      const client = this.client;
+      if (!client || this.encerrando) return;
+
+      console.warn("[mqtt] reconectando para receber de novo as mensagens não gravadas");
+      client.end(true, {}, () => {
+        if (!this.encerrando) client.reconnect();
+      });
+    }, this.opcoes.reentregaMs ?? REENTREGA_PADRAO_MS);
   }
 }

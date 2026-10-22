@@ -3,6 +3,7 @@ import { rejectionMetricsService } from "../services/rejection-metrics.service";
 import { duplicateMetricsService } from "../services/duplicate-metrics.service";
 import { contarPendentes } from "../repositories/staging.repository";
 import { receivedMetricsService } from "../services/received-metrics.service";
+import { gravacaoMetricsService } from "../services/gravacao-metrics.service";
 
 export const obterMetricas = async (_req: Request, res: Response): Promise<void> => {
   const metricas = rejectionMetricsService.obterMetricas();
@@ -14,6 +15,8 @@ export const obterMetricas = async (_req: Request, res: Response): Promise<void>
       leiturasRecebidas: receivedMetricsService.obterTotal(),
       leiturasRejeitadas,
       duplicadasIgnoradas: duplicateMetricsService.obterTotal(),
+      mensagensGravadas: gravacaoMetricsService.obterMensagensGravadas(),
+      rejeitadasGravadas: gravacaoMetricsService.obterRejeitadasGravadas(),
       mensagensPendentes,
     });
   } catch {

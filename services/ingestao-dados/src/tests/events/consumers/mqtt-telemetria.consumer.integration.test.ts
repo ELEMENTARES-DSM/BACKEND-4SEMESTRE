@@ -288,4 +288,42 @@ describe("ConsumidorMqttTelemetria (integração com broker MQTT)", () => {
     await iniciarBroker(porta);
     await esperar(() => estado.estaConectado());
   }, 30000);
+
+  test("mensagem que falhou volta pela reconexão e é entregue uma única vez (TASK 14.03)", async () => {
+    jest.spyOn(console, "error").mockImplementation(() => undefined);
+    const broker = await iniciarBroker();
+    const recebidas: MensagemIngestaoInput[] = [];
+    const tentativas: string[] = [];
+    let falhasRestantes = 2;
+
+    const consumidor = new ConsumidorMqttTelemetria({
+      config: {
+        brokerUrl: `mqtt://127.0.0.1:${broker.porta}`,
+        usuario: "ingestao-dados",
+        senha: "teste",
+        qos: 1,
+      },
+      // Simula o staging fora do ar nas duas primeiras tentativas.
+      proximoPasso: async (mensagem) => {
+        tentativas.push(mensagem.payloadBruto);
+        if (mensagem.payloadBruto === "staging-fora" && falhasRestantes > 0) {
+          falhasRestantes -= 1;
+          throw new Error("staging indisponível");
+        }
+        recebidas.push(mensagem);
+      },
+      reentregaMs: 200,
+    });
+    consumidores.push(consumidor);
+    consumidor.iniciar();
+
+    const estacao = await conectarEstacao(broker.porta, UUID_A);
+    await aguardarAssinatura(recebidas, estacao);
+
+    await estacao.publishAsync(topicoDe(UUID_A), "staging-fora", { qos: 1 });
+    await esperar(() => recebidas.some((m) => m.payloadBruto === "staging-fora"), 15000);
+
+    expect(tentativas.filter((p) => p === "staging-fora")).toHaveLength(3);
+    expect(recebidas.filter((m) => m.payloadBruto === "staging-fora")).toHaveLength(1);
+  }, 30000);
 });
