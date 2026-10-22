@@ -10,6 +10,21 @@ export interface EventoTelemetriaDTO {
   leituras: LeituraEventoDTO[];
 }
 
+/**
+ * Evento publicado na validacao.dlx (US-18). Usa os mesmos campos do evento
+ * de telemetria para poder voltar à fila sem motivo e recusado_em (US-20).
+ * Em evento malformado, os campos ausentes ficam null e `leituras` guarda o
+ * conteúdo original recebido.
+ */
+export interface EventoRecusadoDTO {
+  staging_id: string | null;
+  estacao_uuid: string | null;
+  unixtime: number | null;
+  leituras: unknown;
+  motivo: string;
+  recusado_em: string;
+}
+
 export interface SensorEventoRow {
   id: string;
   estacao_id: string;
