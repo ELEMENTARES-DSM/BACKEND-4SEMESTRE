@@ -1,14 +1,25 @@
 import { Pool } from "pg";
 import { pool } from "../config/db";
-import { EventoTelemetriaDTO, MedidaRow } from "../dto/evento-telemetria.dto";
+import {
+  EventoTelemetriaDTO,
+  LeituraEventoDTO,
+  MedidaRow,
+} from "../dto/evento-telemetria.dto";
 import { inserirMedidaIdempotente } from "../repositories/medida.repository";
 import { buscarSensoresPorEvento } from "../repositories/sensor.repository";
 import { calibrarValor, valoresBrutosIguais } from "./calibracao.service";
+import {
+  metricasValidacaoService,
+  MetricasValidacaoService,
+} from "./metricas-validacao.service";
 import logger from "../utils/logger";
+
+export const SENSOR_INATIVO = "Inativo";
 
 export interface OpcoesProcessarTelemetria {
   dbPool?: Pick<Pool, "connect">;
   agora?: () => Date;
+  metricas?: Pick<MetricasValidacaoService, "incrementarIgnoradasSensorInativo">;
 }
 
 export interface ResultadoProcessamentoEvento {
@@ -16,6 +27,21 @@ export interface ResultadoProcessamentoEvento {
   duplicadasIdempotentes: number;
   duplicadasDivergentes: number;
   medidas: MedidaRow[];
+  // US-18: leituras de sensor que não existe na estação, para a DLQ.
+  recusadas: LeituraEventoDTO[];
+  // US-18: leituras de sensor inativo, só em log e no contador.
+  ignoradasSensorInativo: number;
+}
+
+/**
+ * Evento sem estação, horário ou lista de leituras utilizável (US-18).
+ * Não adianta tentar de novo: o evento vai inteiro para a DLQ.
+ */
+export class EventoMalformadoError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EventoMalformadoError";
+  }
 }
 
 function validarEstruturaEvento(evento: EventoTelemetriaDTO): void {
@@ -31,7 +57,7 @@ function validarEstruturaEvento(evento: EventoTelemetriaDTO): void {
     !Array.isArray(evento.leituras) ||
     evento.leituras.length === 0
   ) {
-    throw new Error("Evento de telemetria inválido");
+    throw new EventoMalformadoError("Evento de telemetria inválido");
   }
 
   for (const leitura of evento.leituras) {
@@ -42,7 +68,7 @@ function validarEstruturaEvento(evento: EventoTelemetriaDTO): void {
       typeof leitura.valor !== "number" ||
       !Number.isFinite(leitura.valor)
     ) {
-      throw new Error("Leitura do evento de telemetria inválida");
+      throw new EventoMalformadoError("Leitura do evento de telemetria inválida");
     }
   }
 }
@@ -50,8 +76,10 @@ function validarEstruturaEvento(evento: EventoTelemetriaDTO): void {
 /**
  * Processa um evento da fila validacao.telemetria em uma única transação de banco:
  * - Busca os sensores da estação em uma única consulta SQL (sem cache).
- * - Calibra cada leitura: (bruto * fator) + ganho em BigInt escala 6 com HALF_UP para 2 casas.
- * - Persiste cada leitura em `medidas` com o unixtime da estação e criado_em em UTC.
+ * - US-18: leitura de sensor inexistente na estação é devolvida em `recusadas`
+ *   (o consumidor a envia à DLQ); de sensor inativo é ignorada, com log e contador.
+ * - Calibra cada leitura válida: (bruto * fator) + ganho em BigInt escala 6 com HALF_UP para 2 casas.
+ * - Persiste cada leitura válida em `medidas` com o unixtime da estação e criado_em em UTC.
  * - Garante idempotência por UNIQUE (sensor_id, unixtime): mantém a primeira medida e,
  *   se o valor bruto divergir, registra a divergência em log.
  */
@@ -63,6 +91,7 @@ export const processarEventoTelemetria = async (
 
   const dbPool = opcoes.dbPool ?? pool;
   const obterAgora = opcoes.agora ?? (() => new Date());
+  const metricas = opcoes.metricas ?? metricasValidacaoService;
   const client = await dbPool.connect();
 
   try {
@@ -80,13 +109,20 @@ export const processarEventoTelemetria = async (
     let duplicadasIdempotentes = 0;
     let duplicadasDivergentes = 0;
     const medidas: MedidaRow[] = [];
+    const recusadas: LeituraEventoDTO[] = [];
+    const ignoradas: LeituraEventoDTO[] = [];
 
     for (const leitura of evento.leituras) {
       const sensor = sensoresPorCodigo.get(leitura.sensor);
+      // Código que existe só em outra estação também cai aqui: a busca é por estação.
       if (!sensor) {
-        throw new Error(
-          `Sensor '${leitura.sensor}' não encontrado para a estação '${evento.estacao_uuid}'`,
-        );
+        recusadas.push({ sensor: leitura.sensor, valor: leitura.valor });
+        continue;
+      }
+
+      if (sensor.status === SENSOR_INATIVO) {
+        ignoradas.push(leitura);
+        continue;
       }
 
       const valorCalibrado = calibrarValor(
@@ -136,11 +172,27 @@ export const processarEventoTelemetria = async (
 
     await client.query("COMMIT");
 
+    // Registra as ignoradas só depois do COMMIT: se a transação falhar, o
+    // evento volta para a fila e elas são registradas na nova entrega.
+    for (const leitura of ignoradas) {
+      logger.warn("Leitura ignorada: sensor inativo", {
+        estacao_uuid: evento.estacao_uuid,
+        sensor_codigo: leitura.sensor,
+        unixtime: evento.unixtime,
+        valor_bruto: leitura.valor,
+      });
+    }
+    if (ignoradas.length > 0) {
+      metricas.incrementarIgnoradasSensorInativo(ignoradas.length);
+    }
+
     return {
       inseridas,
       duplicadasIdempotentes,
       duplicadasDivergentes,
       medidas,
+      recusadas,
+      ignoradasSensorInativo: ignoradas.length,
     };
   } catch (erro) {
     await client.query("ROLLBACK").catch(() => undefined);
