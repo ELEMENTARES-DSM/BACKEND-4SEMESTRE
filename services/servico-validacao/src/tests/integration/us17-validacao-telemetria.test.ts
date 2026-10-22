@@ -148,6 +148,8 @@ class FakePostgresTransactionalDb {
           return { rows: [] };
         },
         release: jest.fn(),
+        on: jest.fn(),
+        removeListener: jest.fn(),
       }),
     };
   }

@@ -30,6 +30,8 @@ describe("processar-telemetria.service", () => {
     connectPoolMock.mockResolvedValue({
       query: queryClientMock,
       release: releaseClientMock,
+      on: jest.fn(),
+      removeListener: jest.fn(),
     });
   });
 

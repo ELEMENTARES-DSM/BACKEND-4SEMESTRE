@@ -1,4 +1,5 @@
 import amqp, { Channel, ChannelModel, ConsumeMessage } from "amqplib";
+import { verificarConexaoBanco } from "../../config/db";
 import {
   EventoRecusadoDTO,
   EventoTelemetriaDTO,
@@ -14,9 +15,12 @@ import {
   SENSOR_INEXISTENTE,
 } from "../../validations/motivos-recusa";
 import logger from "../../utils/logger";
+import { ehBancoIndisponivel } from "../../utils/erro-banco";
 
 export const FILA_VALIDACAO_TELEMETRIA = "validacao.telemetria";
 export const PREFETCH_VALIDACAO_TELEMETRIA = 10;
+// US-20: intervalo entre as conferências do banco com o consumo pausado.
+export const ESPERA_BANCO_MS = 10000;
 
 export type ProcessadorEventoTelemetria = (
   evento: EventoTelemetriaDTO,
@@ -33,6 +37,8 @@ export interface RabbitMqConsumerOptions {
   processarEvento?: ProcessadorEventoTelemetria;
   publicarDlq?: PublicadorDlq;
   agora?: () => Date;
+  verificarBanco?: () => Promise<boolean>;
+  esperaBancoMs?: number;
 }
 
 export interface EstadoSaudeRabbitMq {
@@ -44,6 +50,8 @@ export class ConsumidorRabbitMqTelemetria {
   private connection?: ChannelModel;
   private channel?: Channel;
   private reconectarTimer?: NodeJS.Timeout;
+  private verificacaoBancoTimer?: NodeJS.Timeout;
+  private consumoPausado = false;
   private encerrando = false;
   private conectando = false;
   private rabbitmqConectado = false;
@@ -56,6 +64,8 @@ export class ConsumidorRabbitMqTelemetria {
   private readonly publicadorDlq = new PublicadorDlqValidacao(() => this.connection);
   private readonly publicarDlq: PublicadorDlq;
   private readonly agora: () => Date;
+  private readonly verificarBanco: () => Promise<boolean>;
+  private readonly esperaBancoMs: number;
 
   constructor(private readonly options: RabbitMqConsumerOptions) {
     this.fila = options.fila ?? FILA_VALIDACAO_TELEMETRIA;
@@ -65,6 +75,8 @@ export class ConsumidorRabbitMqTelemetria {
     this.publicarDlq =
       options.publicarDlq ?? ((eventos) => this.publicadorDlq.publicar(eventos));
     this.agora = options.agora ?? (() => new Date());
+    this.verificarBanco = options.verificarBanco ?? verificarConexaoBanco;
+    this.esperaBancoMs = options.esperaBancoMs ?? ESPERA_BANCO_MS;
   }
 
   public async iniciar(): Promise<void> {
@@ -77,6 +89,10 @@ export class ConsumidorRabbitMqTelemetria {
     if (this.reconectarTimer) {
       clearTimeout(this.reconectarTimer);
       this.reconectarTimer = undefined;
+    }
+    if (this.verificacaoBancoTimer) {
+      clearTimeout(this.verificacaoBancoTimer);
+      this.verificacaoBancoTimer = undefined;
     }
 
     const channel = this.channel;
@@ -105,8 +121,13 @@ export class ConsumidorRabbitMqTelemetria {
     return this.rabbitmqConectado && this.filaDisponivel;
   }
 
+  /** US-20: verdadeiro enquanto o consumo espera o banco voltar. */
+  public estaComConsumoPausado(): boolean {
+    return this.consumoPausado;
+  }
+
   private async conectarOuConfigurarCanal(): Promise<void> {
-    if (this.encerrando || this.conectando) {
+    if (this.encerrando || this.conectando || this.consumoPausado) {
       return;
     }
 
@@ -244,6 +265,10 @@ export class ConsumidorRabbitMqTelemetria {
         await this.enviarMalformadoParaDlq(channel, msg, conteudo);
         return;
       }
+      if (ehBancoIndisponivel(erro)) {
+        await this.pausarPorBancoIndisponivel(channel, erro);
+        return;
+      }
       logger.error("Falha ao processar mensagem da fila; ack não enviado", {
         fila: this.fila,
         erro: erro instanceof Error ? erro.message : String(erro),
@@ -282,6 +307,60 @@ export class ConsumidorRabbitMqTelemetria {
         // Canal pode ter fechado durante o processamento
       }
     }
+  }
+
+  // US-20: com o banco fora do ar, para de consumir em vez de devolver evento
+  // por evento. Fechar o canal devolve à fila, inteiros e sem confirmação, todos
+  // os eventos em processamento; os que chegam depois esperam na fila sem serem
+  // entregues e, por isso, não gastam o limite de entregas.
+  private async pausarPorBancoIndisponivel(channel: Channel, erro: unknown): Promise<void> {
+    if (this.consumoPausado) {
+      return;
+    }
+
+    this.consumoPausado = true;
+    logger.error("Banco de dados indisponível; consumo pausado até o banco responder", {
+      fila: this.fila,
+      novaTentativaEmMs: this.esperaBancoMs,
+      erro: erro instanceof Error ? erro.message : String(erro),
+    });
+
+    if (this.channel === channel) {
+      this.channel = undefined;
+    }
+    await channel.close().catch(() => undefined);
+    this.agendarVerificacaoBanco();
+  }
+
+  private agendarVerificacaoBanco(): void {
+    if (this.encerrando || this.verificacaoBancoTimer) {
+      return;
+    }
+
+    this.verificacaoBancoTimer = setTimeout(() => {
+      this.verificacaoBancoTimer = undefined;
+      void this.retomarSeBancoResponder();
+    }, this.esperaBancoMs);
+  }
+
+  private async retomarSeBancoResponder(): Promise<void> {
+    if (this.encerrando) {
+      return;
+    }
+
+    const bancoNoAr = await this.verificarBanco().catch(() => false);
+    if (!bancoNoAr) {
+      logger.warn("Banco de dados continua indisponível; consumo segue pausado", {
+        fila: this.fila,
+        novaTentativaEmMs: this.esperaBancoMs,
+      });
+      this.agendarVerificacaoBanco();
+      return;
+    }
+
+    this.consumoPausado = false;
+    logger.info("Banco de dados respondeu; consumo retomado", { fila: this.fila });
+    await this.conectarOuConfigurarCanal();
   }
 
   private agendarNovaTentativa(): void {
