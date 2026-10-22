@@ -90,8 +90,8 @@
           "Métricas"
         ],
         "operationId": "ingestao_dados_metricas",
-        "summary": "Obter métricas de ingestão (recebidas, rejeitadas e duplicadas)",
-        "description": "Retorna o total de leituras recebidas pelo MQTT, o total de leituras rejeitadas agrupadas por motivo e, em campo separado, o total de mensagens duplicadas ignoradas. Os contadores ficam em memória e zeram ao reiniciar o serviço. Restrito ao perfil ADMINISTRADOR.\n\nExemplo de requisição:\n\n```\ncurl http://localhost/ingestao/metricas \\\n  -H \"Authorization: Bearer <token>\"\n```",
+        "summary": "Obter métricas de ingestão (recebidas, rejeitadas, duplicadas e gravadas)",
+        "description": "Retorna o total de leituras recebidas pelo MQTT, o total de leituras rejeitadas agrupadas por motivo, em campo separado o total de mensagens duplicadas ignoradas e os totais de mensagens gravadas no staging (aceitas e rejeitadas). Os contadores ficam em memória e zeram ao reiniciar o serviço. Restrito ao perfil ADMINISTRADOR.\n\nExemplo de requisição:\n\n```\ncurl http://localhost/ingestao/metricas \\\n  -H \"Authorization: Bearer <token>\"\n```",
         "security": [
           {
             "bearerAuth": []
@@ -115,6 +115,8 @@
                         "Estação inativa": 1
                       },
                       "duplicadasIgnoradas": 2,
+                      "mensagensGravadas": 114,
+                      "rejeitadasGravadas": 4,
                       "mensagensPendentes": 4
                     }
                   },
@@ -124,6 +126,8 @@
                       "leiturasRecebidas": 48,
                       "leiturasRejeitadas": {},
                       "duplicadasIgnoradas": 0,
+                      "mensagensGravadas": 48,
+                      "rejeitadasGravadas": 0,
                       "mensagensPendentes": 0
                     }
                   }
@@ -231,6 +235,8 @@
           "leiturasRecebidas",
           "leiturasRejeitadas",
           "duplicadasIgnoradas",
+          "mensagensGravadas",
+          "rejeitadasGravadas",
           "mensagensPendentes"
         ],
         "properties": {
@@ -250,6 +256,16 @@
             "type": "integer",
             "minimum": 0,
             "description": "Mensagens duplicadas ignoradas desde o último início do serviço; não entram em leiturasRejeitadas e zeram ao reiniciar."
+          },
+          "mensagensGravadas": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Mensagens aceitas gravadas no staging com status recebida desde o último início do serviço. Duplicata não grava e não conta. Zera ao reiniciar."
+          },
+          "rejeitadasGravadas": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Mensagens rejeitadas gravadas no staging com o motivo desde o último início do serviço. Zera ao reiniciar."
           },
           "mensagensPendentes": {
             "type": "integer",

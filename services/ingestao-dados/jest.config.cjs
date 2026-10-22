@@ -10,6 +10,8 @@ module.exports = {
     "src/services/duplicate-metrics.service.ts",
     "src/services/registro-duplicada.service.ts",
     "src/services/received-metrics.service.ts",
+    "src/services/gravacao-metrics.service.ts",
+    "src/utils/conexao-pg.ts",
     "src/services/mqtt-status.service.ts",
     "src/controllers/health.controller.ts",
     "src/utils/logger.ts",

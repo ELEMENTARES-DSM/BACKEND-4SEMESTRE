@@ -7,6 +7,7 @@ import {
   processarMensagem,
 } from "../../services/processar-mensagem.service";
 import { buscarStatusEstacao } from "../../repositories/estacao.repository";
+import { gravacaoMetricsService } from "../../services/gravacao-metrics.service";
 import { pool } from "../../config/db";
 
 jest.mock("../../repositories/staging.repository");
@@ -21,6 +22,8 @@ beforeEach(() => {
   const mockClient = {
     query: jest.fn().mockResolvedValue({ rowCount: 1 }),
     release: jest.fn(),
+    on: jest.fn(),
+    removeListener: jest.fn(),
   };
   jest.mocked(pool.connect).mockResolvedValue(mockClient as never);
   statusEstacao.mockReset();
@@ -270,4 +273,43 @@ describe("encaminharParaIngestao (TASK 11.05)", () => {
 
     await expect(encaminharParaIngestao(mensagem)).rejects.toBe(erro);
   });
+});
+
+describe("processarMensagem - contadores de gravação (TASK 14.03)", () => {
+  beforeEach(() => {
+    inserir.mockReset();
+    inserir.mockResolvedValue(true);
+    gravacaoMetricsService.reset();
+  });
+
+  it("aceita gravada soma em mensagensGravadas", async () => {
+    await processarMensagem(mensagem);
+    expect(gravacaoMetricsService.obterMensagensGravadas()).toBe(1);
+    expect(gravacaoMetricsService.obterRejeitadasGravadas()).toBe(0);
+  });
+
+  it("rejeitada gravada soma em rejeitadasGravadas", async () => {
+    await processarMensagem({ ...mensagem, payloadBruto: "não é JSON" });
+    statusEstacao.mockResolvedValue("Inativa");
+    await processarMensagem(mensagem);
+
+    expect(gravacaoMetricsService.obterRejeitadasGravadas()).toBe(2);
+    expect(gravacaoMetricsService.obterMensagensGravadas()).toBe(0);
+  });
+
+  it("duplicata não grava e não conta", async () => {
+    inserir.mockResolvedValue(false);
+    await processarMensagem(mensagem);
+    expect(gravacaoMetricsService.obterMensagensGravadas()).toBe(0);
+  });
+
+  it.each([payloadBruto, "não é JSON"])(
+    "falha de gravação não conta: %s",
+    async (bruto) => {
+      inserir.mockRejectedValue(new Error("Banco indisponível"));
+      await expect(processarMensagem({ ...mensagem, payloadBruto: bruto })).rejects.toThrow();
+      expect(gravacaoMetricsService.obterMensagensGravadas()).toBe(0);
+      expect(gravacaoMetricsService.obterRejeitadasGravadas()).toBe(0);
+    },
+  );
 });

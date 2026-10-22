@@ -10,6 +10,7 @@ import { configurarPublisherStaging } from "../../services/staging-publisher.ser
 import { ReceivedMetricsService } from "../../services/received-metrics.service";
 import { duplicateMetricsService } from "../../services/duplicate-metrics.service";
 import { rejectionMetricsService } from "../../services/rejection-metrics.service";
+import { gravacaoMetricsService } from "../../services/gravacao-metrics.service";
 import { logger } from "../../utils/logger";
 import { cadastrarEstacao, criarTabelaEstacoes } from "./helpers/estacoes";
 
@@ -74,6 +75,7 @@ integration("fluxo MQTT -> staging (TASK 11.05)", () => {
     jest.spyOn(logger, "info").mockImplementation(() => undefined);
     jest.spyOn(console, "log").mockImplementation(() => undefined);
     jest.spyOn(console, "warn").mockImplementation(() => undefined);
+    jest.spyOn(console, "error").mockImplementation(() => undefined);
 
     configurarPublisherStaging({ processarPendentes } as unknown as RabbitMqTelemetriaPublisher);
 
@@ -94,6 +96,7 @@ integration("fluxo MQTT -> staging (TASK 11.05)", () => {
       },
       proximoPasso: encaminharParaIngestao,
       metricasRecebidas: recebidas,
+      reentregaMs: 300,
     });
     consumidor.iniciar();
     await assinou;
@@ -120,6 +123,7 @@ integration("fluxo MQTT -> staging (TASK 11.05)", () => {
     recebidas.reset();
     duplicateMetricsService.reset();
     rejectionMetricsService.reset();
+    gravacaoMetricsService.reset();
     processarPendentes.mockClear();
   });
 
@@ -213,5 +217,60 @@ integration("fluxo MQTT -> staging (TASK 11.05)", () => {
     await esperar(async () => recebidas.obterTotal() === 3);
 
     expect(await linhasStaging(estacaoId)).toHaveLength(2);
+  });
+
+  it("staging fora do ar: último sinal não muda, erro vai para o log e a mensagem é gravada quando ele volta (TASK 14.03)", async () => {
+    const estacaoId = randomUUID();
+    await cadastrarEstacao(pool, estacaoId);
+    const erroLog = jest.spyOn(logger, "error").mockImplementation(() => undefined);
+
+    // Tira o staging do ar renomeando a tabela: toda gravação falha no banco.
+    await pool.query("ALTER TABLE staging_telemetria RENAME TO staging_telemetria_fora");
+    try {
+      await estacao.publishAsync(topicoDe(estacaoId), payload("2026-10-20T12:20:00Z"), { qos: 1 });
+
+      // Duas falhas: a primeira entrega e a reentrega depois da reconexão.
+      await esperar(async () => erroLog.mock.calls.length >= 2, 15000);
+      const { rows } = await pool.query("SELECT count(*)::int AS total FROM staging_telemetria_fora");
+      expect(rows[0].total).toBe(0);
+      expect((await sinalEstacao(estacaoId)).ultimo_ping).toBeNull();
+      expect(erroLog).toHaveBeenCalledWith(
+        "Falha ao gravar mensagem no staging",
+        expect.objectContaining({ estacaoId, erro: expect.stringContaining("staging_telemetria") }),
+      );
+      expect(recebidas.obterTotal()).toBe(0);
+    } finally {
+      await pool.query("ALTER TABLE staging_telemetria_fora RENAME TO staging_telemetria");
+    }
+
+    await esperar(async () => (await linhasStaging(estacaoId)).length === 1, 15000);
+    expect((await linhasStaging(estacaoId))[0].status).toBe("recebida");
+    expect((await sinalEstacao(estacaoId)).ultimo_ping).not.toBeNull();
+    expect(gravacaoMetricsService.obterMensagensGravadas()).toBe(1);
+    expect(recebidas.obterTotal()).toBe(1);
+    erroLog.mockRestore();
+  }, 30000);
+
+  it("contadores de gravadas e rejeitadas gravadas batem com o staging (TASK 14.03)", async () => {
+    const estacaoId = randomUUID();
+    await cadastrarEstacao(pool, estacaoId);
+    const valida = payload("2026-10-20T12:25:00Z");
+
+    await estacao.publishAsync(topicoDe(estacaoId), valida, { qos: 1 });
+    await estacao.publishAsync(topicoDe(estacaoId), valida, { qos: 1 });
+    await estacao.publishAsync(topicoDe(estacaoId), "texto solto", { qos: 1 });
+    await estacao.publishAsync(topicoDe(randomUUID()), payload("2026-10-20T12:25:00Z"), { qos: 1 });
+    await esperar(async () => recebidas.obterTotal() === 4);
+
+    const { rows } = await pool.query(
+      "SELECT status, count(*)::int AS total FROM staging_telemetria GROUP BY status ORDER BY status",
+    );
+    expect(rows).toEqual([
+      { status: "recebida", total: 1 },
+      { status: "rejeitada", total: 2 },
+    ]);
+    expect(gravacaoMetricsService.obterMensagensGravadas()).toBe(1);
+    expect(gravacaoMetricsService.obterRejeitadasGravadas()).toBe(2);
+    expect(duplicateMetricsService.obterTotal()).toBe(1);
   });
 });

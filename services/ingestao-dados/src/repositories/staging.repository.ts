@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { PoolClient } from "pg";
 import { pool } from "../config/db";
+import { protegerCliente } from "../utils/conexao-pg";
 
 export interface RegistroStaging {
   estacaoId: string;
@@ -28,13 +29,15 @@ const CHAVE_BLOQUEIO_PUBLICADOR = "ingestao-dados.staging-telemetria.publisher";
 /** Coordena o lote inteiro entre instâncias sem manter estado de mensagens em memória. */
 export async function tentarBloquearPublicador(): Promise<BloqueioPublicador | null> {
   const client = await pool.connect();
+  // O cliente fica preso durante o lote inteiro: precisa sobreviver à queda do banco.
+  const liberarCliente = protegerCliente(client, "bloqueio do publicador");
   try {
     const { rows } = await client.query<{ adquirido: boolean }>(
       "SELECT pg_try_advisory_lock(hashtext($1), 0) AS adquirido",
       [CHAVE_BLOQUEIO_PUBLICADOR],
     );
     if (!rows[0]?.adquirido) {
-      client.release();
+      liberarCliente();
       return null;
     }
 
@@ -49,12 +52,12 @@ export async function tentarBloquearPublicador(): Promise<BloqueioPublicador | n
             [CHAVE_BLOQUEIO_PUBLICADOR],
           );
         } finally {
-          client.release();
+          liberarCliente();
         }
       },
     };
   } catch (erro) {
-    client.release();
+    liberarCliente();
     throw erro;
   }
 }
@@ -62,6 +65,7 @@ export async function tentarBloquearPublicador(): Promise<BloqueioPublicador | n
 /** Reserva uma mensagem por vez para preservar ordem e evitar concorrência entre instâncias. */
 export async function reservarProximaPendente(): Promise<MensagemPendente | null> {
   const client = await pool.connect();
+  const liberarCliente = protegerCliente(client, "reservar mensagem pendente");
   try {
     await client.query("BEGIN");
     const { rows } = await client.query<MensagemPendente>(`
@@ -83,10 +87,10 @@ export async function reservarProximaPendente(): Promise<MensagemPendente | null
     await client.query("COMMIT");
     return rows[0];
   } catch (erro) {
-    await client.query("ROLLBACK");
+    await client.query("ROLLBACK").catch(() => undefined);
     throw erro;
   } finally {
-    client.release();
+    liberarCliente();
   }
 }
 
