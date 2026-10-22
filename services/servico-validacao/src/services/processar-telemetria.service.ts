@@ -9,6 +9,12 @@ import { inserirMedidaIdempotente } from "../repositories/medida.repository";
 import { buscarSensoresPorEvento } from "../repositories/sensor.repository";
 import { calibrarValor, valoresBrutosIguais } from "./calibracao.service";
 import {
+  buscarFaixaFisica,
+  dentroDaFaixa,
+  descreverFaixa,
+  FaixaFisica,
+} from "./faixa-fisica.service";
+import {
   metricasValidacaoService,
   MetricasValidacaoService,
 } from "./metricas-validacao.service";
@@ -19,7 +25,17 @@ export const SENSOR_INATIVO = "Inativo";
 export interface OpcoesProcessarTelemetria {
   dbPool?: Pick<Pool, "connect">;
   agora?: () => Date;
-  metricas?: Pick<MetricasValidacaoService, "incrementarIgnoradasSensorInativo">;
+  metricas?: Pick<
+    MetricasValidacaoService,
+    "incrementarIgnoradasSensorInativo" | "incrementarMedidasInvalidasGravadas"
+  >;
+}
+
+interface MedidaInvalida {
+  codigo: string;
+  valorBruto: number;
+  valorReal: string;
+  faixa: FaixaFisica;
 }
 
 export interface ResultadoProcessamentoEvento {
@@ -31,6 +47,8 @@ export interface ResultadoProcessamentoEvento {
   recusadas: LeituraEventoDTO[];
   // US-18: leituras de sensor inativo, só em log e no contador.
   ignoradasSensorInativo: number;
+  // US-19: medidas novas gravadas com valida falso (fora da faixa física).
+  invalidasGravadas: number;
 }
 
 /**
@@ -79,6 +97,7 @@ function validarEstruturaEvento(evento: EventoTelemetriaDTO): void {
  * - US-18: leitura de sensor inexistente na estação é devolvida em `recusadas`
  *   (o consumidor a envia à DLQ); de sensor inativo é ignorada, com log e contador.
  * - Calibra cada leitura válida: (bruto * fator) + ganho em BigInt escala 6 com HALF_UP para 2 casas.
+ * - US-19: valor real fora da faixa física da grandeza é gravado com valida falso.
  * - Persiste cada leitura válida em `medidas` com o unixtime da estação e criado_em em UTC.
  * - Garante idempotência por UNIQUE (sensor_id, unixtime): mantém a primeira medida e,
  *   se o valor bruto divergir, registra a divergência em log.
@@ -111,6 +130,7 @@ export const processarEventoTelemetria = async (
     const medidas: MedidaRow[] = [];
     const recusadas: LeituraEventoDTO[] = [];
     const ignoradas: LeituraEventoDTO[] = [];
+    const invalidas: MedidaInvalida[] = [];
 
     for (const leitura of evento.leituras) {
       const sensor = sensoresPorCodigo.get(leitura.sensor);
@@ -131,13 +151,18 @@ export const processarEventoTelemetria = async (
         sensor.ganho,
       );
 
+      // US-19: confere o valor real (já em 2 casas), nunca o bruto. Fora da
+      // faixa, a medida é gravada do mesmo jeito, mas com valida falso.
+      const faixa = buscarFaixaFisica(sensor.tipo);
+      const valida = faixa ? dentroDaFaixa(valorCalibrado, faixa) : true;
+
       const resultado = await inserirMedidaIdempotente(
         {
           sensor_id: sensor.id,
           unixtime: evento.unixtime,
           valor_bruto: leitura.valor,
           valor: valorCalibrado,
-          valida: true,
+          valida,
           staging_id: evento.staging_id,
           criado_em: criadoEm,
         },
@@ -148,6 +173,14 @@ export const processarEventoTelemetria = async (
 
       if (resultado.inserida) {
         inseridas += 1;
+        if (!valida && faixa) {
+          invalidas.push({
+            codigo: sensor.codigo,
+            valorBruto: leitura.valor,
+            valorReal: valorCalibrado,
+            faixa,
+          });
+        }
       } else if (
         valoresBrutosIguais(resultado.medida.valor_bruto, leitura.valor)
       ) {
@@ -186,6 +219,21 @@ export const processarEventoTelemetria = async (
       metricas.incrementarIgnoradasSensorInativo(ignoradas.length);
     }
 
+    // US-19: só a medida nova conta; a reentrega do mesmo evento não grava de novo.
+    for (const invalida of invalidas) {
+      logger.warn("Medida gravada como inválida: valor fora da faixa física", {
+        estacao_uuid: evento.estacao_uuid,
+        sensor_codigo: invalida.codigo,
+        unixtime: evento.unixtime,
+        valor_bruto: invalida.valorBruto,
+        valor_real: invalida.valorReal,
+        faixa_esperada: descreverFaixa(invalida.faixa),
+      });
+    }
+    if (invalidas.length > 0) {
+      metricas.incrementarMedidasInvalidasGravadas(invalidas.length);
+    }
+
     return {
       inseridas,
       duplicadasIdempotentes,
@@ -193,6 +241,7 @@ export const processarEventoTelemetria = async (
       medidas,
       recusadas,
       ignoradasSensorInativo: ignoradas.length,
+      invalidasGravadas: invalidas.length,
     };
   } catch (erro) {
     await client.query("ROLLBACK").catch(() => undefined);

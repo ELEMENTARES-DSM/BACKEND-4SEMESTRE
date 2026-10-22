@@ -27,6 +27,7 @@ describe("processar-telemetria.service - sensor inexistente ou inativo (US-18)",
     fator: "1.000000",
     ganho: "0.000000",
     status,
+    tipo: "Temperatura",
     municipio: "São José dos Campos",
   });
 

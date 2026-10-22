@@ -166,6 +166,7 @@ describe("US-17 (Task 17.1) — Cenários 1 a 13 de ponta a ponta", () => {
       fator: "1.005000",
       ganho: "-0.025000",
       status: "Ativo",
+      tipo: "Temperatura",
       municipio: "São José dos Campos",
     });
     fakeDb.adicionarSensor({
@@ -175,6 +176,7 @@ describe("US-17 (Task 17.1) — Cenários 1 a 13 de ponta a ponta", () => {
       fator: "1.000000",
       ganho: "0.000000",
       status: "Ativo",
+      tipo: "Umidade Relativa",
       municipio: "São José dos Campos",
     });
   });
@@ -410,6 +412,7 @@ describe("US-17 (Task 17.1) — Cenários 1 a 13 de ponta a ponta", () => {
       fator: "2.000000",
       ganho: "1.000000",
       status: "Ativo",
+      tipo: "Temperatura",
       municipio: "São José dos Campos",
     });
 

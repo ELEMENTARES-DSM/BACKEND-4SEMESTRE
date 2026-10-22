@@ -32,6 +32,7 @@ export interface SensorEventoRow {
   fator: string;
   ganho: string;
   status: string;
+  tipo: string;
   municipio: string;
 }
 

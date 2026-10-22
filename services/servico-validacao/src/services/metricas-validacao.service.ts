@@ -1,5 +1,6 @@
 export interface MetricasValidacao {
   leiturasIgnoradasSensorInativo: number;
+  medidasInvalidasGravadas: number;
 }
 
 /**
@@ -8,19 +9,26 @@ export interface MetricasValidacao {
  */
 export class MetricasValidacaoService {
   private ignoradasSensorInativo = 0;
+  private invalidasGravadas = 0;
 
   public incrementarIgnoradasSensorInativo(quantidade = 1): void {
     this.ignoradasSensorInativo += quantidade;
   }
 
+  public incrementarMedidasInvalidasGravadas(quantidade = 1): void {
+    this.invalidasGravadas += quantidade;
+  }
+
   public obterMetricas(): MetricasValidacao {
     return {
       leiturasIgnoradasSensorInativo: this.ignoradasSensorInativo,
+      medidasInvalidasGravadas: this.invalidasGravadas,
     };
   }
 
   public reset(): void {
     this.ignoradasSensorInativo = 0;
+    this.invalidasGravadas = 0;
   }
 }
 

@@ -37,7 +37,10 @@ describe("GET /validacao/metricas", () => {
     const resposta = await consultar({ Authorization: `Bearer ${criarToken()}` });
 
     expect(resposta.status).toBe(200);
-    expect(await resposta.json()).toEqual({ leiturasIgnoradasSensorInativo: 0 });
+    expect(await resposta.json()).toEqual({
+      leiturasIgnoradasSensorInativo: 0,
+      medidasInvalidasGravadas: 0,
+    });
   });
 
   it("mostra as leituras ignoradas por sensor inativo desde que o serviço subiu", async () => {
@@ -45,7 +48,22 @@ describe("GET /validacao/metricas", () => {
 
     const resposta = await consultar({ Authorization: `Bearer ${criarToken()}` });
 
-    expect(await resposta.json()).toEqual({ leiturasIgnoradasSensorInativo: 3 });
+    expect(await resposta.json()).toEqual({
+      leiturasIgnoradasSensorInativo: 3,
+      medidasInvalidasGravadas: 0,
+    });
+  });
+
+  it("mostra as medidas inválidas gravadas desde que o serviço subiu (US-19)", async () => {
+    metricasValidacaoService.incrementarMedidasInvalidasGravadas();
+    metricasValidacaoService.incrementarMedidasInvalidasGravadas();
+
+    const resposta = await consultar({ Authorization: `Bearer ${criarToken()}` });
+
+    expect(await resposta.json()).toEqual({
+      leiturasIgnoradasSensorInativo: 0,
+      medidasInvalidasGravadas: 2,
+    });
   });
 
   it("responde 401 sem token", async () => {

@@ -105,7 +105,7 @@
         ],
         "operationId": "servico_validacao_metricas",
         "summary": "Obter métricas da validação",
-        "description": "Retorna os contadores da validação desde o último início do serviço. `leiturasIgnoradasSensorInativo` soma as leituras de sensores com situação Inativo, que não viram medida e não vão para a DLQ (US-18). Os contadores ficam em memória, começam em 0 e zeram ao reiniciar o serviço. Restrito ao perfil ADMINISTRADOR.\n\nExemplo de requisição:\n\n```\ncurl http://localhost/validacao/metricas \\\n  -H \"Authorization: Bearer <token>\"\n```",
+        "description": "Retorna os contadores da validação desde o último início do serviço. `leiturasIgnoradasSensorInativo` soma as leituras de sensores com situação Inativo, que não viram medida e não vão para a DLQ (US-18). `medidasInvalidasGravadas` soma as medidas gravadas com `valida` falso porque o valor real ficou fora da faixa física da grandeza (US-19). Os contadores ficam em memória, começam em 0 e zeram ao reiniciar o serviço. Restrito ao perfil ADMINISTRADOR.\n\nExemplo de requisição:\n\n```\ncurl http://localhost/validacao/metricas \\\n  -H \"Authorization: Bearer <token>\"\n```",
         "security": [
           {
             "bearerAuth": []
@@ -121,15 +121,17 @@
                 },
                 "examples": {
                   "comIgnoradas": {
-                    "summary": "Leituras de sensor inativo ignoradas",
+                    "summary": "Leituras de sensor inativo ignoradas e medidas inválidas gravadas",
                     "value": {
-                      "leiturasIgnoradasSensorInativo": 3
+                      "leiturasIgnoradasSensorInativo": 3,
+                      "medidasInvalidasGravadas": 2
                     }
                   },
                   "servicoRecemIniciado": {
                     "summary": "Serviço recém-iniciado",
                     "value": {
-                      "leiturasIgnoradasSensorInativo": 0
+                      "leiturasIgnoradasSensorInativo": 0,
+                      "medidasInvalidasGravadas": 0
                     }
                   }
                 }
@@ -243,13 +245,19 @@
       "MetricasResponse": {
         "type": "object",
         "required": [
-          "leiturasIgnoradasSensorInativo"
+          "leiturasIgnoradasSensorInativo",
+          "medidasInvalidasGravadas"
         ],
         "properties": {
           "leiturasIgnoradasSensorInativo": {
             "type": "integer",
             "minimum": 0,
             "description": "Leituras ignoradas porque o sensor está Inativo desde o último início do serviço. Uma reentrega do mesmo evento pode contar a mesma leitura de novo. Zera ao reiniciar."
+          },
+          "medidasInvalidasGravadas": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Medidas gravadas com valida falso (valor real fora da faixa física da grandeza) desde o último início do serviço. A reentrega do mesmo evento não grava de novo e não conta. Zera ao reiniciar."
           }
         }
       },
