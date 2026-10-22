@@ -192,9 +192,9 @@ describe("ConsumidorRabbitMqTelemetria - envio para a validacao.dlq (US-18)", ()
     await consumidor.encerrar();
   });
 
-  it("erro que não é de formato (ex.: banco) continua voltando para a fila sem ir à DLQ", async () => {
+  it("erro do próprio evento com o banco no ar continua voltando para a fila sem ir à DLQ", async () => {
     const consumidor = await iniciar(async () => {
-      throw new Error("connection terminated");
+      throw Object.assign(new Error("numeric field overflow"), { code: "22003" });
     });
 
     await processarMensagem(JSON.stringify(evento));

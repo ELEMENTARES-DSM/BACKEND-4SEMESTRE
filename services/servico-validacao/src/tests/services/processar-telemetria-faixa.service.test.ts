@@ -60,7 +60,12 @@ describe("processar-telemetria.service - faixa física (US-19)", () => {
     metricas = new MetricasValidacaoService();
     inserida = true;
     queryClientMock.mockResolvedValue({ rows: [] });
-    connectPoolMock.mockResolvedValue({ query: queryClientMock, release: jest.fn() });
+    connectPoolMock.mockResolvedValue({
+      query: queryClientMock,
+      release: jest.fn(),
+      on: jest.fn(),
+      removeListener: jest.fn(),
+    });
     jest
       .mocked(medidaRepository.inserirMedidaIdempotente)
       .mockImplementation(async (dados) => ({

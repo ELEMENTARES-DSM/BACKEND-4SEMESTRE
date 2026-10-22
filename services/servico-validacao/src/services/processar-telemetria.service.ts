@@ -113,6 +113,19 @@ export const processarEventoTelemetria = async (
   const metricas = opcoes.metricas ?? metricasValidacaoService;
   const client = await dbPool.connect();
 
+  // US-20: cliente retirado do pool fica sem ouvinte de "error"; se a conexão
+  // cair no meio da transação, o evento sem ouvinte derrubaria o processo. A
+  // falha já chega pela Promise da consulta, então aqui basta registrar.
+  let conexaoPerdida: Error | undefined;
+  const aoPerderConexao = (erro: Error): void => {
+    conexaoPerdida = erro;
+    logger.error("Conexão com o PostgreSQL perdida durante a transação", {
+      staging_id: evento.staging_id,
+      erro: erro.message,
+    });
+  };
+  client.on("error", aoPerderConexao);
+
   try {
     await client.query("BEGIN");
 
@@ -253,6 +266,8 @@ export const processarEventoTelemetria = async (
     });
     throw erro;
   } finally {
-    client.release();
+    client.removeListener("error", aoPerderConexao);
+    // Com a conexão perdida, o cliente é descartado em vez de voltar ao pool.
+    client.release(conexaoPerdida);
   }
 };

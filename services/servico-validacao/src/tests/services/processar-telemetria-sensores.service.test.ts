@@ -53,6 +53,8 @@ describe("processar-telemetria.service - sensor inexistente ou inativo (US-18)",
     connectPoolMock.mockResolvedValue({
       query: queryClientMock,
       release: releaseClientMock,
+      on: jest.fn(),
+      removeListener: jest.fn(),
     });
     jest
       .mocked(medidaRepository.inserirMedidaIdempotente)
