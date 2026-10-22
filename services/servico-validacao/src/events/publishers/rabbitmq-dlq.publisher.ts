@@ -4,6 +4,7 @@ import logger from "../../utils/logger";
 
 // Exchange declarada pela US-15 (ingestao-dados); entrega na validacao.dlq.
 export const EXCHANGE_VALIDACAO_DLX = "validacao.dlx";
+export const FILA_VALIDACAO_DLQ = "validacao.dlq";
 
 /**
  * Publica na validacao.dlx os eventos recusados pelo servico-validacao (US-18)
