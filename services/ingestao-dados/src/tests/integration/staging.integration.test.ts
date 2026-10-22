@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { pool } from "../../config/db";
 import { processarMensagem } from "../../services/processar-mensagem.service";
 import { logger } from "../../utils/logger";
+import { cadastrarEstacao, criarTabelaEstacoes } from "./helpers/estacoes";
 
 // Execute somente contra um banco de teste; cada execução usa um schema isolado.
 const integration = process.env.STAGING_TEST_DATABASE_URL ? describe : describe.skip;
@@ -26,6 +27,7 @@ integration("staging PostgreSQL", () => {
     const comandos: string[] = [];
     migration.up({ sql: (sql: string) => comandos.push(sql) });
     for (const sql of comandos) await pool.query(sql);
+    await criarTabelaEstacoes(pool);
     jest.spyOn(logger, "warn").mockImplementation(() => undefined);
   });
 
@@ -39,7 +41,8 @@ integration("staging PostgreSQL", () => {
   });
 
   beforeEach(async () => {
-    await pool.query("TRUNCATE staging_telemetria");
+    await pool.query("TRUNCATE staging_telemetria, estacoes");
+    await cadastrarEstacao(pool, mensagem.estacaoId);
   });
 
   it("grava aceita com dados completos", async () => {

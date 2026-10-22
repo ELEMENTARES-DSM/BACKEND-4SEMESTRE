@@ -5,6 +5,7 @@ import {
   gravarRejeitada,
   ResultadoGravacao,
 } from "./gravar-staging.service";
+import { conferirEstacao } from "./validar-estacao.service";
 import { registrarRejeicao } from "./registro-rejeicao.service";
 import { registrarDuplicadaIgnorada } from "./registro-duplicada.service";
 import { logger } from "../utils/logger";
@@ -27,23 +28,45 @@ export async function processarMensagem(
   }
 }
 
+/**
+ * Próximo passo do consumidor MQTT (TASK 11.05): cada mensagem de tópico
+ * válido segue validação, duplicata, staging, último sinal e publicação.
+ * Se a gravação falhar, a Promise rejeita e a mensagem não é confirmada.
+ */
+export async function encaminharParaIngestao(
+  mensagem: MensagemIngestaoInput,
+): Promise<void> {
+  await processarMensagem(mensagem);
+}
+
+async function rejeitar(
+  mensagem: MensagemIngestaoInput,
+  motivo: string,
+): Promise<ResultadoGravacao> {
+  await gravarRejeitada(mensagem, motivo);
+  registrarRejeicao(motivo, mensagem.estacaoId);
+  return "rejeitada";
+}
+
 async function persistirMensagem(
   mensagem: MensagemIngestaoInput,
   motivoRejeicao?: string,
 ): Promise<ResultadoGravacao> {
   // Permite receber também rejeições de negócio já decididas na US-12.
   if (motivoRejeicao !== undefined) {
-    await gravarRejeitada(mensagem, motivoRejeicao);
-    registrarRejeicao(motivoRejeicao, mensagem.estacaoId);
-    return "rejeitada";
+    return rejeitar(mensagem, motivoRejeicao);
   }
   const validacao = validador.validar(mensagem);
 
   if (!validacao.sucesso) {
-    const motivo = validacao.motivoRejeicao ?? "Payload inválido";
-    await gravarRejeitada(mensagem, motivo);
-    registrarRejeicao(motivo, mensagem.estacaoId);
-    return "rejeitada";
+    return rejeitar(mensagem, validacao.motivoRejeicao ?? "Payload inválido");
+  }
+
+  // US-12: a estação do tópico precisa existir e não pode estar Inativa.
+  // A conferência vem depois do payload, como na ordem dos critérios.
+  const motivoEstacao = await conferirEstacao(mensagem.estacaoId);
+  if (motivoEstacao !== undefined) {
+    return rejeitar(mensagem, motivoEstacao);
   }
 
   // A detecção de duplicata da TASK 13.01 é o índice único da staging

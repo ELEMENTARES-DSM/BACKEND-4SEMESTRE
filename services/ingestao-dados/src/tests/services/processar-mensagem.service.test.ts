@@ -2,13 +2,20 @@ import { MensagemIngestaoInput } from "../../dto/mensagem-ingestao.dto";
 import { inserirStaging } from "../../repositories/staging.repository";
 import { registrarRejeicao } from "../../services/registro-rejeicao.service";
 import { registrarDuplicadaIgnorada } from "../../services/registro-duplicada.service";
-import { processarMensagem } from "../../services/processar-mensagem.service";
+import {
+  encaminharParaIngestao,
+  processarMensagem,
+} from "../../services/processar-mensagem.service";
+import { buscarStatusEstacao } from "../../repositories/estacao.repository";
 import { pool } from "../../config/db";
 
 jest.mock("../../repositories/staging.repository");
+jest.mock("../../repositories/estacao.repository");
 jest.mock("../../services/registro-rejeicao.service");
 jest.mock("../../services/registro-duplicada.service");
 jest.mock("../../config/db");
+
+const statusEstacao = jest.mocked(buscarStatusEstacao);
 
 beforeEach(() => {
   const mockClient = {
@@ -16,6 +23,8 @@ beforeEach(() => {
     release: jest.fn(),
   };
   jest.mocked(pool.connect).mockResolvedValue(mockClient as never);
+  statusEstacao.mockReset();
+  statusEstacao.mockResolvedValue("Ativa");
 });
 
 const inserir = jest.mocked(inserirStaging);
@@ -167,5 +176,98 @@ describe("processarMensagem - registro de duplicatas (TASK 13.02)", () => {
 
     await expect(processarMensagem(mensagem)).rejects.toBe(erro);
     expect(registrarDuplicada).not.toHaveBeenCalled();
+  });
+});
+
+describe("processarMensagem - conferência da estação (US-12)", () => {
+  beforeEach(() => {
+    inserir.mockReset();
+    inserir.mockResolvedValue(true);
+  });
+
+  it("rejeita com \"Estação desconhecida\" quando o UUID não existe em estacoes", async () => {
+    statusEstacao.mockResolvedValue(null);
+
+    await expect(processarMensagem(mensagem)).resolves.toBe("rejeitada");
+
+    expect(statusEstacao).toHaveBeenCalledWith(mensagem.estacaoId);
+    expect(inserir).toHaveBeenCalledTimes(1);
+    expect(inserir).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "rejeitada",
+        motivoRejeicao: "Estação desconhecida",
+        payloadJson: payloadBruto,
+      }),
+    );
+    expect(registrar).toHaveBeenCalledWith("Estação desconhecida", mensagem.estacaoId);
+  });
+
+  it("rejeita com \"Estação inativa\" quando o cadastro está Inativa", async () => {
+    statusEstacao.mockResolvedValue("Inativa");
+
+    await expect(processarMensagem(mensagem)).resolves.toBe("rejeitada");
+
+    expect(inserir).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "rejeitada", motivoRejeicao: "Estação inativa" }),
+    );
+    expect(registrar).toHaveBeenCalledWith("Estação inativa", mensagem.estacaoId);
+  });
+
+  it("aceita leitura de estação \"Com Falha\" para ela poder voltar a Ativa", async () => {
+    statusEstacao.mockResolvedValue("Com Falha");
+
+    await expect(processarMensagem(mensagem)).resolves.toBe("recebida");
+    expect(registrar).not.toHaveBeenCalled();
+  });
+
+  it("confere o payload antes da estação: payload malformado nem consulta estacoes", async () => {
+    statusEstacao.mockResolvedValue(null);
+
+    await expect(
+      processarMensagem({ ...mensagem, payloadBruto: "não é JSON" }),
+    ).resolves.toBe("rejeitada");
+
+    expect(statusEstacao).not.toHaveBeenCalled();
+    expect(registrar).toHaveBeenCalledWith("Payload malformado", mensagem.estacaoId);
+  });
+
+  it("rejeição de negócio já decidida não consulta a estação de novo", async () => {
+    await processarMensagem(mensagem, "Estação inativa");
+    expect(statusEstacao).not.toHaveBeenCalled();
+  });
+
+  it("propaga falha ao consultar a estação sem gravar nem registrar rejeição", async () => {
+    const erro = new Error("Banco indisponível");
+    statusEstacao.mockRejectedValue(erro);
+
+    await expect(processarMensagem(mensagem)).rejects.toBe(erro);
+    expect(inserir).not.toHaveBeenCalled();
+    expect(registrar).not.toHaveBeenCalled();
+  });
+});
+
+describe("encaminharParaIngestao (TASK 11.05)", () => {
+  beforeEach(() => {
+    inserir.mockReset();
+    inserir.mockResolvedValue(true);
+  });
+
+  it("resolve depois de gravar a mensagem no staging", async () => {
+    await expect(encaminharParaIngestao(mensagem)).resolves.toBeUndefined();
+    expect(inserir).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolve também quando a mensagem é rejeitada, para o broker não reenviar", async () => {
+    await expect(
+      encaminharParaIngestao({ ...mensagem, payloadBruto: "não é JSON" }),
+    ).resolves.toBeUndefined();
+    expect(inserir).toHaveBeenCalledWith(expect.objectContaining({ status: "rejeitada" }));
+  });
+
+  it("rejeita quando a gravação falha, para a mensagem não ser confirmada", async () => {
+    const erro = new Error("Banco indisponível");
+    inserir.mockRejectedValue(erro);
+
+    await expect(encaminharParaIngestao(mensagem)).rejects.toBe(erro);
   });
 });
