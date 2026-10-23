@@ -29,6 +29,7 @@ describe("processar-telemetria.service - sensor inexistente ou inativo (US-18)",
     status,
     tipo: "Temperatura",
     municipio: "São José dos Campos",
+    estacao_status: "Ativa",
   });
 
   const evento = (...codigos: string[]): EventoTelemetriaDTO => ({

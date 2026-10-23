@@ -73,7 +73,7 @@ integration("US-19 - valor fisicamente impossível (PostgreSQL e RabbitMQ)", () 
   });
 
   beforeEach(async () => {
-    await pool.query("TRUNCATE medidas, sensores, estacoes");
+    await pool.query("TRUNCATE medidas, sensores, estacoes CASCADE");
     await limparFilas(admin.channel);
     metricasValidacaoService.reset();
     estacao = randomUUID();

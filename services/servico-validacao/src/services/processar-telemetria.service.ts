@@ -5,6 +5,7 @@ import {
   LeituraEventoDTO,
   MedidaRow,
 } from "../dto/evento-telemetria.dto";
+import { AlarmeRow, MedidaParaAvaliar } from "../dto/alarme.dto";
 import { inserirMedidaIdempotente } from "../repositories/medida.repository";
 import { buscarSensoresPorEvento } from "../repositories/sensor.repository";
 import { calibrarValor, valoresBrutosIguais } from "./calibracao.service";
@@ -18,9 +19,12 @@ import {
   metricasValidacaoService,
   MetricasValidacaoService,
 } from "./metricas-validacao.service";
+import { avaliarRegrasDasMedidas } from "./avaliar-regras.service";
 import logger from "../utils/logger";
 
 export const SENSOR_INATIVO = "Inativo";
+// US-22: medida de estação inativa é gravada, mas não dispara alarme.
+export const ESTACAO_INATIVA = "Inativa";
 
 export interface OpcoesProcessarTelemetria {
   dbPool?: Pick<Pool, "connect">;
@@ -49,6 +53,9 @@ export interface ResultadoProcessamentoEvento {
   ignoradasSensorInativo: number;
   // US-19: medidas novas gravadas com valida falso (fora da faixa física).
   invalidasGravadas: number;
+  // US-22: alarmes abertos e normalizados na mesma transação das medidas.
+  alarmesAbertos: AlarmeRow[];
+  alarmesNormalizados: number;
 }
 
 /**
@@ -101,6 +108,8 @@ function validarEstruturaEvento(evento: EventoTelemetriaDTO): void {
  * - Persiste cada leitura válida em `medidas` com o unixtime da estação e criado_em em UTC.
  * - Garante idempotência por UNIQUE (sensor_id, unixtime): mantém a primeira medida e,
  *   se o valor bruto divergir, registra a divergência em log.
+ * - US-22: cada medida nova e válida, de estação que não está inativa, é comparada às
+ *   regras ativas do sensor na mesma transação, abrindo ou normalizando alarmes.
  */
 export const processarEventoTelemetria = async (
   evento: EventoTelemetriaDTO,
@@ -144,6 +153,8 @@ export const processarEventoTelemetria = async (
     const recusadas: LeituraEventoDTO[] = [];
     const ignoradas: LeituraEventoDTO[] = [];
     const invalidas: MedidaInvalida[] = [];
+    const paraAvaliar: MedidaParaAvaliar[] = [];
+    const lidoEm = new Date(evento.unixtime * 1000);
 
     for (const leitura of evento.leituras) {
       const sensor = sensoresPorCodigo.get(leitura.sensor);
@@ -186,6 +197,17 @@ export const processarEventoTelemetria = async (
 
       if (resultado.inserida) {
         inseridas += 1;
+        // US-22: reentrega não avalia de novo; medida inválida nunca dispara alarme.
+        if (valida && sensor.estacao_status !== ESTACAO_INATIVA) {
+          paraAvaliar.push({
+            medida_id: resultado.medida.id,
+            sensor_id: sensor.id,
+            estacao_id: sensor.estacao_id,
+            municipio: sensor.municipio,
+            valor: valorCalibrado,
+            lido_em: lidoEm,
+          });
+        }
         if (!valida && faixa) {
           invalidas.push({
             codigo: sensor.codigo,
@@ -215,6 +237,8 @@ export const processarEventoTelemetria = async (
         );
       }
     }
+
+    const avaliacao = await avaliarRegrasDasMedidas(paraAvaliar, criadoEm, client);
 
     await client.query("COMMIT");
 
@@ -247,6 +271,25 @@ export const processarEventoTelemetria = async (
       metricas.incrementarMedidasInvalidasGravadas(invalidas.length);
     }
 
+    for (const alarme of avaliacao.abertos) {
+      logger.warn("Alarme registrado: medida violou regra de alerta", {
+        alarme_id: alarme.id,
+        regra_id: alarme.regra_id,
+        sensor_id: alarme.sensor_id,
+        municipio: alarme.municipio,
+        valor: alarme.valor,
+        operador: alarme.operador,
+        limite: alarme.limite,
+        severidade: alarme.severidade,
+      });
+    }
+    for (const alarme of avaliacao.normalizados) {
+      logger.info("Alarme normalizado", {
+        alarme_id: alarme.id,
+        regra_id: alarme.regra_id,
+      });
+    }
+
     return {
       inseridas,
       duplicadasIdempotentes,
@@ -255,6 +298,8 @@ export const processarEventoTelemetria = async (
       recusadas,
       ignoradasSensorInativo: ignoradas.length,
       invalidasGravadas: invalidas.length,
+      alarmesAbertos: avaliacao.abertos,
+      alarmesNormalizados: avaliacao.normalizados.length,
     };
   } catch (erro) {
     await client.query("ROLLBACK").catch(() => undefined);

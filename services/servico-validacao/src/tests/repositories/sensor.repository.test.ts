@@ -13,6 +13,7 @@ describe("sensor.repository", () => {
           ganho: "0.000000",
           status: "Ativo",
           municipio: "São José dos Campos",
+          estacao_status: "Ativa",
         },
       ],
     });

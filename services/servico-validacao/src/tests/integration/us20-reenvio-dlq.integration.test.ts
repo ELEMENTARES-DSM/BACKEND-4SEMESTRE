@@ -81,7 +81,7 @@ integration("US-20 - reenvio de eventos da DLQ (PostgreSQL e RabbitMQ)", () => {
   });
 
   beforeEach(async () => {
-    await pool.query("TRUNCATE medidas, sensores, estacoes");
+    await pool.query("TRUNCATE medidas, sensores, estacoes CASCADE");
     await limparFilas(admin.channel);
     estacao = randomUUID();
     await cadastrarEstacao(pool, estacao);

@@ -3,11 +3,16 @@ import { processarEventoTelemetria } from "../../services/processar-telemetria.s
 import { MetricasValidacaoService } from "../../services/metricas-validacao.service";
 import * as sensorRepository from "../../repositories/sensor.repository";
 import * as medidaRepository from "../../repositories/medida.repository";
+import * as regraAlertaRepository from "../../repositories/regra-alerta.repository";
+import * as alarmeRepository from "../../repositories/alarme.repository";
 import { EventoTelemetriaDTO, SensorEventoRow } from "../../dto/evento-telemetria.dto";
 import logger from "../../utils/logger";
 
 jest.mock("../../repositories/sensor.repository");
 jest.mock("../../repositories/medida.repository");
+// US-22: a avaliação das regras tem testes próprios; aqui nenhum sensor tem regra.
+jest.mock("../../repositories/regra-alerta.repository");
+jest.mock("../../repositories/alarme.repository");
 
 // US-19 (TASKS 19.01 e 19.02): fora da faixa física grava com valida falso, log e contador.
 describe("processar-telemetria.service - faixa física (US-19)", () => {
@@ -25,6 +30,7 @@ describe("processar-telemetria.service - faixa física (US-19)", () => {
     status: "Ativo",
     tipo,
     municipio: "São José dos Campos",
+    estacao_status: "Ativa",
   });
 
   const evento = (...leituras: Array<[string, number]>): EventoTelemetriaDTO => ({
@@ -58,6 +64,8 @@ describe("processar-telemetria.service - faixa física (US-19)", () => {
     jest.clearAllMocks();
     jest.restoreAllMocks();
     metricas = new MetricasValidacaoService();
+    jest.mocked(regraAlertaRepository.buscarRegrasAtivasPorSensores).mockResolvedValue([]);
+    jest.mocked(alarmeRepository.normalizarAlarmesDeRegrasInativas).mockResolvedValue([]);
     inserida = true;
     queryClientMock.mockResolvedValue({ rows: [] });
     connectPoolMock.mockResolvedValue({
