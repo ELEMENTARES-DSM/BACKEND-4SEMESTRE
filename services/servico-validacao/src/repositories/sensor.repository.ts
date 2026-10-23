@@ -7,8 +7,9 @@ export type DbQueryable = Pick<Pool | PoolClient, "query">;
 /**
  * Busca os sensores da estação correspondentes aos códigos informados no evento
  * em uma única consulta SQL, sem cache em memória, trazendo também o município
- * herdado da estação (sensores -> estacoes.municipio) e o tipo (grandeza), usado
- * para conferir a faixa física (US-19).
+ * herdado da estação (sensores -> estacoes.municipio), o tipo (grandeza), usado
+ * para conferir a faixa física (US-19), e o status da estação, que decide se a
+ * medida é avaliada pelas regras de alerta (US-22).
  */
 export const buscarSensoresPorEvento = async (
   estacaoUuid: string,
@@ -31,7 +32,8 @@ export const buscarSensoresPorEvento = async (
        s.ganho,
        s.status,
        s.tipo,
-       e.municipio
+       e.municipio,
+       e.status AS estacao_status
      FROM sensores s
      JOIN estacoes e ON e.id = s.estacao_id
      WHERE s.estacao_id = $1

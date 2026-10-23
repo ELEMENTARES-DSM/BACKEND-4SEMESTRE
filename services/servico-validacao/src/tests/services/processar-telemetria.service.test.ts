@@ -2,10 +2,15 @@ import { describe, it, expect, jest, beforeEach } from "@jest/globals";
 import { processarEventoTelemetria } from "../../services/processar-telemetria.service";
 import * as sensorRepository from "../../repositories/sensor.repository";
 import * as medidaRepository from "../../repositories/medida.repository";
+import * as regraAlertaRepository from "../../repositories/regra-alerta.repository";
+import * as alarmeRepository from "../../repositories/alarme.repository";
 import logger from "../../utils/logger";
 
 jest.mock("../../repositories/sensor.repository");
 jest.mock("../../repositories/medida.repository");
+// US-22: a avaliação das regras tem testes próprios; aqui nenhum sensor tem regra.
+jest.mock("../../repositories/regra-alerta.repository");
+jest.mock("../../repositories/alarme.repository");
 
 describe("processar-telemetria.service", () => {
   const queryClientMock = jest.fn<(...args: unknown[]) => Promise<unknown>>();
@@ -27,6 +32,8 @@ describe("processar-telemetria.service", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     queryClientMock.mockResolvedValue({ rows: [] });
+    jest.mocked(regraAlertaRepository.buscarRegrasAtivasPorSensores).mockResolvedValue([]);
+    jest.mocked(alarmeRepository.normalizarAlarmesDeRegrasInativas).mockResolvedValue([]);
     connectPoolMock.mockResolvedValue({
       query: queryClientMock,
       release: releaseClientMock,
@@ -48,6 +55,7 @@ describe("processar-telemetria.service", () => {
           status: "Ativo",
           tipo: "Temperatura",
           municipio: "São José dos Campos",
+          estacao_status: "Ativa",
         },
       ],
       [
@@ -61,6 +69,7 @@ describe("processar-telemetria.service", () => {
           status: "Ativo",
           tipo: "Umidade Relativa",
           municipio: "São José dos Campos",
+          estacao_status: "Ativa",
         },
       ],
     ]);
@@ -157,6 +166,7 @@ describe("processar-telemetria.service", () => {
           status: "Ativo",
           tipo: "Temperatura",
           municipio: "São José dos Campos",
+          estacao_status: "Ativa",
         },
       ],
     ]);
@@ -211,6 +221,7 @@ describe("processar-telemetria.service", () => {
           status: "Ativo",
           tipo: "Temperatura",
           municipio: "São José dos Campos",
+          estacao_status: "Ativa",
         },
       ],
     ]);

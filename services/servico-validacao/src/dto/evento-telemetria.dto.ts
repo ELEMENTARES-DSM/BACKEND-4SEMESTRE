@@ -34,6 +34,7 @@ export interface SensorEventoRow {
   status: string;
   tipo: string;
   municipio: string;
+  estacao_status: string;
 }
 
 export interface NovaMedidaInput {

@@ -170,6 +170,7 @@ describe("US-17 (Task 17.1) — Cenários 1 a 13 de ponta a ponta", () => {
       status: "Ativo",
       tipo: "Temperatura",
       municipio: "São José dos Campos",
+      estacao_status: "Ativa",
     });
     fakeDb.adicionarSensor({
       id: "22222222-2222-4222-8222-222222222222",
@@ -180,6 +181,7 @@ describe("US-17 (Task 17.1) — Cenários 1 a 13 de ponta a ponta", () => {
       status: "Ativo",
       tipo: "Umidade Relativa",
       municipio: "São José dos Campos",
+      estacao_status: "Ativa",
     });
   });
 
@@ -416,6 +418,7 @@ describe("US-17 (Task 17.1) — Cenários 1 a 13 de ponta a ponta", () => {
       status: "Ativo",
       tipo: "Temperatura",
       municipio: "São José dos Campos",
+      estacao_status: "Ativa",
     });
 
     await processarEventoTelemetria(

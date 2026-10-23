@@ -1,7 +1,8 @@
 import { Pool } from "pg";
 
-// Schema isolado com estacoes e sensores mínimos (as migrations reais são do
-// gestao-estacoes) e a migration real de medidas do servico-validacao.
+// Schema isolado com estacoes, sensores e regras_alerta mínimos (as migrations
+// reais são do gestao-estacoes e do alertas-notificacoes) e as migrations reais
+// de medidas e alarmes do servico-validacao.
 export async function prepararSchemaValidacao(pool: Pool, schema: string): Promise<void> {
   // O módulo db é carregado antes dos hooks: configurar o pool explicitamente.
   pool.options.connectionString = process.env.VALIDACAO_TEST_DATABASE_URL;
@@ -11,7 +12,8 @@ export async function prepararSchemaValidacao(pool: Pool, schema: string): Promi
   await pool.query(`
     CREATE TABLE estacoes (
       id UUID PRIMARY KEY,
-      municipio VARCHAR(100) NOT NULL
+      municipio VARCHAR(100) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'Ativa'
     )
   `);
   await pool.query(`
@@ -26,20 +28,43 @@ export async function prepararSchemaValidacao(pool: Pool, schema: string): Promi
     )
   `);
 
-  // Migration CommonJS gerada pelo node-pg-migrate.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const migration = require("../../../db/migrations/1792502100000_create-medidas-table.cjs");
-  const comandos: string[] = [];
-  migration.up({ sql: (sql: string) => comandos.push(sql) });
-  for (const sql of comandos) await pool.query(sql);
+  // Só as colunas de regras_alerta que o servico-validacao lê (US-22).
+  await pool.query(`
+    CREATE TABLE regras_alerta (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      sensor_id UUID NOT NULL REFERENCES sensores(id),
+      operador VARCHAR(5) NOT NULL,
+      valor_limite NUMERIC(10,2) NOT NULL,
+      severidade VARCHAR(20) NOT NULL,
+      esta_ativo BOOLEAN NOT NULL DEFAULT TRUE,
+      criado_em TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+    )
+  `);
+
+  // Migrations CommonJS geradas pelo node-pg-migrate, na ordem do nome.
+  for (const arquivo of [
+    "1792502100000_create-medidas-table.cjs",
+    "1792900000000_create-alarmes-table.cjs",
+  ]) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const migration = require(`../../../db/migrations/${arquivo}`);
+    const comandos: string[] = [];
+    migration.up({ sql: (sql: string) => comandos.push(sql) });
+    for (const sql of comandos) await pool.query(sql);
+  }
 }
 
 export async function cadastrarEstacao(
   pool: Pick<Pool, "query">,
   id: string,
   municipio = "São José dos Campos",
+  status = "Ativa",
 ): Promise<void> {
-  await pool.query("INSERT INTO estacoes (id, municipio) VALUES ($1, $2)", [id, municipio]);
+  await pool.query("INSERT INTO estacoes (id, municipio, status) VALUES ($1, $2, $3)", [
+    id,
+    municipio,
+    status,
+  ]);
 }
 
 export interface NovoSensor {
@@ -67,6 +92,24 @@ export async function cadastrarSensor(
       sensor.fator ?? "1.0",
       sensor.ganho ?? "0.0",
     ],
+  );
+  return rows[0].id;
+}
+
+export interface NovaRegra {
+  sensorId: string;
+  operador: ">" | ">=" | "<" | "<=" | "=";
+  limite: string;
+  severidade?: "ATENCAO" | "ALERTA" | "CRITICO";
+  ativa?: boolean;
+}
+
+export async function cadastrarRegra(pool: Pick<Pool, "query">, regra: NovaRegra): Promise<string> {
+  const { rows } = await pool.query<{ id: string }>(
+    `INSERT INTO regras_alerta (sensor_id, operador, valor_limite, severidade, esta_ativo)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING id`,
+    [regra.sensorId, regra.operador, regra.limite, regra.severidade ?? "CRITICO", regra.ativa ?? true],
   );
   return rows[0].id;
 }

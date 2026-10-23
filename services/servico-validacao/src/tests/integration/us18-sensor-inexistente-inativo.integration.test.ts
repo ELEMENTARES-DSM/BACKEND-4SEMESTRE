@@ -73,7 +73,7 @@ integration("US-18 - sensor inexistente ou inativo (PostgreSQL e RabbitMQ)", () 
   });
 
   beforeEach(async () => {
-    await pool.query("TRUNCATE medidas, sensores, estacoes");
+    await pool.query("TRUNCATE medidas, sensores, estacoes CASCADE");
     await limparFilas(admin.channel);
     metricasValidacaoService.reset();
     estacaoA = randomUUID();
