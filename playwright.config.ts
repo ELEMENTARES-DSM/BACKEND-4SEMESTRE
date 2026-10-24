@@ -3,6 +3,8 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
+  // tests/fluxo-ingestao é o teste contínuo da ingestão (US-21), com runner próprio.
+  testIgnore: ['fluxo-ingestao/**'],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
