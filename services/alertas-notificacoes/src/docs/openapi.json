@@ -19,6 +19,10 @@
     {
       "name": "Regras de alerta",
       "description": "Cadastro, consulta e ativação/inativação de regras de alerta por sensor"
+    },
+    {
+      "name": "Alarmes",
+      "description": "Consulta dos alarmes gravados pelas regras de alerta (US-24)"
     }
   ],
   "paths": {
@@ -571,6 +575,441 @@
           }
         }
       }
+    },
+    "/alarmes": {
+      "get": {
+        "tags": [
+          "Alarmes"
+        ],
+        "operationId": "alertas_alarmes_list",
+        "summary": "Listar alarmes",
+        "description": "Lista os alarmes, mais recentes primeiro (pelo horário da leitura), até 500. GESTOR_PUBLICO vê só os do seu município; ADMINISTRADOR vê todos. Os filtros combinam entre si. Exemplo: `curl \"http://localhost/alertas/alarmes?severidade=CRITICO&situacao=aberto\" -H \"Authorization: Bearer <token>\"`.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "de",
+            "in": "query",
+            "required": false,
+            "description": "Leituras a partir deste horário (ISO 8601 com fuso).",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "example": "2026-10-24T00:00:00.000-03:00"
+          },
+          {
+            "name": "ate",
+            "in": "query",
+            "required": false,
+            "description": "Leituras até este horário (ISO 8601 com fuso).",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "example": "2026-10-24T23:59:59.999-03:00"
+          },
+          {
+            "name": "severidade",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ATENCAO",
+                "ALERTA",
+                "CRITICO"
+              ]
+            }
+          },
+          {
+            "name": "estacao_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "situacao",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "aberto",
+                "normalizado"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de alarmes (vazia quando não há alarme no filtro).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Alarme"
+                  }
+                },
+                "examples": {
+                  "lista": {
+                    "summary": "Alarme crítico aberto",
+                    "value": [
+                      {
+                        "id": "0b6f2a4e-1c3d-4e5f-8a9b-1c2d3e4f5a6b",
+                        "regra_id": "7b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+                        "regra_nome": "PM2.5 crítico",
+                        "sensor_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "sensor_codigo": "PM25-01",
+                        "sensor_tipo": "PM2.5",
+                        "sensor_unidade_medida": "µg/m³",
+                        "estacao_id": "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+                        "estacao_codigo": "SJC-001",
+                        "estacao_nome": "Estação Centro",
+                        "municipio": "São José dos Campos",
+                        "valor": 52.3,
+                        "operador": ">=",
+                        "limite": 50,
+                        "severidade": "CRITICO",
+                        "situacao": "aberto",
+                        "lido_em": "2026-10-24T13:00:00.000Z",
+                        "criado_em": "2026-10-24T13:00:01.412Z",
+                        "normalizado_em": null
+                      }
+                    ]
+                  },
+                  "vazia": {
+                    "summary": "Nenhum alarme no período",
+                    "value": []
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Filtro inválido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidacaoErroResponse"
+                },
+                "examples": {
+                  "datas": {
+                    "summary": "Período invertido",
+                    "value": {
+                      "message": "Dados inválidos",
+                      "errors": {
+                        "ate": [
+                          "de deve ser anterior ou igual a ate"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido ou expirado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroAutenticacaoResponse"
+                },
+                "examples": {
+                  "tokenAusente": {
+                    "summary": "Token não informado",
+                    "value": {
+                      "erro": "Autenticação necessária. Token não informado ou formato inválido."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Perfil sem permissão (o pesquisador não consulta alarmes) ou gestor sem município no token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErroAutenticacaoResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErroResponse"
+                    }
+                  ]
+                },
+                "examples": {
+                  "perfilInsuficiente": {
+                    "summary": "Pesquisador",
+                    "value": {
+                      "erro": "Acesso negado. Perfil insuficiente para esta ação."
+                    }
+                  },
+                  "semMunicipio": {
+                    "summary": "Gestor sem município",
+                    "value": {
+                      "message": "Acesso negado: usuário sem município vinculado."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alarmes/resumo": {
+      "get": {
+        "tags": [
+          "Alarmes"
+        ],
+        "operationId": "alertas_alarmes_resumo",
+        "summary": "Resumo dos alarmes abertos",
+        "description": "Quantidade de alarmes abertos por severidade, para o indicador do cabeçalho. Bate com a lista filtrada por `situacao=aberto`. GESTOR_PUBLICO conta só o seu município.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Abertos por severidade.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResumoAlarmes"
+                },
+                "examples": {
+                  "resumo": {
+                    "summary": "2 críticos e 1 alerta abertos",
+                    "value": {
+                      "abertos": {
+                        "ATENCAO": 0,
+                        "ALERTA": 1,
+                        "CRITICO": 2
+                      },
+                      "total": 3
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido ou expirado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroAutenticacaoResponse"
+                },
+                "examples": {
+                  "tokenAusente": {
+                    "summary": "Token não informado",
+                    "value": {
+                      "erro": "Autenticação necessária. Token não informado ou formato inválido."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Perfil sem permissão (o pesquisador não consulta alarmes) ou gestor sem município no token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErroAutenticacaoResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErroResponse"
+                    }
+                  ]
+                },
+                "examples": {
+                  "perfilInsuficiente": {
+                    "summary": "Pesquisador",
+                    "value": {
+                      "erro": "Acesso negado. Perfil insuficiente para esta ação."
+                    }
+                  },
+                  "semMunicipio": {
+                    "summary": "Gestor sem município",
+                    "value": {
+                      "message": "Acesso negado: usuário sem município vinculado."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alarmes/{id}": {
+      "get": {
+        "tags": [
+          "Alarmes"
+        ],
+        "operationId": "alertas_alarmes_get",
+        "summary": "Detalhe de um alarme",
+        "description": "Para o gestor, alarme de outro município responde como inexistente (404).",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Alarme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Alarme"
+                },
+                "examples": {
+                  "alarme": {
+                    "summary": "Alarme crítico aberto",
+                    "value": {
+                      "id": "0b6f2a4e-1c3d-4e5f-8a9b-1c2d3e4f5a6b",
+                      "regra_id": "7b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+                      "regra_nome": "PM2.5 crítico",
+                      "sensor_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "sensor_codigo": "PM25-01",
+                      "sensor_tipo": "PM2.5",
+                      "sensor_unidade_medida": "µg/m³",
+                      "estacao_id": "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+                      "estacao_codigo": "SJC-001",
+                      "estacao_nome": "Estação Centro",
+                      "municipio": "São José dos Campos",
+                      "valor": 52.3,
+                      "operador": ">=",
+                      "limite": 50,
+                      "severidade": "CRITICO",
+                      "situacao": "aberto",
+                      "lido_em": "2026-10-24T13:00:00.000Z",
+                      "criado_em": "2026-10-24T13:00:01.412Z",
+                      "normalizado_em": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Id inválido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidacaoErroResponse"
+                },
+                "examples": {
+                  "id": {
+                    "summary": "Id que não é UUID",
+                    "value": {
+                      "message": "Dados inválidos",
+                      "errors": {
+                        "id": [
+                          "Invalid UUID"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido ou expirado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroAutenticacaoResponse"
+                },
+                "examples": {
+                  "tokenAusente": {
+                    "summary": "Token não informado",
+                    "value": {
+                      "erro": "Autenticação necessária. Token não informado ou formato inválido."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Perfil sem permissão (o pesquisador não consulta alarmes) ou gestor sem município no token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErroAutenticacaoResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErroResponse"
+                    }
+                  ]
+                },
+                "examples": {
+                  "perfilInsuficiente": {
+                    "summary": "Pesquisador",
+                    "value": {
+                      "erro": "Acesso negado. Perfil insuficiente para esta ação."
+                    }
+                  },
+                  "semMunicipio": {
+                    "summary": "Gestor sem município",
+                    "value": {
+                      "message": "Acesso negado: usuário sem município vinculado."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Alarme inexistente ou de outro município.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroResponse"
+                },
+                "examples": {
+                  "naoEncontrado": {
+                    "summary": "Não encontrado",
+                    "value": {
+                      "message": "Alarme não encontrado."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -822,6 +1261,194 @@
             "type": "string",
             "description": "Descrição do erro de autenticação/autorização."
           }
+        }
+      },
+      "Alarme": {
+        "type": "object",
+        "required": [
+          "id",
+          "regra_id",
+          "regra_nome",
+          "sensor_id",
+          "sensor_codigo",
+          "sensor_tipo",
+          "sensor_unidade_medida",
+          "estacao_id",
+          "estacao_codigo",
+          "estacao_nome",
+          "municipio",
+          "valor",
+          "operador",
+          "limite",
+          "severidade",
+          "situacao",
+          "lido_em",
+          "criado_em",
+          "normalizado_em"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Identificador do alarme."
+          },
+          "regra_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Regra violada."
+          },
+          "regra_nome": {
+            "type": "string",
+            "nullable": true,
+            "description": "Nome da regra (null se a regra não existir mais)."
+          },
+          "sensor_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sensor_codigo": {
+            "type": "string",
+            "nullable": true
+          },
+          "sensor_tipo": {
+            "type": "string",
+            "nullable": true,
+            "description": "Grandeza do sensor."
+          },
+          "sensor_unidade_medida": {
+            "type": "string",
+            "nullable": true
+          },
+          "estacao_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "estacao_codigo": {
+            "type": "string",
+            "nullable": true
+          },
+          "estacao_nome": {
+            "type": "string",
+            "nullable": true
+          },
+          "municipio": {
+            "type": "string",
+            "description": "Município da estação, herdado no momento do alarme."
+          },
+          "valor": {
+            "type": "number",
+            "description": "Valor real medido (calibrado)."
+          },
+          "operador": {
+            "type": "string",
+            "enum": [
+              ">",
+              ">=",
+              "<",
+              "<=",
+              "="
+            ]
+          },
+          "limite": {
+            "type": "number",
+            "description": "Limite da regra no momento do alarme."
+          },
+          "severidade": {
+            "type": "string",
+            "enum": [
+              "ATENCAO",
+              "ALERTA",
+              "CRITICO"
+            ]
+          },
+          "situacao": {
+            "type": "string",
+            "enum": [
+              "aberto",
+              "normalizado"
+            ]
+          },
+          "lido_em": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Horário da leitura, enviado pela estação."
+          },
+          "criado_em": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Horário em que o alarme foi gravado."
+          },
+          "normalizado_em": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Horário em que o valor voltou ao normal; null enquanto aberto."
+          }
+        },
+        "example": {
+          "id": "0b6f2a4e-1c3d-4e5f-8a9b-1c2d3e4f5a6b",
+          "regra_id": "7b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+          "regra_nome": "PM2.5 crítico",
+          "sensor_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+          "sensor_codigo": "PM25-01",
+          "sensor_tipo": "PM2.5",
+          "sensor_unidade_medida": "µg/m³",
+          "estacao_id": "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+          "estacao_codigo": "SJC-001",
+          "estacao_nome": "Estação Centro",
+          "municipio": "São José dos Campos",
+          "valor": 52.3,
+          "operador": ">=",
+          "limite": 50,
+          "severidade": "CRITICO",
+          "situacao": "aberto",
+          "lido_em": "2026-10-24T13:00:00.000Z",
+          "criado_em": "2026-10-24T13:00:01.412Z",
+          "normalizado_em": null
+        }
+      },
+      "ResumoAlarmes": {
+        "type": "object",
+        "required": [
+          "abertos",
+          "total"
+        ],
+        "properties": {
+          "abertos": {
+            "type": "object",
+            "required": [
+              "ATENCAO",
+              "ALERTA",
+              "CRITICO"
+            ],
+            "properties": {
+              "ATENCAO": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "ALERTA": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "CRITICO": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "description": "Alarmes abertos por severidade."
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "example": {
+          "abertos": {
+            "ATENCAO": 0,
+            "ALERTA": 1,
+            "CRITICO": 2
+          },
+          "total": 3
         }
       }
     },
