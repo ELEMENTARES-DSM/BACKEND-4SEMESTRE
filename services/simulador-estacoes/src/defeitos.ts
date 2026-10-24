@@ -107,7 +107,7 @@ export function aplicarDefeito(
   }
 }
 
-function uuidAleatorio(rng: Rng): string {
+export function uuidAleatorio(rng: Rng): string {
   const hex = Array.from({ length: 32 }, () =>
     Math.floor(rng() * 16).toString(16),
   ).join("");

@@ -22,6 +22,7 @@ jobs:
           - ingestao-dados
           - servico-relatorios
           - servico-validacao
+          - simulador-estacoes
 
     defaults:
       run:
