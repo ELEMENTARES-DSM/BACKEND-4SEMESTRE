@@ -94,3 +94,38 @@ export const normalizarAlarmesDeRegrasInativas = async (
 
   return resultado.rows;
 };
+
+/** US-22: marca como publicados os alarmes que o RabbitMQ confirmou. */
+export const marcarAlarmesPublicados = async (
+  ids: string[],
+  publicadoEm: Date,
+  db: DbQueryable = pool,
+): Promise<void> => {
+  if (ids.length === 0) {
+    return;
+  }
+
+  await db.query(
+    `UPDATE alarmes
+     SET publicado_em = $2
+     WHERE id = ANY($1::uuid[]) AND publicado_em IS NULL`,
+    [ids, publicadoEm.toISOString()],
+  );
+};
+
+/** Alarmes ainda sem confirmação do RabbitMQ, mais antigos primeiro. */
+export const buscarAlarmesNaoPublicados = async (
+  limite: number,
+  db: DbQueryable = pool,
+): Promise<AlarmeRow[]> => {
+  const resultado: QueryResult<AlarmeRow> = await db.query<AlarmeRow>(
+    `SELECT ${COLUNAS_ALARME}
+     FROM alarmes
+     WHERE publicado_em IS NULL
+     ORDER BY criado_em, id
+     LIMIT $1`,
+    [limite],
+  );
+
+  return resultado.rows;
+};

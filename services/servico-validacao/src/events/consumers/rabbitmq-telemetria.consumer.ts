@@ -5,11 +5,14 @@ import {
   EventoTelemetriaDTO,
   LeituraEventoDTO,
 } from "../../dto/evento-telemetria.dto";
+import { AlarmeRow } from "../../dto/alarme.dto";
 import {
   EventoMalformadoError,
   processarEventoTelemetria,
 } from "../../services/processar-telemetria.service";
 import { PublicadorDlqValidacao } from "../publishers/rabbitmq-dlq.publisher";
+import { PublicadorAlarmes } from "../publishers/rabbitmq-alarme.publisher";
+import { marcarAlarmesPublicados } from "../../repositories/alarme.repository";
 import {
   EVENTO_MALFORMADO,
   SENSOR_INEXISTENTE,
@@ -28,6 +31,8 @@ export type ProcessadorEventoTelemetria = (
 
 export type PublicadorDlq = (eventos: EventoRecusadoDTO[]) => Promise<void>;
 
+export type PublicadorAlarmesFn = (alarmes: AlarmeRow[]) => Promise<void>;
+
 export interface RabbitMqConsumerOptions {
   url: string;
   fila?: string;
@@ -39,6 +44,11 @@ export interface RabbitMqConsumerOptions {
   agora?: () => Date;
   verificarBanco?: () => Promise<boolean>;
   esperaBancoMs?: number;
+  // US-22: publicação de alarme.disparado e aviso de que há alarme a republicar
+  // (ao conectar e quando a publicação falha).
+  publicarAlarmes?: PublicadorAlarmesFn;
+  marcarAlarmesPublicados?: (ids: string[], publicadoEm: Date) => Promise<void>;
+  agendarRepublicacaoAlarmes?: () => void;
 }
 
 export interface EstadoSaudeRabbitMq {
@@ -63,6 +73,9 @@ export class ConsumidorRabbitMqTelemetria {
   private readonly processarEvento: ProcessadorEventoTelemetria;
   private readonly publicadorDlq = new PublicadorDlqValidacao(() => this.connection);
   private readonly publicarDlq: PublicadorDlq;
+  private readonly publicadorAlarmes = new PublicadorAlarmes(() => this.connection);
+  private readonly publicarAlarmesFn: PublicadorAlarmesFn;
+  private readonly marcarPublicados: (ids: string[], publicadoEm: Date) => Promise<void>;
   private readonly agora: () => Date;
   private readonly verificarBanco: () => Promise<boolean>;
   private readonly esperaBancoMs: number;
@@ -77,6 +90,11 @@ export class ConsumidorRabbitMqTelemetria {
     this.agora = options.agora ?? (() => new Date());
     this.verificarBanco = options.verificarBanco ?? verificarConexaoBanco;
     this.esperaBancoMs = options.esperaBancoMs ?? ESPERA_BANCO_MS;
+    this.publicarAlarmesFn =
+      options.publicarAlarmes ?? ((alarmes) => this.publicadorAlarmes.publicar(alarmes));
+    this.marcarPublicados =
+      options.marcarAlarmesPublicados ??
+      ((ids, publicadoEm) => marcarAlarmesPublicados(ids, publicadoEm));
   }
 
   public async iniciar(): Promise<void> {
@@ -102,6 +120,7 @@ export class ConsumidorRabbitMqTelemetria {
     this.rabbitmqConectado = false;
     this.filaDisponivel = false;
     this.publicadorDlq.descartarCanal();
+    this.publicadorAlarmes.descartarCanal();
 
     await channel?.close().catch(() => undefined);
     await connection?.close().catch(() => undefined);
@@ -124,6 +143,11 @@ export class ConsumidorRabbitMqTelemetria {
   /** US-20: verdadeiro enquanto o consumo espera o banco voltar. */
   public estaComConsumoPausado(): boolean {
     return this.consumoPausado;
+  }
+
+  /** US-22: publica em alarme.disparado pela conexão do consumidor. */
+  public publicarAlarmes(alarmes: AlarmeRow[]): Promise<void> {
+    return this.publicarAlarmesFn(alarmes);
   }
 
   private async conectarOuConfigurarCanal(): Promise<void> {
@@ -154,6 +178,7 @@ export class ConsumidorRabbitMqTelemetria {
             this.rabbitmqConectado = false;
             this.filaDisponivel = false;
             this.publicadorDlq.descartarCanal();
+            this.publicadorAlarmes.descartarCanal();
             logger.warn("Conexão com o RabbitMQ encerrada", {
               fila: this.fila,
             });
@@ -215,6 +240,7 @@ export class ConsumidorRabbitMqTelemetria {
         fila: this.fila,
         prefetch: this.prefetch,
       });
+      this.options.agendarRepublicacaoAlarmes?.();
     } catch (erro) {
       this.channel = undefined;
       this.filaDisponivel = false;
@@ -257,6 +283,10 @@ export class ConsumidorRabbitMqTelemetria {
         ),
       );
 
+      // US-22: a medida já foi gravada; se a publicação do alarme falhar, ele fica
+      // pendente e é republicado depois, sem devolver o evento à fila.
+      await this.publicarAlarmesDoEvento(alarmesDoResultado(resultado));
+
       // Confirma no RabbitMQ somente após o commit da transação no banco
       // e depois de o RabbitMQ confirmar as leituras recusadas na DLQ.
       channel.ack(msg);
@@ -278,6 +308,26 @@ export class ConsumidorRabbitMqTelemetria {
       } catch {
         // Canal pode ter fechado durante o processamento
       }
+    }
+  }
+
+  private async publicarAlarmesDoEvento(alarmes: AlarmeRow[]): Promise<void> {
+    if (alarmes.length === 0) {
+      return;
+    }
+
+    try {
+      await this.publicarAlarmesFn(alarmes);
+      await this.marcarPublicados(
+        alarmes.map((alarme) => alarme.id),
+        this.agora(),
+      );
+    } catch (erro) {
+      logger.error("Falha ao publicar alarme.disparado; alarme fica pendente de publicação", {
+        alarmes: alarmes.map((alarme) => alarme.id),
+        erro: erro instanceof Error ? erro.message : String(erro),
+      });
+      this.options.agendarRepublicacaoAlarmes?.();
     }
   }
 
@@ -387,6 +437,14 @@ function recusadasDoResultado(resultado: unknown): LeituraEventoDTO[] {
   if (resultado && typeof resultado === "object" && "recusadas" in resultado) {
     const { recusadas } = resultado as { recusadas: unknown };
     return Array.isArray(recusadas) ? (recusadas as LeituraEventoDTO[]) : [];
+  }
+  return [];
+}
+
+function alarmesDoResultado(resultado: unknown): AlarmeRow[] {
+  if (resultado && typeof resultado === "object" && "alarmesAbertos" in resultado) {
+    const { alarmesAbertos } = resultado as { alarmesAbertos: unknown };
+    return Array.isArray(alarmesAbertos) ? (alarmesAbertos as AlarmeRow[]) : [];
   }
   return [];
 }
