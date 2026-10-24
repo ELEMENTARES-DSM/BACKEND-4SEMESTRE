@@ -1,0 +1,25 @@
+{
+  "name": "teste-fluxo-ingestao",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Teste contínuo do fluxo de ingestão (US-21): confere o balanço de um lote do simulador.",
+  "scripts": {
+    "balanco": "tsx src/index.ts",
+    "lint": "eslint src/",
+    "test": "tsx --test src/tests/*.test.ts"
+  },
+  "dependencies": {
+    "amqplib": "^2.2.0",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.19.2",
+    "@types/pg": "^8.23.1",
+    "eslint": "^10.13.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.0"
+  }
+}
