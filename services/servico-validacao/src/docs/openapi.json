@@ -19,6 +19,10 @@
     {
       "name": "Métricas",
       "description": "Contadores da validação desde o último início do serviço"
+    },
+    {
+      "name": "DLQ",
+      "description": "Reenvio manual dos eventos da validacao.dlq depois de corrigida a causa"
     }
   ],
   "paths": {
@@ -182,6 +186,174 @@
           }
         }
       }
+    },
+    "/dlq/reenviar": {
+      "post": {
+        "tags": [
+          "DLQ"
+        ],
+        "operationId": "servico_validacao_dlq_reenviar",
+        "summary": "Reenviar eventos da validacao.dlq para a fila de validação",
+        "description": "Retira os eventos mais antigos da validacao.dlq, no máximo o número que estava na DLQ no início da chamada, e publica cada um de volta em validacao.telemetria com confirmação do RabbitMQ; só então o evento sai da DLQ. Evento do limite de entregas volta como está; leitura recusada pela US-18 volta sem `motivo` e `recusado_em`; evento malformado volta com o conteúdo original. Reenviar nunca duplica medida. Sem `quantidade`, reenvia todos. Só um reenvio por vez. Cada reenvio fica em log com o usuário, o horário e a quantidade. Restrito ao perfil ADMINISTRADOR.\n\nExemplo de requisição:\n\n```\ncurl -X POST http://localhost/validacao/dlq/reenviar \\\n  -H \"Authorization: Bearer <token>\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"quantidade\": 10}'\n```",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReenvioDlqRequest"
+              },
+              "examples": {
+                "todos": {
+                  "summary": "Reenviar todos os eventos da DLQ",
+                  "value": {}
+                },
+                "quantidade": {
+                  "summary": "Reenviar os 10 mais antigos",
+                  "value": {
+                    "quantidade": 10
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Reenvio concluído.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReenvioDlqResponse"
+                },
+                "examples": {
+                  "todos": {
+                    "summary": "30 eventos na DLQ, sem quantidade",
+                    "value": {
+                      "reenviados": 30,
+                      "restantes": 0
+                    }
+                  },
+                  "quantidade": {
+                    "summary": "30 eventos na DLQ, quantidade 10",
+                    "value": {
+                      "reenviados": 10,
+                      "restantes": 20
+                    }
+                  },
+                  "dlqVazia": {
+                    "summary": "DLQ vazia",
+                    "value": {
+                      "reenviados": 0,
+                      "restantes": 0
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`quantidade` informada não é um inteiro maior que zero. Nada é reenviado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroResponse"
+                },
+                "examples": {
+                  "quantidadeInvalida": {
+                    "summary": "Quantidade 0, negativa ou texto",
+                    "value": {
+                      "erro": "Quantidade inválida"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido ou expirado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroAutenticacaoResponse"
+                },
+                "examples": {
+                  "tokenNaoInformado": {
+                    "summary": "Token não informado",
+                    "value": {
+                      "erro": "Autenticação necessária. Token não informado ou formato inválido."
+                    }
+                  },
+                  "tokenInvalido": {
+                    "summary": "Token inválido",
+                    "value": {
+                      "erro": "Token inválido ou expirado."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acesso negado para o perfil do usuário.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroAutenticacaoResponse"
+                },
+                "examples": {
+                  "perfilInsuficiente": {
+                    "summary": "Perfil insuficiente",
+                    "value": {
+                      "erro": "Acesso negado. Perfil insuficiente para esta ação."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Já existe um reenvio em andamento.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroResponse"
+                },
+                "examples": {
+                  "reenvioEmAndamento": {
+                    "summary": "Outro reenvio em andamento",
+                    "value": {
+                      "erro": "Reenvio já em andamento"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "RabbitMQ indisponível antes ou durante o reenvio. Os eventos não reenviados continuam na DLQ.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroResponse"
+                },
+                "examples": {
+                  "rabbitmqIndisponivel": {
+                    "summary": "RabbitMQ fora do ar",
+                    "value": {
+                      "erro": "RabbitMQ indisponível"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -270,6 +442,48 @@
           "erro": {
             "type": "string",
             "description": "Descrição do erro de autenticação/autorização."
+          }
+        }
+      },
+      "ReenvioDlqRequest": {
+        "type": "object",
+        "properties": {
+          "quantidade": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Quantos eventos reenviar, dos mais antigos para os mais novos. Sem ele, reenvia todos.",
+            "example": 10
+          }
+        }
+      },
+      "ReenvioDlqResponse": {
+        "type": "object",
+        "required": [
+          "reenviados",
+          "restantes"
+        ],
+        "properties": {
+          "reenviados": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Eventos publicados de volta em validacao.telemetria e retirados da DLQ."
+          },
+          "restantes": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Eventos na DLQ ao fim da chamada, incluindo os que voltaram durante o reenvio."
+          }
+        }
+      },
+      "ErroResponse": {
+        "type": "object",
+        "required": [
+          "erro"
+        ],
+        "properties": {
+          "erro": {
+            "type": "string",
+            "description": "Descrição do erro."
           }
         }
       }

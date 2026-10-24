@@ -3,6 +3,7 @@ import cors from "cors";
 import openapi from "./docs/openapi.json";
 import { obterSaude } from "./controllers/health.controller";
 import metricasRoutes from "./routes/metricas.routes";
+import dlqRoutes from "./routes/dlq.routes";
 
 const app = express();
 
@@ -27,5 +28,8 @@ app.get("/validacao/health", obterSaude);
 
 // Contadores da validação, restritos ao perfil ADMINISTRADOR.
 app.use("/validacao/metricas", metricasRoutes);
+
+// Reenvio manual da validacao.dlq para a fila, restrito ao perfil ADMINISTRADOR (US-20).
+app.use("/validacao/dlq", dlqRoutes);
 
 export default app;
