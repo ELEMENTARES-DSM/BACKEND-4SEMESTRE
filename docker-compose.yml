@@ -97,6 +97,21 @@ services:
       timeout: 5s
       retries: 5
 
+  # Caixa de e-mail de teste dos avisos de alarme (US-23): http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:v1.31.6
+    restart: unless-stopped
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    ports:
+      - "8025:8025"
+    # 1025 (SMTP) fica só na rede Docker
+    expose:
+      - "1025"
+    networks:
+      - app-network
+
   mosquitto:
     image: eclipse-mosquitto:2.1.2-alpine
     restart: unless-stopped
@@ -163,6 +178,12 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-Pulso Urbano <alertas@pulsourbano.local>}
     volumes:
       - ./services/alertas-notificacoes/src:/app/src
       - ./services/alertas-notificacoes/tsconfig.json:/app/tsconfig.json
@@ -172,6 +193,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     networks:
       - app-network
 

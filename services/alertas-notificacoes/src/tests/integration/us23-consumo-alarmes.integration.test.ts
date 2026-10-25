@@ -9,6 +9,8 @@ import {
   declararTopologiaAlarmes,
 } from "../../events/consumers/rabbitmq-alarme.consumer";
 import { findByAlarme } from "../../repositories/notificacao.repository";
+import { registrarAvisos } from "../../services/avisar-gestores.service";
+import { enviarAvisos } from "../../services/enviar-aviso.service";
 import logger from "../../utils/logger";
 import { cadastrarUsuario, prepararSchemaNotificacoes } from "./helpers/banco-notificacoes";
 
@@ -68,7 +70,15 @@ integration("US-23 - consumo de alarme.disparado (PostgreSQL e RabbitMQ)", () =>
     await canal.purgeQueue(FILA_NOTIFICACAO_ALARMES);
     await canal.purgeQueue(FILA_NOTIFICACAO_DLQ);
 
-    consumidor = new ConsumidorRabbitMqAlarmes({ url: rabbitUrl as string, reconectarMs: 200 });
+    // O envio por e-mail tem teste próprio (us23-envio-email); aqui ele sempre funciona.
+    consumidor = new ConsumidorRabbitMqAlarmes({
+      url: rabbitUrl as string,
+      reconectarMs: 200,
+      processarEvento: async (ev) => {
+        const avisos = await registrarAvisos(ev);
+        await enviarAvisos(ev, avisos, { enviarEmail: async () => undefined, buscarAlarme: async () => null });
+      },
+    });
     await consumidor.iniciar();
     await esperar(async () => consumidor.estaSaudavel(), "consumidor conectado");
   });

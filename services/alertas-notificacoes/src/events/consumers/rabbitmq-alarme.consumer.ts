@@ -1,6 +1,7 @@
 import amqp, { Channel, ChannelModel, ConsumeMessage } from "amqplib";
 import { verificarConexaoBanco } from "../../config/db";
 import { registrarAvisos } from "../../services/avisar-gestores.service";
+import { enviarAvisos } from "../../services/enviar-aviso.service";
 import {
   EventoAlarmeDisparado,
   eventoAlarmeSchema,
@@ -63,7 +64,17 @@ export function lerEventoAlarme(conteudo: string): EventoAlarmeDisparado | null 
 }
 
 /**
- * US-23: consome alarme.disparado e registra os avisos. Confirma a mensagem só
+ * Registra um aviso por gestor e envia por e-mail; se algum destinatário esgotar
+ * as 3 tentativas, o evento vai para a notificacao.dlq e o alarme continua gravado.
+ */
+export const processarEventoAlarme: ProcessadorEventoAlarme = async (evento) => {
+  const avisos = await registrarAvisos(evento);
+  const resultado = await enviarAvisos(evento, avisos);
+  return { enviarParaDlq: resultado.falharam > 0 };
+};
+
+/**
+ * US-23: consome alarme.disparado e avisa os gestores. Confirma a mensagem só
  * depois do processamento; evento malformado vai para a notificacao.dlq sem nova
  * tentativa; com o banco fora do ar, para de consumir até ele voltar.
  */
@@ -86,11 +97,7 @@ export class ConsumidorRabbitMqAlarmes {
     this.prefetch = options.prefetch ?? PREFETCH_NOTIFICACAO;
     this.reconectarMs = options.reconectarMs ?? 5000;
     this.esperaBancoMs = options.esperaBancoMs ?? ESPERA_BANCO_MS;
-    this.processarEvento =
-      options.processarEvento ??
-      (async (evento) => {
-        await registrarAvisos(evento);
-      });
+    this.processarEvento = options.processarEvento ?? processarEventoAlarme;
     this.verificarBanco = options.verificarBanco ?? verificarConexaoBanco;
   }
 
