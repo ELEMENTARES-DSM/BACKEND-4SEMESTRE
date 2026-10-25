@@ -85,3 +85,31 @@ jobs:
           status: ${{ job.status }}
           title: "Atualização no Repositório: ${{ matrix.service }}"
           description: "A branch ${{ github.ref_name }} recebeu um novo push e a validação do serviço ${{ matrix.service }} finalizou com status: ${{ job.status }}."
+
+  teste-fluxo-ingestao:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./tests/fluxo-ingestao
+
+    steps:
+      - name: Fazer o Checkout do código
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.0.4
+        with:
+          node-version: "24.x"
+
+      - name: Instalar dependências (teste do fluxo de ingestão)
+        run: npm ci
+
+      - name: Verificar tipagem TypeScript (teste do fluxo de ingestão)
+        run: npx tsc --noEmit
+
+      - name: Rodar Linter (teste do fluxo de ingestão)
+        run: npm run lint
+
+      - name: Rodar Testes (teste do fluxo de ingestão)
+        run: npm test

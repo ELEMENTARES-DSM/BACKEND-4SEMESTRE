@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# Manifestos e relatórios gerados pelo scripts/teste-fluxo-ingestao.sh
+saida/
