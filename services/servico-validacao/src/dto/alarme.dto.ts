@@ -55,3 +55,19 @@ export interface AlarmeNormalizadoRow {
   id: string;
   regra_id: string;
 }
+
+/** Evento alarme.disparado (US-22 → US-23). Valores decimais vão como texto exato. */
+export interface EventoAlarmeDisparadoDTO {
+  alarme_id: string;
+  regra_id: string;
+  medida_id: string;
+  sensor_id: string;
+  estacao_id: string;
+  municipio: string;
+  valor: string;
+  operador: OperadorRegra;
+  limite: string;
+  severidade: SeveridadeAlarme;
+  lido_em: string;
+  criado_em: string;
+}
