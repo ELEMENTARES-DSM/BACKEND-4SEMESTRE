@@ -25,7 +25,7 @@ export const FAIXAS_VALOR_LIMITE_POR_TIPO: Record<
  * Gestor sem município (ou papel desconhecido) é barrado aqui, antes de
  * qualquer consulta ao banco: nenhum gestor chega ao repository com null.
  */
-const resolverMunicipioDoUsuario = (usuario: UsuarioPayload): string | null => {
+export const resolverMunicipioDoUsuario = (usuario: UsuarioPayload): string | null => {
   if (usuario.papel === "ADMINISTRADOR") {
     return null;
   }

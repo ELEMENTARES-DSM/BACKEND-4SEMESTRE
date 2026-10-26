@@ -97,6 +97,44 @@ services:
       timeout: 5s
       retries: 5
 
+  # Caixa de e-mail de teste dos avisos de alarme (US-23): http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:v1.31.6
+    restart: unless-stopped
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    ports:
+      - "8025:8025"
+    # 1025 (SMTP) fica só na rede Docker
+    expose:
+      - "1025"
+    networks:
+      - app-network
+
+  mosquitto:
+    image: eclipse-mosquitto:2.1.2-alpine
+    restart: unless-stopped
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/acl.conf:/mosquitto/config/acl.conf:ro
+      - ./mosquitto/passwd:/mosquitto/config/passwd:ro
+      - ./mosquitto/certs:/mosquitto/certs:ro
+      - mosquitto-data:/mosquitto/data
+    ports:
+      - "8883:8883"
+    # 1883 fica só na rede Docker
+    expose:
+      - "1883"
+    networks:
+      - app-network
+    # 1884 é o listener de loopback, sem senha
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h 127.0.0.1 -p 1884 -t '$$SYS/broker/version' -C 1 -W 5 | grep -q ."]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
   auth-service:
     build:
       context: ./services/auth-service
@@ -140,6 +178,12 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-Pulso Urbano <alertas@pulsourbano.local>}
     volumes:
       - ./services/alertas-notificacoes/src:/app/src
       - ./services/alertas-notificacoes/tsconfig.json:/app/tsconfig.json
@@ -149,6 +193,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     networks:
       - app-network
 
@@ -242,7 +288,13 @@ services:
       PORT: 3000
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET}
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      RABBITMQ_RECOVERY_INTERVAL_MS: ${RABBITMQ_RECOVERY_INTERVAL_MS:-10000}
+      MQTT_BROKER_URL: mqtt://mosquitto:1883
+      MQTT_USER: ${MOSQUITTO_USER}
+      MQTT_PASSWORD: ${MOSQUITTO_PASSWORD}
+      MQTT_QOS: ${MQTT_QOS:-1}
     volumes:
       - ./services/ingestao-dados/src:/app/src
       - ./services/ingestao-dados/tsconfig.json:/app/tsconfig.json
@@ -251,6 +303,8 @@ services:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      mosquitto:
         condition: service_healthy
     networks:
       - app-network
@@ -290,6 +344,7 @@ services:
       PORT: 3000
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET}
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
     volumes:
       - ./services/servico-validacao/src:/app/src
@@ -303,6 +358,27 @@ services:
     networks:
       - app-network
 
+  simulador-estacoes:
+    build:
+      context: ./services/simulador-estacoes
+      dockerfile: Dockerfile
+    environment:
+      MQTT_BROKER_URL: mqtt://mosquitto:1883
+      MQTT_USER: ${SIMULADOR_USER}
+      MQTT_PASSWORD: ${SIMULADOR_PASSWORD}
+      SIM_ESTACAO_IDS: ${SIM_ESTACAO_IDS}
+      SIM_INTERVALO_S: ${SIM_INTERVALO_S:-5}
+      SIM_TAXA_ERRO: ${SIM_TAXA_ERRO:-0}
+      SIM_TIPOS_ERRO: ${SIM_TIPOS_ERRO:-}
+      SIM_SEED: ${SIM_SEED:-}
+      SIM_ESTACAO_INATIVA_ID: ${SIM_ESTACAO_INATIVA_ID:-}
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - app-network
+
 networks:
   app-network:
     driver: bridge
@@ -311,3 +387,4 @@ volumes:
   postgres-data:
   rabbitmq-data:
   redis-data:
+  mosquitto-data:

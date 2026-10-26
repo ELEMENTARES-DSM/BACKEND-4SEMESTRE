@@ -23,8 +23,8 @@
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
     "pg": "^8.23.0",
-    "zod": "^4.5.4",
-    "redis": "^4.7.0"
+    "redis": "^4.7.0",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -36,9 +36,9 @@
     "@types/node": "^26.5.0",
     "@types/pg": "^8.23.1",
     "eslint": "^10.10.0",
-    "jest": "^30.5.1",
+    "jest": "^30.5.2",
     "node-pg-migrate": "^9.0.0",
-    "ts-jest": "^29.4.12",
+    "ts-jest": "^29.4.14",
     "tsc-alias": "^1.9.4",
     "tsx": "^4.23.13",
     "typescript": "^5.9.3",
