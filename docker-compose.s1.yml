@@ -1,0 +1,140 @@
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    environment:
+      S2_HOST: ${S2_HOST}
+    volumes:
+      - ./nginx.prod.conf:/etc/nginx/templates/default.conf.template:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - swagger-ui
+      - frontend
+      - auth-service
+      - gestao-usuarios
+      - gestao-estacoes
+      - analise-dados
+      - servico-relatorios
+    networks:
+      - app-network
+
+  swagger-ui:
+    image: swaggerapi/swagger-ui:v5.32.15
+    restart: unless-stopped
+    expose:
+      - "8080"
+    environment:
+      # BASE_URL: /docs
+      URLS: >-
+        [
+          {"url": "/auth/openapi.json", "name": "Autenticação"},
+          {"url": "/alertas/openapi.json", "name": "Alertas e notificações"},
+          {"url": "/analise/openapi.json", "name": "Análise de dados"},
+          {"url": "/estacoes/openapi.json", "name": "Gestão de estações"},
+          {"url": "/ingestao/openapi.json", "name": "Ingestão de dados"},
+          {"url": "/relatorios/openapi.json", "name": "Relatórios"},
+          {"url": "/validacao/openapi.json", "name": "Validação"},
+          {"url": "/usuarios/openapi.json", "name": "Usuários"}
+        ]
+      URLS_PRIMARY_NAME: Autenticação
+      DOC_EXPANSION: list
+      FILTER: "true"
+      DEEP_LINKING: "true"
+      DISPLAY_REQUEST_DURATION: "true"
+      VALIDATOR_URL: none
+    networks:
+      - app-network
+
+  frontend:
+    image: ${DOCKERHUB_USER}/frontend:${VERSION:-latest}
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  auth-service:
+    image: ${DOCKERHUB_USER}/auth-service:${VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      PUBLIC_API_URL: /auth
+      PORT: 3000
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${S3_HOST}:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  gestao-usuarios:
+    image: ${DOCKERHUB_USER}/gestao-usuarios:${VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      PUBLIC_API_URL: /usuarios
+      PORT: 3000
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${S3_HOST}:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  gestao-estacoes:
+    image: ${DOCKERHUB_USER}/gestao-estacoes:${VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      PUBLIC_API_URL: /estacoes
+      PORT: 3000
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${S3_HOST}:5432/${POSTGRES_DB}
+    networks:
+      - app-network
+
+  analise-dados:
+    image: ${DOCKERHUB_USER}/analise-dados:${VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      PUBLIC_API_URL: /analise
+      PORT: 3000
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${S3_HOST}:5432/${POSTGRES_DB}
+    networks:
+      - app-network
+
+  servico-relatorios:
+    image: ${DOCKERHUB_USER}/servico-relatorios:${VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      PUBLIC_API_URL: /relatorios
+      PORT: 3000
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${S3_HOST}:5432/${POSTGRES_DB}
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  redis-data:

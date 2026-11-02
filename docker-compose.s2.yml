@@ -1,0 +1,138 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.1.2-alpine
+    restart: unless-stopped
+    volumes:
+      - ${MOSQUITTO_DIR:-./mosquitto}/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ${MOSQUITTO_DIR:-./mosquitto}/acl.conf:/mosquitto/config/acl.conf:ro
+      - ${MOSQUITTO_DIR:-./mosquitto}/passwd:/mosquitto/config/passwd:ro
+      - ${MOSQUITTO_DIR:-./mosquitto}/certs:/mosquitto/certs:ro
+      - mosquitto-data:/mosquitto/data
+    ports:
+      - "8883:8883"
+    # 1883 fica só na rede Docker
+    expose:
+      - "1883"
+    networks:
+      - app-network
+    # 1884 é o listener de loopback, sem senha
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h 127.0.0.1 -p 1884 -t '$$SYS/broker/version' -C 1 -W 5 | grep -q ."]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ingestao-dados:
+    image: ${DOCKERHUB_USER}/ingestao-dados:${VERSION:-latest}
+    restart: unless-stopped
+    ports:
+      - "3002:3000"
+    environment:
+      PUBLIC_API_URL: /ingestao
+      PORT: 3000
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${S3_HOST}:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      RABBITMQ_RECOVERY_INTERVAL_MS: ${RABBITMQ_RECOVERY_INTERVAL_MS:-10000}
+      MQTT_URL: mqtt://mosquitto:1883
+      MOSQUITTO_USER: ${MOSQUITTO_USER}
+      MOSQUITTO_PASSWORD: ${MOSQUITTO_PASSWORD}
+      MQTT_QOS: ${MQTT_QOS:-1}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  servico-validacao:
+    image: ${DOCKERHUB_USER}/servico-validacao:${VERSION:-latest}
+    restart: unless-stopped
+    ports:
+      - "3003:3000"
+    environment:
+      PUBLIC_API_URL: /validacao
+      PORT: 3000
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${S3_HOST}:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  alertas-notificacoes:
+    image: ${DOCKERHUB_USER}/alertas-notificacoes:${VERSION:-latest}
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      PUBLIC_API_URL: /alertas
+      PORT: 3000
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${S3_HOST}:5432/${POSTGRES_DB}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_SECURE: ${SMTP_SECURE}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  mosquitto-data:
+  rabbitmq-data:
+  redis-data:
