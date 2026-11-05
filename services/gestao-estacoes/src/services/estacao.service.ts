@@ -117,6 +117,15 @@ export const updateStatus = async (
   return atualizado!;
 };
 
+export const inativarInterno = async (uuid: string): Promise<Estacoes> => {
+  const inativada = await estacaoRepository.softDelete(uuid);
+  if (!inativada) {
+    throw new AppError("Estação meteorológica não encontrada", 404);
+  }
+
+  return inativada;
+};
+
 export const getStatusPorMunicipio = async (
   municipio: string | null
 ): Promise<StatusEstacoesResponse> => {
