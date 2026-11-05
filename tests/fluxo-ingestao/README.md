@@ -8,6 +8,8 @@ enviadas = gravadas (válida e inválida) + rejeitadas + ignoradas (duplicatas) 
 
 O balanço conta medidas, não mensagens: uma mensagem com 5 sensores conta como 5. Diferença diferente de zero encerra com erro.
 
+Cada lote pode conter até 300 leituras por estação.
+
 ## Como rodar
 
 Na raiz do backend, com o `.env` preenchido:

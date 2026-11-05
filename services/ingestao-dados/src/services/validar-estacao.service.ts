@@ -1,8 +1,12 @@
-import { buscarStatusEstacao } from "../repositories/estacao.repository";
+import { buscarEstacaoParaValidacao } from "../repositories/estacao.repository";
 import {
   ESTACAO_DESCONHECIDA,
   ESTACAO_INATIVA,
+  TIMESTAMP_FORA_DA_FAIXA,
 } from "../validations/motivos-rejeicao";
+
+// US-28: relógio adiantado além disso é tratado como desregulado.
+export const TOLERANCIA_FUTURO_MS = 5 * 60 * 1000;
 
 /**
  * Conferência da estação do tópico (US-12). Retorna o motivo da rejeição ou
@@ -12,15 +16,26 @@ import {
  */
 export async function conferirEstacao(
   estacaoId: string,
+  timestamp: string,
+  recebidoEm: string,
 ): Promise<string | undefined> {
-  const status = await buscarStatusEstacao(estacaoId);
+  const estacao = await buscarEstacaoParaValidacao(estacaoId);
 
-  if (status === null) {
+  if (estacao === null) {
     return ESTACAO_DESCONHECIDA;
   }
 
-  if (status === "Inativa") {
+  if (estacao.status === "Inativa") {
     return ESTACAO_INATIVA;
+  }
+
+  const lidoEm = Date.parse(timestamp);
+  const cadastroEm = Math.floor(estacao.criado_em.getTime() / 1000) * 1000;
+  if (
+    lidoEm > Date.parse(recebidoEm) + TOLERANCIA_FUTURO_MS ||
+    lidoEm < cadastroEm
+  ) {
+    return TIMESTAMP_FORA_DA_FAIXA;
   }
 
   return undefined;
