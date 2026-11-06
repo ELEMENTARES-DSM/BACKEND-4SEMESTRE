@@ -3,22 +3,23 @@ import { PoolClient } from "pg";
 import { pool } from "../../config/db";
 import {
   atualizarSinalEstacao,
-  buscarStatusEstacao,
+  buscarEstacaoParaValidacao,
 } from "../../repositories/estacao.repository";
 
-describe("estacao.repository - buscarStatusEstacao", () => {
+describe("estacao.repository - buscarEstacaoParaValidacao", () => {
   afterEach(() => {
     jest.restoreAllMocks();
   });
 
-  it("retorna o status do cadastro lendo só a tabela estacoes", async () => {
+  it("retorna status e data do cadastro lendo só a tabela estacoes", async () => {
+    const criado_em = new Date("2026-01-01T00:00:00Z");
     const consulta = jest
       .spyOn(pool, "query")
-      .mockResolvedValue({ rows: [{ status: "Inativa" }] } as never);
+      .mockResolvedValue({ rows: [{ status: "Inativa", criado_em }] } as never);
 
-    await expect(buscarStatusEstacao("estacao-123")).resolves.toBe("Inativa");
+    await expect(buscarEstacaoParaValidacao("estacao-123")).resolves.toEqual({ status: "Inativa", criado_em });
     expect(consulta.mock.calls[0]).toEqual([
-      "SELECT status FROM estacoes WHERE id = $1",
+      "SELECT status, criado_em FROM estacoes WHERE id = $1",
       ["estacao-123"],
     ]);
   });
@@ -26,7 +27,7 @@ describe("estacao.repository - buscarStatusEstacao", () => {
   it("retorna null quando a estação não existe", async () => {
     jest.spyOn(pool, "query").mockResolvedValue({ rows: [] } as never);
 
-    await expect(buscarStatusEstacao("estacao-inexistente")).resolves.toBeNull();
+    await expect(buscarEstacaoParaValidacao("estacao-inexistente")).resolves.toBeNull();
   });
 });
 

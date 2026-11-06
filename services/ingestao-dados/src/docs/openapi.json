@@ -113,6 +113,7 @@
                       "leiturasRejeitadas": {
                         "Payload malformado": 3,
                         "Estação inativa": 1
+                        ,"Timestamp fora da faixa": 1
                       },
                       "duplicadasIgnoradas": 2,
                       "mensagensGravadas": 114,

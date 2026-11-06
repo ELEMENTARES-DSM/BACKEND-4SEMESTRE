@@ -5,6 +5,7 @@ export const LEITURA_INCOMPLETA = "Leitura inválida: sensor ou valor ausente";
 export const BATERIA_FORA_DA_FAIXA = "Nível de bateria fora de 0 a 100";
 export const ESTACAO_DESCONHECIDA = "Estação desconhecida";
 export const ESTACAO_INATIVA = "Estação inativa";
+export const TIMESTAMP_FORA_DA_FAIXA = "Timestamp fora da faixa";
 
 export const MOTIVOS_REJEICAO = [
   PAYLOAD_MALFORMADO,
@@ -14,6 +15,7 @@ export const MOTIVOS_REJEICAO = [
   BATERIA_FORA_DA_FAIXA,
   ESTACAO_DESCONHECIDA,
   ESTACAO_INATIVA,
+  TIMESTAMP_FORA_DA_FAIXA,
 ] as const;
 
 export const todosOsMotivos = MOTIVOS_REJEICAO;
