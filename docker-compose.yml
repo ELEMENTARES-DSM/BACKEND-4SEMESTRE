@@ -265,6 +265,7 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
     volumes:
       - ./services/gestao-estacoes/src:/app/src
       - ./services/gestao-estacoes/tsconfig.json:/app/tsconfig.json
