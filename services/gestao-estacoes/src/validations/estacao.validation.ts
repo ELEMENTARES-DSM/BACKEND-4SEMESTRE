@@ -44,6 +44,10 @@ export const estacaoIdParamSchema = z.object({
   id: z.string().uuid("ID inválido"),
 });
 
+export const estacaoUuidParamSchema = z.object({
+  uuid: z.string().uuid("UUID inválido"),
+});
+
 export const updateStatusSchema = z.object({
   status: z.enum(["Ativa", "Inativa"], {
     message: "Status deve ser 'Ativa' ou 'Inativa'",

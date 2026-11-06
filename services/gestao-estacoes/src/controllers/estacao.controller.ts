@@ -137,3 +137,19 @@ export const status = async (
     next(err);
   }
 };
+
+export const inativarInterno = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const estacao = await estacaoService.inativarInterno(
+      req.params.uuid as string,
+    );
+    return res.status(200).json(estacao);
+  } catch (err) {
+    next(err);
+  }
+};
+

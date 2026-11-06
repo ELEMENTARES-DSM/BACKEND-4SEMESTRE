@@ -25,6 +25,7 @@ services:
       PORT: 3000
       DATABASE_URL: postgresql://integration:integration@postgres:5432/estacoes_test
       JWT_SECRET: integration-only-secret
+      INTERNAL_TOKEN: integration-internal-token
     ports:
       - "127.0.0.1::3000"
     depends_on:

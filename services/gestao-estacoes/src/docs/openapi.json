@@ -19,6 +19,10 @@
     {
       "name": "Estações",
       "description": "Gerenciamento e monitoramento das estações meteorológicas"
+    },
+    {
+      "name": "Interno",
+      "description": "Operações privadas para comunicação interna entre scripts/serviços e o backend"
     }
   ],
   "security": [
@@ -303,6 +307,46 @@
           }
         }
       }
+    },
+    "/api/v1/internal/estacoes/{uuid}/inativar": {
+      "patch": {
+        "tags": ["Interno"],
+        "x-internal": true,
+        "operationId": "inativarEstacaoInterno",
+        "summary": "Inativar estação (uso interno)",
+        "description": "Rota privada protegida por token interno (X-Internal-Token) para alterar o status da estação no banco de dados para 'Inativa'.",
+        "security": [
+          {
+            "internalToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EstacaoUuidParam"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estação inativada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Estacao"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/404NotFound"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -312,11 +356,27 @@
         "scheme": "bearer",
         "bearerFormat": "JWT",
         "description": "Informe o Token JWT obtido na rota de login."
+      },
+      "internalToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Internal-Token",
+        "description": "Token interno para autenticação privada entre scripts/serviços e o backend."
       }
     },
     "parameters": {
       "EstacaoIdParam": {
         "name": "id",
+        "in": "path",
+        "required": true,
+        "description": "UUID de identificação da estação",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "EstacaoUuidParam": {
+        "name": "uuid",
         "in": "path",
         "required": true,
         "description": "UUID de identificação da estação",

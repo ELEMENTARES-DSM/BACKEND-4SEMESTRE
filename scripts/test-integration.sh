@@ -32,5 +32,6 @@ db_address=$("${compose[@]}" port postgres 5432)
 export TEST_API_URL="http://${api_address}"
 export TEST_DATABASE_URL="postgresql://integration:integration@${db_address}/estacoes_test"
 export TEST_JWT_SECRET="integration-only-secret"
+export TEST_INTERNAL_TOKEN="integration-internal-token"
 
 npm --prefix services/gestao-estacoes run test:integration
