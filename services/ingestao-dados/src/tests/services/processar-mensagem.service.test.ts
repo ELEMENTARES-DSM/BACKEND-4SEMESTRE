@@ -6,7 +6,7 @@ import {
   encaminharParaIngestao,
   processarMensagem,
 } from "../../services/processar-mensagem.service";
-import { buscarStatusEstacao } from "../../repositories/estacao.repository";
+import { buscarEstacaoParaValidacao } from "../../repositories/estacao.repository";
 import { gravacaoMetricsService } from "../../services/gravacao-metrics.service";
 import { pool } from "../../config/db";
 
@@ -16,7 +16,7 @@ jest.mock("../../services/registro-rejeicao.service");
 jest.mock("../../services/registro-duplicada.service");
 jest.mock("../../config/db");
 
-const statusEstacao = jest.mocked(buscarStatusEstacao);
+const estacaoValidacao = jest.mocked(buscarEstacaoParaValidacao);
 
 beforeEach(() => {
   const mockClient = {
@@ -26,8 +26,8 @@ beforeEach(() => {
     removeListener: jest.fn(),
   };
   jest.mocked(pool.connect).mockResolvedValue(mockClient as never);
-  statusEstacao.mockReset();
-  statusEstacao.mockResolvedValue("Ativa");
+  estacaoValidacao.mockReset();
+  estacaoValidacao.mockResolvedValue({ status: "Ativa", criado_em: new Date("2026-01-01T00:00:00Z") });
 });
 
 const inserir = jest.mocked(inserirStaging);
@@ -189,11 +189,11 @@ describe("processarMensagem - conferência da estação (US-12)", () => {
   });
 
   it("rejeita com \"Estação desconhecida\" quando o UUID não existe em estacoes", async () => {
-    statusEstacao.mockResolvedValue(null);
+    estacaoValidacao.mockResolvedValue(null);
 
     await expect(processarMensagem(mensagem)).resolves.toBe("rejeitada");
 
-    expect(statusEstacao).toHaveBeenCalledWith(mensagem.estacaoId);
+    expect(estacaoValidacao).toHaveBeenCalledWith(mensagem.estacaoId);
     expect(inserir).toHaveBeenCalledTimes(1);
     expect(inserir).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -206,7 +206,7 @@ describe("processarMensagem - conferência da estação (US-12)", () => {
   });
 
   it("rejeita com \"Estação inativa\" quando o cadastro está Inativa", async () => {
-    statusEstacao.mockResolvedValue("Inativa");
+    estacaoValidacao.mockResolvedValue({ status: "Inativa", criado_em: new Date("2026-01-01T00:00:00Z") });
 
     await expect(processarMensagem(mensagem)).resolves.toBe("rejeitada");
 
@@ -217,31 +217,31 @@ describe("processarMensagem - conferência da estação (US-12)", () => {
   });
 
   it("aceita leitura de estação \"Com Falha\" para ela poder voltar a Ativa", async () => {
-    statusEstacao.mockResolvedValue("Com Falha");
+    estacaoValidacao.mockResolvedValue({ status: "Com Falha", criado_em: new Date("2026-01-01T00:00:00Z") });
 
     await expect(processarMensagem(mensagem)).resolves.toBe("recebida");
     expect(registrar).not.toHaveBeenCalled();
   });
 
   it("confere o payload antes da estação: payload malformado nem consulta estacoes", async () => {
-    statusEstacao.mockResolvedValue(null);
+    estacaoValidacao.mockResolvedValue(null);
 
     await expect(
       processarMensagem({ ...mensagem, payloadBruto: "não é JSON" }),
     ).resolves.toBe("rejeitada");
 
-    expect(statusEstacao).not.toHaveBeenCalled();
+    expect(estacaoValidacao).not.toHaveBeenCalled();
     expect(registrar).toHaveBeenCalledWith("Payload malformado", mensagem.estacaoId);
   });
 
   it("rejeição de negócio já decidida não consulta a estação de novo", async () => {
     await processarMensagem(mensagem, "Estação inativa");
-    expect(statusEstacao).not.toHaveBeenCalled();
+    expect(estacaoValidacao).not.toHaveBeenCalled();
   });
 
   it("propaga falha ao consultar a estação sem gravar nem registrar rejeição", async () => {
     const erro = new Error("Banco indisponível");
-    statusEstacao.mockRejectedValue(erro);
+    estacaoValidacao.mockRejectedValue(erro);
 
     await expect(processarMensagem(mensagem)).rejects.toBe(erro);
     expect(inserir).not.toHaveBeenCalled();
@@ -290,7 +290,7 @@ describe("processarMensagem - contadores de gravação (TASK 14.03)", () => {
 
   it("rejeitada gravada soma em rejeitadasGravadas", async () => {
     await processarMensagem({ ...mensagem, payloadBruto: "não é JSON" });
-    statusEstacao.mockResolvedValue("Inativa");
+    estacaoValidacao.mockResolvedValue({ status: "Inativa", criado_em: new Date("2026-01-01T00:00:00Z") });
     await processarMensagem(mensagem);
 
     expect(gravacaoMetricsService.obterRejeitadasGravadas()).toBe(2);
