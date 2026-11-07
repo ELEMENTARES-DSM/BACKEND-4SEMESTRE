@@ -67,7 +67,11 @@ async function persistirMensagem(
 
   // US-12: a estação do tópico precisa existir e não pode estar Inativa.
   // A conferência vem depois do payload, como na ordem dos critérios.
-  const motivoEstacao = await conferirEstacao(mensagem.estacaoId);
+  const motivoEstacao = await conferirEstacao(
+    mensagem.estacaoId,
+    validacao.payloadValidado!.timestamp,
+    mensagem.recebidoEm,
+  );
   if (motivoEstacao !== undefined) {
     return rejeitar(mensagem, motivoEstacao);
   }

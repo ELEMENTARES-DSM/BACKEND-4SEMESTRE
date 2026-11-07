@@ -67,6 +67,20 @@ integration("staging PostgreSQL", () => {
       payload: null, unixtime: null, motivo_rejeicao: "Payload malformado" });
   });
 
+  it('grava rejeição "Timestamp fora da faixa" com unixtime e motivo', async () => {
+    const payloadBruto = '{ "timestamp":"1970-01-01T00:00:00Z", "leituras":[{"sensor":"temperatura","valor":25}] }';
+    await pool.query("UPDATE estacoes SET ultimo_ping = $1 WHERE id = $2", ["2026-10-13T10:00:00Z", mensagem.estacaoId]);
+    expect(await processarMensagem({ ...mensagem, payloadBruto })).toBe("rejeitada");
+    const { rows } = await pool.query("SELECT * FROM staging_telemetria");
+    expect(rows[0]).toMatchObject({
+      status: "rejeitada",
+      motivo_rejeicao: "Timestamp fora da faixa",
+      unixtime: "0",
+    });
+    const estacao = await pool.query("SELECT ultimo_ping FROM estacoes WHERE id = $1", [mensagem.estacaoId]);
+    expect(estacao.rows[0].ultimo_ping.toISOString()).toBe("2026-10-13T10:00:00.000Z");
+  });
+
   it("aceita rejeição de negócio da US-12 sem exigir estação cadastrada", async () => {
     await processarMensagem(mensagem, "Estação inativa");
     const { rows } = await pool.query("SELECT * FROM staging_telemetria");

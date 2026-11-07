@@ -11,14 +11,14 @@ export interface AtualizarSinalEstacaoInput {
  * Status do cadastro da estação ("Ativa", "Inativa" ou "Com Falha"), ou null
  * quando o UUID não existe. A ingestão só lê a tabela estacoes (US-12).
  */
-export async function buscarStatusEstacao(
+export async function buscarEstacaoParaValidacao(
   estacaoId: string,
-): Promise<string | null> {
-  const res = await pool.query<{ status: string }>(
-    "SELECT status FROM estacoes WHERE id = $1",
+): Promise<{ status: string; criado_em: Date } | null> {
+  const res = await pool.query<{ status: string; criado_em: Date }>(
+    "SELECT status, criado_em FROM estacoes WHERE id = $1",
     [estacaoId],
   );
-  return res.rows[0]?.status ?? null;
+  return res.rows[0] ?? null;
 }
 
 export async function atualizarSinalEstacao(
