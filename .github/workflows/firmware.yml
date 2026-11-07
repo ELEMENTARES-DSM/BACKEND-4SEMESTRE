@@ -1,0 +1,27 @@
+name: Firmware
+on:
+  push:
+    branches: [develop, main]
+    paths: ["firmware/**"]
+  pull_request:
+    branches: [develop, main]
+    paths: ["firmware/**"]
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: firmware/estacao
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ hashFiles('firmware/estacao/platformio.ini') }}
+      - run: pip install platformio
+      - run: cp include/config.example.h include/config.h
+      - run: pio test -e native
+      - run: pio run -e esp32
