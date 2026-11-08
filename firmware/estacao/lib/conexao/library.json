@@ -1,0 +1,7 @@
+{
+  "name": "conexao",
+  "version": "0.1.0",
+  "description": "Wi-Fi, NTP e MQTT (esp-mqtt) da estação",
+  "frameworks": "arduino",
+  "platforms": "espressif32"
+}

@@ -50,8 +50,7 @@ Edite o `include/config.h` e preencha:
 
 O usuário, a senha e os certificados de cada estação são gerados com os scripts em `scripts/mqtt/` do repositório (`gerar-certificados.sh` e `nova-estacao.sh`).
 
-> **Nunca versione o `config.h`, chaves (`*.key`) ou certificados (`*.crt`).** O `.gitignore` já os ignora. Confira com:
-> `git ls-files firmware | grep -E 'config\.h$|\.key$|\.crt$'` (não deve listar nada).
+> **Nunca versione o `config.h`, chaves (`*.key`) ou certificados (`*.crt`).** O `.gitignore` já os ignora.
 
 ## 3. Compilar, gravar e acompanhar
 

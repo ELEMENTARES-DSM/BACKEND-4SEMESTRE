@@ -42,3 +42,9 @@ allure-report/
 
 # *.txt para as leituras geradas pelo simulador
 execucao*.txt
+
+# firmware ESP32
+firmware/estacao/include/config.h
+firmware/**/*.key
+firmware/**/*.crt
+firmware/estacao/.pio/

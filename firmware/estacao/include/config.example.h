@@ -9,6 +9,9 @@
 #define MQTT_SENHA          "senha-mostrada-pelo-acesso-estacao"
 #define NTP_SERVIDOR        "pool.ntp.org"    // ou o servidor local sem internet
 #define INTERVALO_LEITURA_S 300
+// Só para depuração: não confere se o nome/IP do broker bate com o certificado.
+// Use se o handshake falhar com "nome não bate" e remova depois de corrigir o certificado.
+// #define MQTT_PULAR_VERIFICACAO_NOME
 // Sensor físico → código cadastrado na plataforma
 #define CODIGO_TEMPERATURA  "TEMP-01"
 #define CODIGO_UMIDADE      "UMID-01"
