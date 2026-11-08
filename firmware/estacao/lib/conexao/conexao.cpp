@@ -4,14 +4,11 @@
 #include <time.h>
 
 #include "esp_idf_version.h"
+#include "relogio.h"
 
 namespace conexao {
 
 namespace {
-
-// Data anterior a esta (ex.: 1970, antes do NTP) significa relógio não ajustado.
-// TODO(26.03): mover para o módulo relogio (lógica pura, com testes).
-const time_t kEpochMinimoValido = 1700000000;
 
 // Bits de mbedtls_ssl_get_verify_result() mais comuns em falha de certificado.
 void dicaCertificado(int flags) {
@@ -63,7 +60,7 @@ bool conectarWifi(const char* ssid, const char* senha, uint32_t timeoutMs) {
 bool sincronizarHorario(const char* servidor, uint32_t timeoutMs) {
   configTime(0, 0, servidor);
   const uint32_t inicio = millis();
-  while (time(nullptr) < kEpochMinimoValido) {
+  while (!relogio::valido(time(nullptr))) {
     if (millis() - inicio > timeoutMs) return false;
     delay(200);
   }

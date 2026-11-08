@@ -1,0 +1,7 @@
+{
+  "name": "sensores",
+  "version": "0.1.0",
+  "description": "Drivers dos sensores da estação",
+  "frameworks": "arduino",
+  "platforms": "espressif32"
+}

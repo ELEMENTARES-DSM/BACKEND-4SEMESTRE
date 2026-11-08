@@ -1,16 +1,19 @@
-// Só liga os módulos de lib/. Por enquanto roda o teste de conexão (26.01):
-// conecta no broker (TLS, porta 8883), publica 1 mensagem em QoS 1, confere o PUBACK
-// e anota a memória livre antes e depois do TLS.
+// Só liga os módulos de lib/: a cada ciclo lê o sensor de PM2.5 e publica a telemetria
+// (MQTT sobre TLS, QoS 1, confirmada pelo PUBACK).
 #include <Arduino.h>
-#include <ArduinoJson.h>
 #include <time.h>
 
 #include "config.h"
 #include "conexao.h"
+#include "relogio.h"
+#include "sensor_pm.h"
+#include "telemetria.h"
 
 namespace {
 
 conexao::ClienteMqtt mqtt;
+sensores::SensorPm sensorPm;
+char topico[96];
 
 void anotarHeap(const char* rotulo) {
   Serial.printf("[heap] %-14s livre=%lu minimo_desde_boot=%lu maior_bloco=%lu\n", rotulo,
@@ -26,20 +29,46 @@ void falhar(const char* motivo) {
   while (true) delay(1000);
 }
 
-// TODO(26.04): trocar pelo módulo telemetria e pelo contrato da US-12.
-// Os nomes dos campos abaixo são provisórios.
-size_t montarPayloadTeste(char* saida, size_t tamanho) {
-  JsonDocument doc;
-  doc["timestamp"] = static_cast<uint32_t>(time(nullptr));
-  doc["nivel_bateria"] = 100;
-  JsonArray leituras = doc["leituras"].to<JsonArray>();
-  JsonObject temperatura = leituras.add<JsonObject>();
-  temperatura["sensor"] = CODIGO_TEMPERATURA;
-  temperatura["valor"] = 25.0;
-  JsonObject umidade = leituras.add<JsonObject>();
-  umidade["sensor"] = CODIGO_UMIDADE;
-  umidade["valor"] = 60.0;
-  return serializeJson(doc, saida, tamanho);
+void executarCiclo() {
+  sensores::LeituraPm pm;
+  if (!sensorPm.ler(&pm, 5000)) {
+    Serial.println("[ciclo] sensor de PM sem resposta (fiacao/pinos?), leitura descartada");
+    return;
+  }
+
+  const telemetria::Leitura leituras[] = {
+      {CODIGO_PM25, static_cast<float>(pm.pm25)},
+  };
+  char payload[256];
+  const size_t tamanho = telemetria::montar(time(nullptr), telemetria::kSemBateria, leituras,
+                                            sizeof(leituras) / sizeof(leituras[0]), payload,
+                                            sizeof(payload));
+  if (tamanho == 0) {
+    Serial.println("[ciclo] payload nao montado (relogio invalido?), leitura descartada");
+    return;
+  }
+
+  // TODO(fila): guardar na fila em anel quando estiver sem conexão, em vez de descartar.
+  if (!mqtt.conectado()) {
+    Serial.println("[ciclo] sem conexao MQTT, leitura descartada");
+    return;
+  }
+
+  Serial.printf("[ciclo] PM1.0=%u PM2.5=%u PM10=%u ug/m3\n", pm.pm1, pm.pm25, pm.pm10);
+  Serial.printf("[ciclo] payload: %s\n", payload);
+
+  const uint32_t inicio = millis();
+  const int msgId = mqtt.publicarQoS1(topico, payload);
+  if (msgId <= 0) {
+    Serial.println("[ciclo] publicacao recusada pelo cliente MQTT");
+    return;
+  }
+  if (mqtt.aguardarPuback(msgId, 10000)) {
+    Serial.printf("[ciclo] PUBACK recebido (msg_id=%d) em %lu ms\n", msgId,
+                  static_cast<unsigned long>(millis() - inicio));
+  } else {
+    Serial.println("[ciclo] PUBACK NAO recebido em 10 s");
+  }
 }
 
 }  // namespace
@@ -47,11 +76,12 @@ size_t montarPayloadTeste(char* saida, size_t tamanho) {
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  Serial.println("\n[estacao] teste de conexao MQTT/TLS");
+  Serial.println("\n[estacao] iniciando");
 
-  const uint32_t heapBoot = ESP.getFreeHeap();
+  // O sensor precisa de 30 s de aquecimento: ligar já aqui faz isso rodar junto com Wi-Fi e TLS.
+  sensorPm.iniciar(Serial2, PM_PINO_RX, PM_PINO_TX);
+
   anotarHeap("boot");
-
   if (!conexao::conectarWifi(WIFI_SSID, WIFI_SENHA, 20000)) falhar("Wi-Fi nao conectou");
   if (!conexao::sincronizarHorario(NTP_SERVIDOR, 15000)) falhar("NTP nao sincronizou");
   Serial.printf("[ntp] hora UTC: %lu\n", static_cast<unsigned long>(time(nullptr)));
@@ -71,43 +101,19 @@ void setup() {
   cfg.verificarNome = false;
 #endif
 
-  // Wi-Fi e NTP já estão de pé: a diferença abaixo é só do TLS + MQTT.
-  const uint32_t heapAntes = ESP.getFreeHeap();
   anotarHeap("antes do TLS");
-
   if (!mqtt.iniciar(cfg)) falhar("cliente MQTT nao iniciou");
   if (!mqtt.aguardarConexao(20000)) falhar("MQTT/TLS nao conectou (veja o erro acima)");
-
-  const uint32_t heapDepois = ESP.getFreeHeap();
   anotarHeap("depois do TLS");
 
-  char topico[96];
   snprintf(topico, sizeof(topico), "pulso/estacoes/%s/telemetria", ESTACAO_UUID);
-  char payload[256];
-  montarPayloadTeste(payload, sizeof(payload));
 
-  const uint32_t inicio = millis();
-  const int msgId = mqtt.publicarQoS1(topico, payload);
-  if (msgId <= 0) falhar("publicacao recusada pelo cliente");
-  const bool puback = mqtt.aguardarPuback(msgId, 10000);
-  const uint32_t ms = millis() - inicio;
-
-  Serial.println("\n===== RESULTADO =====");
-  Serial.printf("topico              : %s\n", topico);
-  Serial.printf("heap no boot        : %lu\n", static_cast<unsigned long>(heapBoot));
-  Serial.printf("heap antes do TLS   : %lu\n", static_cast<unsigned long>(heapAntes));
-  Serial.printf("heap depois do TLS  : %lu\n", static_cast<unsigned long>(heapDepois));
-  Serial.printf("TLS + MQTT retem    : %ld bytes\n", static_cast<long>(heapAntes) - static_cast<long>(heapDepois));
-  Serial.printf("minimo desde o boot : %lu (inclui o pico do handshake)\n",
-                static_cast<unsigned long>(ESP.getMinFreeHeap()));
-  if (puback) {
-    Serial.printf("PUBACK              : recebido (msg_id=%d) em %lu ms\n", msgId, static_cast<unsigned long>(ms));
-  } else {
-    Serial.println("PUBACK              : NAO recebido em 10 s");
-  }
-  Serial.println("=====================");
+  executarCiclo();  // primeira leitura logo depois de subir; as próximas seguem o relógio
 }
 
 void loop() {
-  delay(1000);
+  const uint32_t espera = relogio::segundosAteProximoCiclo(time(nullptr), INTERVALO_LEITURA_S);
+  Serial.printf("[ciclo] proxima leitura em %lu s\n", static_cast<unsigned long>(espera));
+  delay(espera * 1000UL);
+  executarCiclo();
 }
