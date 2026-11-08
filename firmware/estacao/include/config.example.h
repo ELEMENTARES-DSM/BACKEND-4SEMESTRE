@@ -15,6 +15,10 @@
 // Sensor físico → código cadastrado na plataforma
 #define CODIGO_TEMPERATURA  "TEMP-01"
 #define CODIGO_UMIDADE      "UMID-01"
+#define CODIGO_PM25         "PM25-01"
+// Sensor Plantower PMSX003 → comunicação UART
+#define PM_PINO_RX          23
+#define PM_PINO_TX          19
 static const char CA_CERT[]     = R"(-----BEGIN CERTIFICATE-----
 ...
 -----END CERTIFICATE-----)";
