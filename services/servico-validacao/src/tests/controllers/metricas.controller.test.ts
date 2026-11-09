@@ -40,6 +40,7 @@ describe("GET /validacao/metricas", () => {
     expect(await resposta.json()).toEqual({
       leiturasIgnoradasSensorInativo: 0,
       medidasInvalidasGravadas: 0,
+      leiturasAtrasadasSemAvaliacao: 0,
     });
   });
 
@@ -51,6 +52,7 @@ describe("GET /validacao/metricas", () => {
     expect(await resposta.json()).toEqual({
       leiturasIgnoradasSensorInativo: 3,
       medidasInvalidasGravadas: 0,
+      leiturasAtrasadasSemAvaliacao: 0,
     });
   });
 
@@ -63,6 +65,19 @@ describe("GET /validacao/metricas", () => {
     expect(await resposta.json()).toEqual({
       leiturasIgnoradasSensorInativo: 0,
       medidasInvalidasGravadas: 2,
+      leiturasAtrasadasSemAvaliacao: 0,
+    });
+  });
+
+  it("mostra as leituras atrasadas que foram gravadas sem avaliar regras (US-28)", async () => {
+    metricasValidacaoService.incrementarLeiturasAtrasadas(4);
+
+    const resposta = await consultar({ Authorization: `Bearer ${criarToken()}` });
+
+    expect(await resposta.json()).toEqual({
+      leiturasIgnoradasSensorInativo: 0,
+      medidasInvalidasGravadas: 0,
+      leiturasAtrasadasSemAvaliacao: 4,
     });
   });
 
