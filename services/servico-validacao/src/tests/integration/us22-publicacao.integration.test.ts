@@ -126,7 +126,7 @@ integration("US-22 - publicação de alarme.disparado (PostgreSQL e RabbitMQ)", 
     publicarEvento(admin.channel, original);
     await esperar(async () => (await contarNaFila()) === 1, "primeiro evento");
     publicarEvento(admin.channel, original);
-    publicarEvento(admin.channel, evento(10, 1792400300));
+    publicarEvento(admin.channel, evento(10, Math.floor(Date.now() / 1000)));
     await esperar(async () => (await contarMedidas()) === 2, "evento seguinte processado");
 
     expect(await contarNaFila()).toBe(1);
