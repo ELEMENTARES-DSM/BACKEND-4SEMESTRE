@@ -25,6 +25,7 @@ async function main() {
     .filter(
       (entry) =>
         entry.isDirectory() &&
+        entry.name !== "simulador-estacoes" &&
         fs.existsSync(path.join(servicesRoot, entry.name, "package.json")),
     )
     .map((entry) => entry.name)
