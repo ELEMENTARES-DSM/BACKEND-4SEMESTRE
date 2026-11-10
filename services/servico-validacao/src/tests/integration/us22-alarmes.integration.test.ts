@@ -25,6 +25,7 @@ integration("US-22 - avaliar regras e registrar alarme (PostgreSQL e RabbitMQ)",
   let estacao: string;
   let pm25: string;
   let umidade: string;
+  const base = Math.floor(Date.now() / 1000) - 60;
 
   const contarMedidas = async () => {
     const { rows } = await pool.query<{ total: string }>("SELECT count(*) AS total FROM medidas");
@@ -41,7 +42,7 @@ integration("US-22 - avaliar regras e registrar alarme (PostgreSQL e RabbitMQ)",
     return rows;
   };
 
-  const evento = (leituras: Array<[string, number]>, unixtime = 1792400000, estacaoUuid = estacao) => ({
+  const evento = (leituras: Array<[string, number]>, unixtime = base, estacaoUuid = estacao) => ({
     staging_id: randomUUID(),
     estacao_uuid: estacaoUuid,
     unixtime,
@@ -90,7 +91,7 @@ integration("US-22 - avaliar regras e registrar alarme (PostgreSQL e RabbitMQ)",
   it("cenário 1: PM2.5 52,3 com regra >= 50,00 CRITICO grava o alarme com os dados da regra, do sensor e da leitura", async () => {
     const regra = await cadastrarRegra(pool, { sensorId: pm25, operador: ">=", limite: "50.00" });
 
-    await processar(evento([["PM25-01", 52.3]], 1792400000), 1);
+    await processar(evento([["PM25-01", 52.3]], base), 1);
 
     const [alarme] = await alarmes();
     expect(await alarmes()).toHaveLength(1);
@@ -108,7 +109,7 @@ integration("US-22 - avaliar regras e registrar alarme (PostgreSQL e RabbitMQ)",
         normalizado_em: null,
       }),
     );
-    expect(new Date(alarme.lido_em).toISOString()).toBe(new Date(1792400000 * 1000).toISOString());
+    expect(new Date(alarme.lido_em).toISOString()).toBe(new Date(base * 1000).toISOString());
   });
 
   it("cenário 2: valor exatamente no limite não viola '>' e viola '>='", async () => {
@@ -142,7 +143,7 @@ integration("US-22 - avaliar regras e registrar alarme (PostgreSQL e RabbitMQ)",
     await cadastrarRegra(pool, { sensorId: sensorDaInativa, operador: ">=", limite: "50.00" });
 
     await processar(evento([["PM10-01", 90], ["UR-01", 40]]), 1);
-    await processar(evento([["PM25-01", 90]], 1792400000, estacaoInativa), 2);
+    await processar(evento([["PM25-01", 90]], base, estacaoInativa), 2);
 
     expect(await alarmes()).toEqual([]);
   });
@@ -171,9 +172,9 @@ integration("US-22 - avaliar regras e registrar alarme (PostgreSQL e RabbitMQ)",
   it("cenário 7: violação contínua não grava alarme novo enquanto o alarme da regra estiver aberto", async () => {
     await cadastrarRegra(pool, { sensorId: pm25, operador: ">=", limite: "50" });
 
-    await processar(evento([["PM25-01", 52.3]], 1792400000), 1);
-    await processar(evento([["PM25-01", 60]], 1792400300), 2);
-    await processar(evento([["PM25-01", 75]], 1792400600), 3);
+    await processar(evento([["PM25-01", 52.3]], base), 1);
+    await processar(evento([["PM25-01", 60]], base + 300), 2);
+    await processar(evento([["PM25-01", 75]], base + 600), 3);
 
     expect(await alarmes()).toHaveLength(1);
   });
@@ -181,25 +182,25 @@ integration("US-22 - avaliar regras e registrar alarme (PostgreSQL e RabbitMQ)",
   it("cenário 8: valor normal normaliza o alarme e uma nova violação abre outro", async () => {
     await cadastrarRegra(pool, { sensorId: pm25, operador: ">=", limite: "50" });
 
-    await processar(evento([["PM25-01", 52.3]], 1792400000), 1);
-    await processar(evento([["PM25-01", 20]], 1792400300), 2);
+    await processar(evento([["PM25-01", 52.3]], base), 1);
+    await processar(evento([["PM25-01", 20]], base + 300), 2);
 
     const [normalizado] = await alarmes();
     expect(normalizado.situacao).toBe("normalizado");
     expect(normalizado.normalizado_em).not.toBeNull();
 
-    await processar(evento([["PM25-01", 55]], 1792400600), 3);
+    await processar(evento([["PM25-01", 55]], base + 600), 3);
 
     expect((await alarmes()).map((a) => a.situacao)).toEqual(["normalizado", "aberto"]);
   });
 
   it("cenário 9: evento entregue de novo não grava alarme duplicado", async () => {
     await cadastrarRegra(pool, { sensorId: pm25, operador: ">=", limite: "50" });
-    const original = evento([["PM25-01", 52.3]], 1792400000);
+    const original = evento([["PM25-01", 52.3]], base);
 
     await processar(original, 1);
     publicarEvento(admin.channel, original);
-    await processar(evento([["UR-01", 40]], 1792400300), 2);
+    await processar(evento([["UR-01", 40]], base + 300), 2);
 
     expect(await alarmes()).toHaveLength(1);
   });
@@ -211,8 +212,8 @@ integration("US-22 - avaliar regras e registrar alarme (PostgreSQL e RabbitMQ)",
     await cadastrarRegra(pool, { sensorId: sensorJacarei, operador: ">=", limite: "50" });
     await cadastrarRegra(pool, { sensorId: pm25, operador: ">=", limite: "50" });
 
-    await processar(evento([["PM25-01", 52.3]], 1792400000), 1);
-    await processar(evento([["PM25-01", 52.3]], 1792400000, outra), 2);
+    await processar(evento([["PM25-01", 52.3]], base), 1);
+    await processar(evento([["PM25-01", 52.3]], base, outra), 2);
 
     expect((await alarmes()).map((a) => a.municipio).sort()).toEqual(["Jacareí", "São José dos Campos"]);
   });
@@ -234,8 +235,8 @@ integration("US-22 - avaliar regras e registrar alarme (PostgreSQL e RabbitMQ)",
   it("leitura normal mais antiga que a do alarme aberto não o normaliza", async () => {
     await cadastrarRegra(pool, { sensorId: pm25, operador: ">=", limite: "50" });
 
-    await processar(evento([["PM25-01", 52.3]], 1792400600), 1);
-    await processar(evento([["PM25-01", 20]], 1792400000), 2);
+    await processar(evento([["PM25-01", 52.3]], base + 600), 1);
+    await processar(evento([["PM25-01", 20]], base), 2);
 
     expect((await alarmes()).map((a) => a.situacao)).toEqual(["aberto"]);
   });
@@ -243,9 +244,9 @@ integration("US-22 - avaliar regras e registrar alarme (PostgreSQL e RabbitMQ)",
   it("alarme aberto de regra inativada é normalizado na próxima leitura do sensor", async () => {
     const regra = await cadastrarRegra(pool, { sensorId: pm25, operador: ">=", limite: "50" });
 
-    await processar(evento([["PM25-01", 52.3]], 1792400000), 1);
+    await processar(evento([["PM25-01", 52.3]], base), 1);
     await pool.query("UPDATE regras_alerta SET esta_ativo = FALSE WHERE id = $1", [regra]);
-    await processar(evento([["PM25-01", 70]], 1792400300), 2);
+    await processar(evento([["PM25-01", 70]], base + 300), 2);
 
     expect((await alarmes()).map((a) => a.situacao)).toEqual(["normalizado"]);
   });
