@@ -37,11 +37,13 @@ describe("MetricasValidacaoService", () => {
     });
   });
 
-  it("conta leituras atrasadas sem avaliar regras", () => {
+  describe("leitura atrasada (US-28)", () => {
+  it("deve contar leituras atrasadas sem avaliar regras", () => {
     metricas.incrementarLeiturasAtrasadas();
     metricas.incrementarLeiturasAtrasadas(2);
 
     expect(metricas.obterMetricas().leiturasAtrasadasSemAvaliacao).toBe(3);
+  });
   });
 
   it("reset zera os contadores", () => {

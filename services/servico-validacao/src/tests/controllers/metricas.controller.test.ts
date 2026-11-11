@@ -69,7 +69,8 @@ describe("GET /validacao/metricas", () => {
     });
   });
 
-  it("mostra as leituras atrasadas que foram gravadas sem avaliar regras (US-28)", async () => {
+  describe("leitura atrasada (US-28)", () => {
+  it("deve mostrar as leituras atrasadas gravadas sem avaliar regras", async () => {
     metricasValidacaoService.incrementarLeiturasAtrasadas(4);
 
     const resposta = await consultar({ Authorization: `Bearer ${criarToken()}` });
@@ -79,6 +80,7 @@ describe("GET /validacao/metricas", () => {
       medidasInvalidasGravadas: 0,
       leiturasAtrasadasSemAvaliacao: 4,
     });
+  });
   });
 
   it("responde 401 sem token", async () => {

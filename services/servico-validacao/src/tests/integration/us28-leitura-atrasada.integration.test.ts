@@ -97,20 +97,30 @@ integration("US-28 - leitura atrasada sem avaliação de regras", () => {
     expect(await contarAvisos()).toBe(0);
   });
 
-  it("mantém aberto o alarme quando uma leitura atrasada não viola a regra", async () => {
-    await cadastrarRegra(pool, { sensorId: pm25, operador: ">=", limite: "50.00" });
-    publicarEvento(admin.channel, evento(52.3, unixAgora()));
-    await esperar(async () => (await contarAvisos()) === 1, "alarme inicial publicado");
-    const aviso = await admin.channel.get(FILA_NOTIFICACAO_ALARMES, { noAck: true });
-    expect(aviso).not.toBe(false);
+  it("deve manter o alarme aberto quando chega leitura atrasada, mais nova que o alarme, que não viola a regra", async () => {
+  const regra = await cadastrarRegra(pool, { sensorId: pm25, operador: ">=", limite: "50.00" });
+  // Alarme aberto há 3 h, inserido direto: se viesse pelo consumidor, a própria leitura seria atrasada.
+  const alarmeUnix = unixAgora() - 3 * 60 * 60;
+  const {
+    rows: [medida],
+  } = await pool.query<{ id: string }>(
+    `INSERT INTO medidas (sensor_id, unixtime, valor_bruto, valor, valida, staging_id, criado_em)
+     VALUES ($1, $2, 52.3, 52.3, TRUE, $3, now()) RETURNING id`,
+    [pm25, alarmeUnix, randomUUID()],
+  );
+  await pool.query(
+    `INSERT INTO alarmes (regra_id, medida_id, sensor_id, estacao_id, municipio, valor, operador, limite, severidade, lido_em)
+     VALUES ($1, $2, $3, $4, 'São José dos Campos', 52.3, '>=', 50, 'CRITICO', to_timestamp($5))`,
+    [regra, medida.id, pm25, estacao, alarmeUnix],
+  );
 
-    publicarEvento(admin.channel, evento(20, unixAgora() - 2 * 60 * 60));
-    await esperar(async () =>
-      (await contarMedidas()) === 2 &&
-      metricasValidacaoService.obterMetricas().leiturasAtrasadasSemAvaliacao === 1,
-    "leitura atrasada gravada");
+  publicarEvento(admin.channel, evento(20, unixAgora() - 2 * 60 * 60));
+  await esperar(async () =>
+    (await contarMedidas()) === 2 &&
+    metricasValidacaoService.obterMetricas().leiturasAtrasadasSemAvaliacao === 1,
+  "leitura atrasada gravada");
 
-    expect(await alarmes()).toEqual([{ situacao: "aberto" }]);
-    expect(await contarAvisos()).toBe(0);
+  expect(await alarmes()).toEqual([{ situacao: "aberto" }]);
+  expect(await contarAvisos()).toBe(0);
   });
 });

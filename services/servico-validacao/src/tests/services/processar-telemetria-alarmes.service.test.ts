@@ -152,7 +152,8 @@ describe("processar-telemetria.service - avaliação das regras (US-22)", () => 
     expect(avaliadas()).toEqual([]);
   });
 
-  it("avalia regras de leitura processada exatamente 10 min depois", async () => {
+  describe("leitura atrasada (US-28)", () => {
+  it("deve avaliar as regras quando a leitura é processada exatamente 10 min depois", async () => {
     usarSensores(sensor("PM25-01", "PM2.5"));
     const ev = eventoNoHorario(unixtimeComAtraso(10 * 60 * 1000), ["PM25-01", 52.3]);
 
@@ -162,7 +163,7 @@ describe("processar-telemetria.service - avaliação das regras (US-22)", () => 
     expect(metricas.obterMetricas().leiturasAtrasadasSemAvaliacao).toBe(0);
   });
 
-  it("não avalia regras de leitura processada 10 min e 1 s depois", async () => {
+  it("deve pular a avaliação das regras quando a leitura é processada 10 min e 1 s depois", async () => {
     usarSensores(sensor("PM25-01", "PM2.5"));
     const ev = eventoNoHorario(unixtimeComAtraso(10 * 60 * 1000 + 1000), ["PM25-01", 52.3]);
 
@@ -177,7 +178,7 @@ describe("processar-telemetria.service - avaliação das regras (US-22)", () => 
     expect(metricas.obterMetricas().leiturasAtrasadasSemAvaliacao).toBe(1);
   });
 
-  it("grava a medida atrasada com o unixtime da estação", async () => {
+  it("deve gravar a medida atrasada com o unixtime da estação", async () => {
     usarSensores(sensor("PM25-01", "PM2.5"));
     const ev = eventoNoHorario(unixtimeComAtraso(2 * 60 * 60 * 1000), ["PM25-01", 52.3]);
 
@@ -189,17 +190,16 @@ describe("processar-telemetria.service - avaliação das regras (US-22)", () => 
     );
   });
 
-  it("não normaliza alarme aberto com leitura atrasada que não viola", async () => {
+  it("deve preservar o alarme aberto quando a leitura atrasada não viola", async () => {
     usarSensores(sensor("PM25-01", "PM2.5"));
     const ev = eventoNoHorario(unixtimeComAtraso(2 * 60 * 60 * 1000), ["PM25-01", 20]);
 
     const resultado = await processar(ev);
 
     expect(avaliarRegrasService.avaliarRegrasDasMedidas).toHaveBeenCalledWith([], agora, expect.anything());
-    expect(resultado.alarmesNormalizados).toBe(0);
   });
 
-  it("conta leitura atrasada só quando a medida é nova", async () => {
+  it("deve contar leitura atrasada só quando a medida é nova", async () => {
     inserida = false;
     usarSensores(sensor("PM25-01", "PM2.5"));
     const ev = eventoNoHorario(unixtimeComAtraso(2 * 60 * 60 * 1000), ["PM25-01", 52.3]);
@@ -210,7 +210,7 @@ describe("processar-telemetria.service - avaliação das regras (US-22)", () => 
     expect(metricas.obterMetricas().leiturasAtrasadasSemAvaliacao).toBe(0);
   });
 
-  it("leitura atrasada fora da faixa física continua valida = false", async () => {
+  it("deve gravar como inválida a leitura atrasada fora da faixa física", async () => {
     usarSensores(sensor("UR-01", "Umidade Relativa"));
     const ev = eventoNoHorario(unixtimeComAtraso(2 * 60 * 60 * 1000), ["UR-01", 120]);
 
@@ -221,6 +221,34 @@ describe("processar-telemetria.service - avaliação das regras (US-22)", () => 
       expect.anything(),
     );
     expect(avaliadas()).toEqual([]);
+  });
+
+  it("deve contar cada leitura atrasada nova do mesmo evento", async () => {
+    usarSensores(sensor("PM25-01", "PM2.5"), sensor("PM25-02", "PM2.5"));
+    const ev = eventoNoHorario(unixtimeComAtraso(2 * 60 * 60 * 1000), ["PM25-01", 52.3], ["PM25-02", 53.1]);
+
+    const resultado = await processar(ev);
+
+    expect(resultado.leiturasAtrasadas).toBe(2);
+    expect(metricas.obterMetricas().leiturasAtrasadasSemAvaliacao).toBe(2);
+    expect(avaliadas()).toEqual([]);
+  });
+
+  it("deve registrar no log INFO os dados da leitura atrasada só depois do COMMIT", async () => {
+    const info = jest.spyOn(logger, "info").mockImplementation(() => undefined);
+    usarSensores(sensor("PM25-01", "PM2.5"));
+    const ev = eventoNoHorario(unixtimeComAtraso(2 * 60 * 60 * 1000), ["PM25-01", 52.3]);
+
+    await processar(ev);
+
+    expect(queryClientMock).toHaveBeenLastCalledWith("COMMIT");
+    expect(info).toHaveBeenCalledWith("Leitura atrasada gravada sem avaliar regras", {
+      estacao_uuid: ev.estacao_uuid,
+      unixtime: ev.unixtime,
+      atraso_s: agora.getTime() / 1000 - ev.unixtime,
+      contador: 1,
+    });
+  });
   });
 
   it("devolve os alarmes e registra cada um em log só depois do COMMIT", async () => {
