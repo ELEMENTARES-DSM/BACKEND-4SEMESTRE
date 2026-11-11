@@ -3,52 +3,25 @@
   "info": {
     "title": "Elementares — Análise de dados",
     "version": "1.0.0",
-    "description": "Operações HTTP do serviço analise-dados."
+    "description": "Contrato OpenAPI das operações de séries históricas, últimas leituras e IQAr do serviço analise-dados."
   },
   "servers": [
     {
-      "url": "http://localhost/analise",
-      "description": "Desenvolvimento local"
+      "url": "http://localhost",
+      "description": "Servidor local de desenvolvimento"
     }
   ],
   "tags": [
     {
-      "name": "Saúde",
-      "description": "Verificação básica do processo HTTP"
-    },
-    {
       "name": "Análise",
-      "description": "Rotas de séries históricas, últimas leituras e IQAr"
+      "description": "Operações autenticadas de séries históricas, últimas leituras e IQAr."
     },
     {
       "name": "Público",
-      "description": "Rotas públicas sem necessidade de autenticação"
+      "description": "Operações públicas de consulta sem necessidade de autenticação."
     }
   ],
   "paths": {
-    "/health": {
-      "get": {
-        "tags": [
-          "Saúde"
-        ],
-        "operationId": "analise_dados_health",
-        "summary": "Verificar se o serviço responde",
-        "description": "Verifica se o processo HTTP responde.",
-        "security": [],
-        "responses": {
-          "200": {
-            "description": "Serviço disponível.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HealthResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/analise/estacoes/{id}/series": {
       "get": {
         "tags": [
@@ -56,7 +29,7 @@
         ],
         "operationId": "getEstacaoSeries",
         "summary": "Obter séries históricas da estação",
-        "description": "Retorna dados agrupados (5 min para 24h, 1h para 7d, 1 dia para 30d) com base na grandeza e período.",
+        "description": "Retorna as séries históricas da grandeza solicitada, agrupando os dados em intervalos de 5 minutos para 24h, 1 hora para 7d e 1 dia para 30d.",
         "security": [
           {
             "BearerAuth": []
@@ -64,50 +37,53 @@
         ],
         "parameters": [
           {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "description": "ID da estação",
-            "schema": {
-              "type": "string"
-            }
+            "$ref": "#/components/parameters/EstacaoId"
           },
           {
             "name": "grandeza",
             "in": "query",
             "required": true,
-            "description": "Grandeza a ser consultada (ex: PM25, PM10, O3)",
+            "description": "Grandeza que será consultada. Exemplos: PM25, PM10 e O3.",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "example": "PM25"
             }
           },
           {
             "name": "periodo",
             "in": "query",
             "required": true,
-            "description": "Período da série histórica",
+            "description": "Período da série histórica. O agrupamento dos dados depende do período selecionado.",
             "schema": {
               "type": "string",
-              "enum": ["24h", "7d", "30d"]
+              "enum": [
+                "24h",
+                "7d",
+                "30d"
+              ],
+              "example": "24h"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Séries históricas obtidas com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SeriesResponse"
-                }
-              }
-            }
+            "$ref": "#/components/responses/SeriesSuccess"
           },
-          "400": { "$ref": "#/components/responses/BadRequest" },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "403": { "$ref": "#/components/responses/Forbidden" },
-          "404": { "$ref": "#/components/responses/NotFound" },
-          "500": { "$ref": "#/components/responses/InternalError" }
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/EstacaoNotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
         }
       }
     },
@@ -118,7 +94,7 @@
         ],
         "operationId": "getEstacaoUltimasLeituras",
         "summary": "Obter últimas leituras da estação",
-        "description": "Retorna valor calibrado, unidade e tempo relativo (ex: 'há 5 min').",
+        "description": "Retorna as últimas leituras disponíveis da estação, incluindo a grandeza, o valor calibrado, a unidade de medida e o tempo relativo da leitura.",
         "security": [
           {
             "BearerAuth": []
@@ -126,31 +102,28 @@
         ],
         "parameters": [
           {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "description": "ID da estação",
-            "schema": {
-              "type": "string"
-            }
+            "$ref": "#/components/parameters/EstacaoId"
           }
         ],
         "responses": {
           "200": {
-            "description": "Últimas leituras obtidas com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UltimasLeiturasResponse"
-                }
-              }
-            }
+            "$ref": "#/components/responses/UltimasLeiturasSuccess"
           },
-          "400": { "$ref": "#/components/responses/BadRequest" },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "403": { "$ref": "#/components/responses/Forbidden" },
-          "404": { "$ref": "#/components/responses/NotFound" },
-          "500": { "$ref": "#/components/responses/InternalError" }
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/EstacaoNotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
         }
       }
     },
@@ -160,8 +133,8 @@
           "Análise"
         ],
         "operationId": "getIqar",
-        "summary": "Obter IQAr",
-        "description": "Retorna cor, rótulo das faixas oficiais ou o texto 'Sem dados suficientes'.",
+        "summary": "Obter Índice de Qualidade do Ar (IQAr)",
+        "description": "Retorna o IQAr, incluindo a cor e o rótulo correspondente à faixa oficial de qualidade do ar. Quando não houver dados suficientes, retorna o texto 'Sem dados suficientes'.",
         "security": [
           {
             "BearerAuth": []
@@ -169,19 +142,17 @@
         ],
         "responses": {
           "200": {
-            "description": "IQAr obtido com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IqarResponse"
-                }
-              }
-            }
+            "$ref": "#/components/responses/IqarSuccess"
           },
-          "400": { "$ref": "#/components/responses/BadRequest" },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "403": { "$ref": "#/components/responses/Forbidden" },
-          "500": { "$ref": "#/components/responses/InternalError" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
         }
       }
     },
@@ -192,40 +163,51 @@
         ],
         "operationId": "getPublicEstacaoSeries",
         "summary": "Obter séries históricas da estação (Público)",
-        "description": "Versão pública da rota de séries históricas sem necessidade de autenticação.",
+        "description": "Versão pública da consulta de séries históricas, sem necessidade de autenticação. Os agrupamentos são de 5 minutos para 24h, 1 hora para 7d e 1 dia para 30d.",
         "security": [],
         "parameters": [
           {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": { "type": "string" }
+            "$ref": "#/components/parameters/EstacaoId"
           },
           {
             "name": "grandeza",
             "in": "query",
             "required": true,
-            "schema": { "type": "string" }
+            "description": "Grandeza que será consultada. Exemplos: PM25, PM10 e O3.",
+            "schema": {
+              "type": "string",
+              "example": "PM25"
+            }
           },
           {
             "name": "periodo",
             "in": "query",
             "required": true,
-            "schema": { "type": "string", "enum": ["24h", "7d", "30d"] }
+            "description": "Período da série histórica.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "24h",
+                "7d",
+                "30d"
+              ],
+              "example": "24h"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Sucesso",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/SeriesResponse" }
-              }
-            }
+            "$ref": "#/components/responses/SeriesSuccess"
           },
-          "400": { "$ref": "#/components/responses/BadRequest" },
-          "404": { "$ref": "#/components/responses/NotFound" },
-          "500": { "$ref": "#/components/responses/InternalError" }
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/EstacaoNotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
         }
       }
     },
@@ -236,28 +218,26 @@
         ],
         "operationId": "getPublicEstacaoUltimasLeituras",
         "summary": "Obter últimas leituras da estação (Público)",
-        "description": "Versão pública sem necessidade de autenticação.",
+        "description": "Versão pública da consulta de últimas leituras, sem necessidade de autenticação.",
         "security": [],
         "parameters": [
           {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": { "type": "string" }
+            "$ref": "#/components/parameters/EstacaoId"
           }
         ],
         "responses": {
           "200": {
-            "description": "Sucesso",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/UltimasLeiturasResponse" }
-              }
-            }
+            "$ref": "#/components/responses/UltimasLeiturasSuccess"
           },
-          "400": { "$ref": "#/components/responses/BadRequest" },
-          "404": { "$ref": "#/components/responses/NotFound" },
-          "500": { "$ref": "#/components/responses/InternalError" }
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/EstacaoNotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
         }
       }
     },
@@ -268,19 +248,15 @@
         ],
         "operationId": "getPublicIqar",
         "summary": "Obter IQAr (Público)",
-        "description": "Versão pública sem necessidade de autenticação.",
+        "description": "Versão pública da consulta do Índice de Qualidade do Ar, sem necessidade de autenticação.",
         "security": [],
         "responses": {
           "200": {
-            "description": "Sucesso",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/IqarResponse" }
-              }
-            }
+            "$ref": "#/components/responses/IqarSuccess"
           },
-          "400": { "$ref": "#/components/responses/BadRequest" },
-          "500": { "$ref": "#/components/responses/InternalError" }
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
         }
       }
     }
@@ -293,86 +269,275 @@
         "bearerFormat": "JWT"
       }
     },
+    "parameters": {
+      "EstacaoId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "description": "Identificador da estação.",
+        "schema": {
+          "type": "string",
+          "example": "estacao-01"
+        }
+      }
+    },
     "responses": {
-      "BadRequest": {
-        "description": "Requisição inválida (parâmetros incorretos ou ausentes).",
+      "SeriesSuccess": {
+        "description": "Séries históricas obtidas com sucesso.",
         "content": {
           "application/json": {
-            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
-            "example": { "statusCode": 400, "message": "Parâmetro 'periodo' inválido." }
+            "schema": {
+              "$ref": "#/components/schemas/SeriesResponse"
+            },
+            "examples": {
+              "periodo24h": {
+                "summary": "Série histórica de 24 horas (agrupamento de 5 minutos)",
+                "value": {
+                  "estacaoId": "estacao-01",
+                  "grandeza": "PM25",
+                  "periodo": "24h",
+                  "dados": [
+                    {
+                      "timestamp": "2026-06-06T10:00:00Z",
+                      "valor": 25.4
+                    },
+                    {
+                      "timestamp": "2026-06-06T10:05:00Z",
+                      "valor": 26.1
+                    }
+                  ]
+                }
+              },
+              "periodo7d": {
+                "summary": "Série histórica de 7 dias (agrupamento de 1 hora)",
+                "value": {
+                  "estacaoId": "estacao-01",
+                  "grandeza": "PM25",
+                  "periodo": "7d",
+                  "dados": [
+                    {
+                      "timestamp": "2026-06-06T10:00:00Z",
+                      "valor": 25.4
+                    },
+                    {
+                      "timestamp": "2026-06-06T11:00:00Z",
+                      "valor": 26.1
+                    }
+                  ]
+                }
+              },
+              "periodo30d": {
+                "summary": "Série histórica de 30 dias (agrupamento de 1 dia)",
+                "value": {
+                  "estacaoId": "estacao-01",
+                  "grandeza": "PM25",
+                  "periodo": "30d",
+                  "dados": [
+                    {
+                      "timestamp": "2026-06-06T00:00:00Z",
+                      "valor": 25.4
+                    },
+                    {
+                      "timestamp": "2026-06-07T00:00:00Z",
+                      "valor": 26.1
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "UltimasLeiturasSuccess": {
+        "description": "Últimas leituras obtidas com sucesso.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/UltimasLeiturasResponse"
+            },
+            "example": {
+              "estacaoId": "estacao-01",
+              "leituras": [
+                {
+                  "grandeza": "PM25",
+                  "valorCalibrado": 18.2,
+                  "unidade": "µg/m³",
+                  "tempoRelativo": "há 5 min"
+                },
+                {
+                  "grandeza": "PM10",
+                  "valorCalibrado": 32.5,
+                  "unidade": "µg/m³",
+                  "tempoRelativo": "há 10 min"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "IqarSuccess": {
+        "description": "IQAr obtido com sucesso. Quando não houver dados suficientes, o resultado informa essa condição.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/IqarResponse"
+            },
+            "examples": {
+              "comDados": {
+                "summary": "IQAr calculado",
+                "value": {
+                  "status": "Boa",
+                  "cor": "#00E400",
+                  "rotuloFaixa": "Boa",
+                  "mensagem": "Qualidade do ar considerada boa."
+                }
+              },
+              "semDados": {
+                "summary": "Dados insuficientes",
+                "value": {
+                  "status": "Sem dados suficientes",
+                  "rotuloFaixa": "Sem dados suficientes",
+                  "mensagem": "Não há dados suficientes para calcular o IQAr."
+                }
+              }
+            }
+          }
+        }
+      },
+      "BadRequest": {
+        "description": "Requisição inválida devido a parâmetros incorretos ou ausentes.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "example": {
+              "statusCode": 400,
+              "message": "Parâmetro 'periodo' inválido."
+            }
           }
         }
       },
       "Unauthorized": {
-        "description": "Não autorizado (Token ausente ou inválido).",
+        "description": "Autenticação necessária ou token ausente, inválido ou expirado.",
         "content": {
           "application/json": {
-            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
-            "example": { "statusCode": 401, "message": "Unauthorized" }
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "example": {
+              "statusCode": 401,
+              "message": "Token ausente ou inválido."
+            }
           }
         }
       },
       "Forbidden": {
-        "description": "Acesso negado (Ex: Estação fora do município do Gestor).",
+        "description": "Usuário autenticado, mas sem permissão para realizar a operação.",
         "content": {
           "application/json": {
-            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
-            "example": { "statusCode": 403, "message": "Acesso negado a estações fora do município." }
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "example": {
+              "statusCode": 403,
+              "message": "Acesso não permitido para este recurso."
+            }
           }
         }
       },
-      "NotFound": {
-        "description": "Recurso não encontrado.",
+      "EstacaoNotFound": {
+        "description": "Estação não encontrada ou indisponível para consulta no município do Gestor. A resposta não diferencia os dois casos.",
         "content": {
           "application/json": {
-            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
-            "example": { "statusCode": 404, "message": "Estação não encontrada." }
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "example": {
+              "statusCode": 404,
+              "message": "Estação não encontrada."
+            }
           }
         }
       },
       "InternalError": {
-        "description": "Erro interno no servidor.",
+        "description": "Erro interno durante o processamento da requisição.",
         "content": {
           "application/json": {
-            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
-            "example": { "statusCode": 500, "message": "Internal Server Error" }
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "example": {
+              "statusCode": 500,
+              "message": "Internal Server Error"
+            }
           }
         }
       }
     },
     "schemas": {
-      "HealthResponse": {
-        "type": "object",
-        "required": ["status"],
-        "properties": {
-          "status": {
-            "type": "string",
-            "enum": ["ok"],
-            "example": "ok"
-          }
-        }
-      },
       "ErrorResponse": {
         "type": "object",
-        "required": ["statusCode", "message"],
+        "required": [
+          "statusCode",
+          "message"
+        ],
         "properties": {
-          "statusCode": { "type": "integer", "example": 400 },
-          "message": { "type": "string", "example": "Erro na requisição" }
+          "statusCode": {
+            "type": "integer",
+            "example": 400
+          },
+          "message": {
+            "type": "string",
+            "example": "Erro na requisição."
+          }
         }
       },
       "SeriesResponse": {
         "type": "object",
+        "required": [
+          "estacaoId",
+          "grandeza",
+          "periodo",
+          "dados"
+        ],
         "properties": {
-          "estacaoId": { "type": "string", "example": "estacao-01" },
-          "grandeza": { "type": "string", "example": "PM25" },
-          "periodo": { "type": "string", "example": "24h" },
+          "estacaoId": {
+            "type": "string",
+            "example": "estacao-01"
+          },
+          "grandeza": {
+            "type": "string",
+            "example": "PM25"
+          },
+          "periodo": {
+            "type": "string",
+            "enum": [
+              "24h",
+              "7d",
+              "30d"
+            ],
+            "example": "24h"
+          },
           "dados": {
             "type": "array",
+            "description": "Pontos da série histórica agrupados conforme o período solicitado.",
             "items": {
               "type": "object",
+              "required": [
+                "timestamp",
+                "valor"
+              ],
               "properties": {
-                "timestamp": { "type": "string", "example": "2026-06-06T10:00:00Z" },
-                "valor": { "type": "number", "example": 25.4 }
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time",
+                  "example": "2026-06-06T10:00:00Z"
+                },
+                "valor": {
+                  "type": "number",
+                  "example": 25.4
+                }
               }
             }
           }
@@ -380,17 +545,42 @@
       },
       "UltimasLeiturasResponse": {
         "type": "object",
+        "required": [
+          "estacaoId",
+          "leituras"
+        ],
         "properties": {
-          "estacaoId": { "type": "string", "example": "estacao-01" },
+          "estacaoId": {
+            "type": "string",
+            "example": "estacao-01"
+          },
           "leituras": {
             "type": "array",
             "items": {
               "type": "object",
+              "required": [
+                "grandeza",
+                "valorCalibrado",
+                "unidade",
+                "tempoRelativo"
+              ],
               "properties": {
-                "grandeza": { "type": "string", "example": "PM25" },
-                "valorCalibrado": { "type": "number", "example": 18.2 },
-                "unidade": { "type": "string", "example": "µg/m³" },
-                "tempoRelativo": { "type": "string", "example": "há 5 min" }
+                "grandeza": {
+                  "type": "string",
+                  "example": "PM25"
+                },
+                "valorCalibrado": {
+                  "type": "number",
+                  "example": 18.2
+                },
+                "unidade": {
+                  "type": "string",
+                  "example": "µg/m³"
+                },
+                "tempoRelativo": {
+                  "type": "string",
+                  "example": "há 5 min"
+                }
               }
             }
           }
@@ -398,11 +588,31 @@
       },
       "IqarResponse": {
         "type": "object",
+        "required": [
+          "status",
+          "rotuloFaixa",
+          "mensagem"
+        ],
         "properties": {
-          "status": { "type": "string", "example": "Boa" },
-          "cor": { "type": "string", "example": "#00E400" },
-          "rotuloFaixa": { "type": "string", "example": "Boa" },
-          "mensagem": { "type": "string", "example": "Qualidade do ar considerada boa." }
+          "status": {
+            "type": "string",
+            "description": "Situação do IQAr ou indicação de dados insuficientes.",
+            "example": "Boa"
+          },
+          "cor": {
+            "type": "string",
+            "description": "Cor correspondente à faixa de qualidade do ar, quando houver dados suficientes.",
+            "example": "#00E400"
+          },
+          "rotuloFaixa": {
+            "type": "string",
+            "description": "Rótulo correspondente à faixa oficial de qualidade do ar ou indicação de dados insuficientes.",
+            "example": "Boa"
+          },
+          "mensagem": {
+            "type": "string",
+            "example": "Qualidade do ar considerada boa."
+          }
         }
       }
     }

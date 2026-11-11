@@ -205,7 +205,7 @@ services:
       target: build
     command: npm run dev
     environment:
-      PUBLIC_API_URL: http://localhost/analise
+      PUBLIC_API_URL: http://localhost
       PORT: 3000
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
