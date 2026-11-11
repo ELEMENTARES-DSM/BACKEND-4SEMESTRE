@@ -35,6 +35,7 @@ export interface OpcoesProcessarTelemetria {
     | "incrementarIgnoradasSensorInativo"
     | "incrementarMedidasInvalidasGravadas"
     | "incrementarLeiturasAtrasadas"
+    | "obterMetricas"
   >;
 }
 
@@ -263,14 +264,13 @@ export const processarEventoTelemetria = async (
       metricas.incrementarIgnoradasSensorInativo(ignoradas.length);
     }
     if (atrasadasNovas > 0) {
+      metricas.incrementarLeiturasAtrasadas(atrasadasNovas);
       logger.info("Leitura atrasada gravada sem avaliar regras", {
         estacao_uuid: evento.estacao_uuid,
         unixtime: evento.unixtime,
         atraso_s: (criadoEm.getTime() - lidoEm.getTime()) / 1000,
-        contador: metricas.obterMetricas().leiturasAtrasadasSemAvaliacao + atrasadasNovas,
+        contador: metricas.obterMetricas().leiturasAtrasadasSemAvaliacao,
       });
-
-      metricas.incrementarLeiturasAtrasadas(atrasadasNovas);
     }
 
     // US-19: só a medida nova conta; a reentrega do mesmo evento não grava de novo.
