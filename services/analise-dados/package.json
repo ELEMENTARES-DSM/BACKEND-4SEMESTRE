@@ -9,7 +9,8 @@
     "build": "tsc -p tsconfig.json && tsc-alias -p tsconfig.json",
     "start": "node dist/server.js",
     "lint": "eslint src/",
-    "migrate": "node-pg-migrate -m src/db/migrations"
+    "migrate": "node-pg-migrate -m src/db/migrations",
+    "docs:validate": "swagger-cli validate src/docs/openapi.json"
   },
   "keywords": [],
   "author": "",
@@ -26,6 +27,7 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@apidevtools/swagger-cli": "^4.0.4",
     "@eslint/js": "^10.0.1",
     "@types/bcrypt": "^6.0.0",
     "@types/cors": "^2.8.19",
