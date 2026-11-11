@@ -167,7 +167,7 @@ describe("processar-telemetria.service - avaliação das regras (US-22)", () => 
     usarSensores(sensor("PM25-01", "PM2.5"));
     const ev = eventoNoHorario(unixtimeComAtraso(10 * 60 * 1000 + 1000), ["PM25-01", 52.3]);
 
-    const resultado = await processar(ev);
+    await processar(ev);
 
     expect(medidaRepository.inserirMedidaIdempotente).toHaveBeenCalledWith(
       expect.objectContaining({ unixtime: ev.unixtime }),
@@ -194,7 +194,7 @@ describe("processar-telemetria.service - avaliação das regras (US-22)", () => 
     usarSensores(sensor("PM25-01", "PM2.5"));
     const ev = eventoNoHorario(unixtimeComAtraso(2 * 60 * 60 * 1000), ["PM25-01", 20]);
 
-    const resultado = await processar(ev);
+    await processar(ev);
 
     expect(avaliarRegrasService.avaliarRegrasDasMedidas).toHaveBeenCalledWith([], agora, expect.anything());
   });
