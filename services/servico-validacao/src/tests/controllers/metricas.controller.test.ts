@@ -70,7 +70,7 @@ describe("GET /validacao/metricas", () => {
   });
 
   describe("leitura atrasada (US-28)", () => {
-  it("deve mostrar as leituras atrasadas gravadas sem avaliar regras", async () => {
+    it("mostra leiturasAtrasadasSemAvaliacao quando há leituras atrasadas gravadas", async () => {
     metricasValidacaoService.incrementarLeiturasAtrasadas(4);
 
     const resposta = await consultar({ Authorization: `Bearer ${criarToken()}` });

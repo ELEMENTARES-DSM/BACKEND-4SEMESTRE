@@ -38,7 +38,7 @@ describe("MetricasValidacaoService", () => {
   });
 
   describe("leitura atrasada (US-28)", () => {
-  it("deve contar leituras atrasadas sem avaliar regras", () => {
+    it("soma as leituras atrasadas quando incrementa com e sem quantidade", () => {
     metricas.incrementarLeiturasAtrasadas();
     metricas.incrementarLeiturasAtrasadas(2);
 

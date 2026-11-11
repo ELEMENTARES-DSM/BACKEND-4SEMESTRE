@@ -178,7 +178,7 @@ describe("processar-telemetria.service - avaliação das regras (US-22)", () => 
     expect(metricas.obterMetricas().leiturasAtrasadasSemAvaliacao).toBe(1);
   });
 
-  it("deve gravar a medida atrasada com o unixtime da estação", async () => {
+  it("grava a medida com o unixtime da estação quando a leitura é atrasada", async () => {
     usarSensores(sensor("PM25-01", "PM2.5"));
     const ev = eventoNoHorario(unixtimeComAtraso(2 * 60 * 60 * 1000), ["PM25-01", 52.3]);
 
@@ -199,7 +199,7 @@ describe("processar-telemetria.service - avaliação das regras (US-22)", () => 
     expect(avaliarRegrasService.avaliarRegrasDasMedidas).toHaveBeenCalledWith([], agora, expect.anything());
   });
 
-  it("deve contar leitura atrasada só quando a medida é nova", async () => {
+  it("conta leituras atrasadas quando a medida ainda não foi gravada", async () => {
     inserida = false;
     usarSensores(sensor("PM25-01", "PM2.5"));
     const ev = eventoNoHorario(unixtimeComAtraso(2 * 60 * 60 * 1000), ["PM25-01", 52.3]);
@@ -210,7 +210,7 @@ describe("processar-telemetria.service - avaliação das regras (US-22)", () => 
     expect(metricas.obterMetricas().leiturasAtrasadasSemAvaliacao).toBe(0);
   });
 
-  it("deve gravar como inválida a leitura atrasada fora da faixa física", async () => {
+  it("grava valida = false quando a leitura atrasada está fora da faixa física", async () => {
     usarSensores(sensor("UR-01", "Umidade Relativa"));
     const ev = eventoNoHorario(unixtimeComAtraso(2 * 60 * 60 * 1000), ["UR-01", 120]);
 
@@ -223,7 +223,7 @@ describe("processar-telemetria.service - avaliação das regras (US-22)", () => 
     expect(avaliadas()).toEqual([]);
   });
 
-  it("deve contar cada leitura atrasada nova do mesmo evento", async () => {
+  it("conta cada leitura atrasada quando o evento traz duas medidas novas", async () => {
     usarSensores(sensor("PM25-01", "PM2.5"), sensor("PM25-02", "PM2.5"));
     const ev = eventoNoHorario(unixtimeComAtraso(2 * 60 * 60 * 1000), ["PM25-01", 52.3], ["PM25-02", 53.1]);
 
@@ -234,14 +234,17 @@ describe("processar-telemetria.service - avaliação das regras (US-22)", () => 
     expect(avaliadas()).toEqual([]);
   });
 
-  it("deve registrar no log INFO os dados da leitura atrasada só depois do COMMIT", async () => {
-    const info = jest.spyOn(logger, "info").mockImplementation(() => undefined);
+  it("registra o log INFO com os dados da leitura quando a leitura atrasada é gravada", async () => {
+    let consultasNoLog: unknown[][] = [];
+    const info = jest.spyOn(logger, "info").mockImplementation(() => {
+      consultasNoLog = queryClientMock.mock.calls.map(([sql]) => [sql]);
+    });
     usarSensores(sensor("PM25-01", "PM2.5"));
     const ev = eventoNoHorario(unixtimeComAtraso(2 * 60 * 60 * 1000), ["PM25-01", 52.3]);
 
     await processar(ev);
 
-    expect(queryClientMock).toHaveBeenLastCalledWith("COMMIT");
+    expect(consultasNoLog).toEqual([["BEGIN"], ["COMMIT"]]);
     expect(info).toHaveBeenCalledWith("Leitura atrasada gravada sem avaliar regras", {
       estacao_uuid: ev.estacao_uuid,
       unixtime: ev.unixtime,
@@ -252,7 +255,10 @@ describe("processar-telemetria.service - avaliação das regras (US-22)", () => 
   });
 
   it("devolve os alarmes e registra cada um em log só depois do COMMIT", async () => {
-    const warn = jest.spyOn(logger, "warn").mockImplementation(() => undefined);
+    let consultasNoLog: unknown[][] = [];
+    const warn = jest.spyOn(logger, "warn").mockImplementation(() => {
+      consultasNoLog = queryClientMock.mock.calls.map(([sql]) => [sql]);
+    });
     const alarme = {
       id: "alarme-1",
       regra_id: "regra-1",
@@ -273,6 +279,7 @@ describe("processar-telemetria.service - avaliação das regras (US-22)", () => 
 
     expect(resultado.alarmesAbertos).toEqual([alarme]);
     expect(resultado.alarmesNormalizados).toBe(1);
+    expect(consultasNoLog).toEqual([["BEGIN"], ["COMMIT"]]);
     expect(warn).toHaveBeenCalledWith("Alarme registrado: medida violou regra de alerta", {
       alarme_id: "alarme-1",
       regra_id: "regra-1",
