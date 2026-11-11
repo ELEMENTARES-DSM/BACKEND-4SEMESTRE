@@ -1,4 +1,6 @@
 {
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "src/tests/**/*.spec.ts"],
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "dist",
