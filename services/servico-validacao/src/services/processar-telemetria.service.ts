@@ -267,6 +267,7 @@ export const processarEventoTelemetria = async (
         estacao_uuid: evento.estacao_uuid,
         unixtime: evento.unixtime,
         atraso_s: (criadoEm.getTime() - lidoEm.getTime()) / 1000,
+        contador: metricas.obterMetricas().leiturasAtrasadasSemAvaliacao + atrasadasNovas,
       });
 
       metricas.incrementarLeiturasAtrasadas(atrasadasNovas);
