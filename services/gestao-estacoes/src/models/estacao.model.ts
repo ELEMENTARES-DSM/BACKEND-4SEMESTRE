@@ -26,6 +26,10 @@ export interface StatusEstacoesResponse {
   resumo: ResumoStatus;
   estacoes: EstacaoComStatusOperacional[];
 }
+
+export interface MunicipiosPublicoResponse {
+  municipios: string[];
+}
 export interface Estacoes{
   id: string;
   codigo: string;

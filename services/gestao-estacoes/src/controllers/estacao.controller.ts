@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import * as estacaoService from "../services/estacao.service";
+import * as publicEstacoesService from "../services/public-estacoes.service";
 import { AppError } from "../middlewares/error-handler";
 
 interface AuthenticatedRequest extends Request {
@@ -148,6 +149,34 @@ export const inativarInterno = async (
       req.params.uuid as string,
     );
     return res.status(200).json(estacao);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const listarMunicipiosPublico = async (
+  _req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const resultado = await publicEstacoesService.listarMunicipiosPublico();
+    return res.status(200).json(resultado);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const statusPublicoPorMunicipio = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const municipio = req.params.municipio as string;
+    const resultado =
+      await publicEstacoesService.getStatusPublicoPorMunicipio(municipio);
+    return res.status(200).json(resultado);
   } catch (err) {
     next(err);
   }
