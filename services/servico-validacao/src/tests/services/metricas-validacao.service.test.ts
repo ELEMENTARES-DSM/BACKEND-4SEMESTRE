@@ -15,6 +15,7 @@ describe("MetricasValidacaoService", () => {
     expect(metricas.obterMetricas()).toEqual({
       leiturasIgnoradasSensorInativo: 0,
       medidasInvalidasGravadas: 0,
+      leiturasAtrasadasSemAvaliacao: 0,
     });
   });
 
@@ -32,17 +33,29 @@ describe("MetricasValidacaoService", () => {
     expect(metricas.obterMetricas()).toEqual({
       leiturasIgnoradasSensorInativo: 0,
       medidasInvalidasGravadas: 3,
+      leiturasAtrasadasSemAvaliacao: 0,
     });
+  });
+
+  describe("leitura atrasada (US-28)", () => {
+    it("soma as leituras atrasadas quando incrementa com e sem quantidade", () => {
+    metricas.incrementarLeiturasAtrasadas();
+    metricas.incrementarLeiturasAtrasadas(2);
+
+    expect(metricas.obterMetricas().leiturasAtrasadasSemAvaliacao).toBe(3);
+  });
   });
 
   it("reset zera os contadores", () => {
     metricas.incrementarIgnoradasSensorInativo(5);
     metricas.incrementarMedidasInvalidasGravadas(2);
+    metricas.incrementarLeiturasAtrasadas(4);
     metricas.reset();
 
     expect(metricas.obterMetricas()).toEqual({
       leiturasIgnoradasSensorInativo: 0,
       medidasInvalidasGravadas: 0,
+      leiturasAtrasadasSemAvaliacao: 0,
     });
   });
 

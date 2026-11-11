@@ -39,7 +39,7 @@ integration("US-22 - publicação de alarme.disparado (PostgreSQL e RabbitMQ)", 
   const alarmes = async () =>
     (await pool.query("SELECT id, publicado_em FROM alarmes ORDER BY criado_em")).rows;
 
-  const evento = (valor: number, unixtime = 1792400000) => ({
+  const evento = (valor: number, unixtime = Math.floor(Date.now() / 1000)) => ({
     staging_id: randomUUID(),
     estacao_uuid: estacao,
     unixtime,
@@ -92,7 +92,8 @@ integration("US-22 - publicação de alarme.disparado (PostgreSQL e RabbitMQ)", 
     const regra = await cadastrarRegra(pool, { sensorId: pm25, operador: ">=", limite: "50.00" });
     await iniciarConsumidor();
 
-    publicarEvento(admin.channel, evento(52.3));
+    const leitura = evento(52.3);
+    publicarEvento(admin.channel, leitura);
     await esperar(async () => (await contarNaFila()) === 1, "evento alarme.disparado");
 
     const msg = await admin.channel.get(FILA_NOTIFICACAO_ALARMES, { noAck: true });
@@ -111,7 +112,7 @@ integration("US-22 - publicação de alarme.disparado (PostgreSQL e RabbitMQ)", 
       operador: ">=",
       limite: "50.00",
       severidade: "CRITICO",
-      lido_em: new Date(1792400000 * 1000).toISOString(),
+      lido_em: new Date(leitura.unixtime * 1000).toISOString(),
       criado_em: expect.any(String),
     });
     await esperar(async () => (await alarmes())[0].publicado_em !== null, "publicado_em preenchido");
@@ -125,7 +126,7 @@ integration("US-22 - publicação de alarme.disparado (PostgreSQL e RabbitMQ)", 
     publicarEvento(admin.channel, original);
     await esperar(async () => (await contarNaFila()) === 1, "primeiro evento");
     publicarEvento(admin.channel, original);
-    publicarEvento(admin.channel, evento(10, 1792400300));
+    publicarEvento(admin.channel, evento(10, Math.floor(Date.now() / 1000)));
     await esperar(async () => (await contarMedidas()) === 2, "evento seguinte processado");
 
     expect(await contarNaFila()).toBe(1);
