@@ -118,6 +118,17 @@ import {
 } from "../models/estacao.model";
 
 
+export const findDistinctMunicipios = async (): Promise<string[]> => {
+  const result = await pool.query<{ municipio: string }>(
+    `SELECT DISTINCT municipio
+     FROM estacoes
+     WHERE municipio IS NOT NULL
+     ORDER BY municipio ASC`
+  );
+
+  return result.rows.map((row) => row.municipio);
+};
+
 export const findStatusByMunicipio = async (
   municipio: string | null
 ): Promise<EstacaoComStatusOperacional[]> => {
@@ -130,7 +141,7 @@ export const findStatusByMunicipio = async (
               ELSE 'Com Falha'
             END AS status_operacional
      FROM estacoes
-     WHERE ($1::text IS NULL OR municipio = $1)
+     WHERE ($1::text IS NULL OR LOWER(municipio) = LOWER($1))
      ORDER BY codigo`,
     [municipio]
   );

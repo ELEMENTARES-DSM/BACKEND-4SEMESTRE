@@ -21,6 +21,10 @@
       "description": "Gerenciamento e monitoramento das estações meteorológicas"
     },
     {
+      "name": "Público",
+      "description": "Operações públicas de consulta de municípios e status sem necessidade de autenticação"
+    },
+    {
       "name": "Interno",
       "description": "Operações privadas para comunicação interna entre scripts/serviços e o backend"
     }
@@ -175,6 +179,60 @@
           },
           "403": {
             "$ref": "#/components/responses/403Forbidden"
+          }
+        }
+      }
+    },
+    "/publico/municipios": {
+      "get": {
+        "tags": ["Público"],
+        "operationId": "listarMunicipiosPublico",
+        "summary": "Listar municípios com estações cadastradas (Público)",
+        "description": "Retorna a lista de municípios distintos que possuem estações meteorológicas cadastradas, sem necessidade de autenticação.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Lista de municípios retornada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MunicipiosPublicoResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/publico/{municipio}/status": {
+      "get": {
+        "tags": ["Público"],
+        "operationId": "getStatusPublicoPorMunicipio",
+        "summary": "Obter resumo de status das estações por município (Público)",
+        "description": "Retorna o resumo quantitativo (ativas, com falha, inativas e total) e a lista de estações do município informado sem necessidade de autenticação.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "municipio",
+            "in": "path",
+            "required": true,
+            "description": "Nome ou sigla do município (ex.: 'sjc' ou 'São José dos Campos')",
+            "schema": {
+              "type": "string",
+              "example": "sjc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resumo de status público retornado com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusEstacoesResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -664,6 +722,19 @@
                   "type": "string"
                 }
               }
+            }
+          }
+        }
+      },
+      "MunicipiosPublicoResponse": {
+        "type": "object",
+        "required": ["municipios"],
+        "properties": {
+          "municipios": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "example": "São José dos Campos"
             }
           }
         }
