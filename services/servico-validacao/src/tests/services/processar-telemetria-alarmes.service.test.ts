@@ -16,8 +16,9 @@ jest.mock("../../services/avaliar-regras.service");
 describe("processar-telemetria.service - avaliação das regras (US-22)", () => {
   const queryClientMock = jest.fn<(...args: unknown[]) => Promise<unknown>>();
   const connectPoolMock = jest.fn<() => Promise<unknown>>();
-  const agora = new Date("2026-10-24T13:00:01.000Z");
+  const agora = new Date("2026-10-24T13:00:00.000Z");
   let inserida: boolean;
+  let metricas: MetricasValidacaoService;
 
   const sensor = (codigo: string, tipo: string, estacaoStatus = "Ativa"): SensorEventoRow => ({
     id: `sensor-${codigo}`,
@@ -31,18 +32,22 @@ describe("processar-telemetria.service - avaliação das regras (US-22)", () => 
     estacao_status: estacaoStatus,
   });
 
-  const evento = (...leituras: Array<[string, number]>): EventoTelemetriaDTO => ({
+  const eventoNoHorario = (unixtime: number, ...leituras: Array<[string, number]>): EventoTelemetriaDTO => ({
     staging_id: "staging-uuid-1",
     estacao_uuid: "estacao-uuid-1",
-    unixtime: 1792400000,
+    unixtime,
     leituras: leituras.map(([s, valor]) => ({ sensor: s, valor })),
   });
+  const evento = (...leituras: Array<[string, number]>): EventoTelemetriaDTO =>
+    eventoNoHorario(Math.floor(agora.getTime() / 1000) - 5 * 60, ...leituras);
+  const unixtimeComAtraso = (atrasoMs: number) =>
+    Math.floor((agora.getTime() - atrasoMs) / 1000);
 
   const processar = (e: EventoTelemetriaDTO) =>
     processarEventoTelemetria(e, {
       dbPool: { connect: connectPoolMock as never },
       agora: () => agora,
-      metricas: new MetricasValidacaoService(),
+      metricas,
     });
 
   const usarSensores = (...sensores: SensorEventoRow[]) => {
@@ -57,6 +62,7 @@ describe("processar-telemetria.service - avaliação das regras (US-22)", () => 
     jest.clearAllMocks();
     jest.restoreAllMocks();
     inserida = true;
+    metricas = new MetricasValidacaoService();
     queryClientMock.mockResolvedValue({ rows: [] });
     connectPoolMock.mockResolvedValue({
       query: queryClientMock,
@@ -94,7 +100,7 @@ describe("processar-telemetria.service - avaliação das regras (US-22)", () => 
         estacao_id: "estacao-uuid-1",
         municipio: "São José dos Campos",
         valor: "52.30",
-        lido_em: new Date(1792400000 * 1000),
+        lido_em: new Date(evento(["PM25-01", 52.3]).unixtime * 1000),
       },
     ]);
   });
@@ -146,8 +152,113 @@ describe("processar-telemetria.service - avaliação das regras (US-22)", () => 
     expect(avaliadas()).toEqual([]);
   });
 
+  describe("leitura atrasada (US-28)", () => {
+  it("deve avaliar as regras quando a leitura é processada exatamente 10 min depois", async () => {
+    usarSensores(sensor("PM25-01", "PM2.5"));
+    const ev = eventoNoHorario(unixtimeComAtraso(10 * 60 * 1000), ["PM25-01", 52.3]);
+
+    await processar(ev);
+
+    expect(avaliadas()).toHaveLength(1);
+    expect(metricas.obterMetricas().leiturasAtrasadasSemAvaliacao).toBe(0);
+  });
+
+  it("deve pular a avaliação das regras quando a leitura é processada 10 min e 1 s depois", async () => {
+    usarSensores(sensor("PM25-01", "PM2.5"));
+    const ev = eventoNoHorario(unixtimeComAtraso(10 * 60 * 1000 + 1000), ["PM25-01", 52.3]);
+
+    const resultado = await processar(ev);
+
+    expect(medidaRepository.inserirMedidaIdempotente).toHaveBeenCalledWith(
+      expect.objectContaining({ unixtime: ev.unixtime }),
+      expect.anything(),
+    );
+    expect(avaliadas()).toEqual([]);
+    expect(resultado.leiturasAtrasadas).toBe(1);
+    expect(metricas.obterMetricas().leiturasAtrasadasSemAvaliacao).toBe(1);
+  });
+
+  it("grava a medida com o unixtime da estação quando a leitura é atrasada", async () => {
+    usarSensores(sensor("PM25-01", "PM2.5"));
+    const ev = eventoNoHorario(unixtimeComAtraso(2 * 60 * 60 * 1000), ["PM25-01", 52.3]);
+
+    await processar(ev);
+
+    expect(medidaRepository.inserirMedidaIdempotente).toHaveBeenCalledWith(
+      expect.objectContaining({ unixtime: ev.unixtime }),
+      expect.anything(),
+    );
+  });
+
+  it("deve preservar o alarme aberto quando a leitura atrasada não viola", async () => {
+    usarSensores(sensor("PM25-01", "PM2.5"));
+    const ev = eventoNoHorario(unixtimeComAtraso(2 * 60 * 60 * 1000), ["PM25-01", 20]);
+
+    await processar(ev);
+
+    expect(avaliarRegrasService.avaliarRegrasDasMedidas).toHaveBeenCalledWith([], agora, expect.anything());
+  });
+
+  it("conta leituras atrasadas quando a medida ainda não foi gravada", async () => {
+    inserida = false;
+    usarSensores(sensor("PM25-01", "PM2.5"));
+    const ev = eventoNoHorario(unixtimeComAtraso(2 * 60 * 60 * 1000), ["PM25-01", 52.3]);
+
+    const resultado = await processar(ev);
+
+    expect(resultado.leiturasAtrasadas).toBe(0);
+    expect(metricas.obterMetricas().leiturasAtrasadasSemAvaliacao).toBe(0);
+  });
+
+  it("grava valida = false quando a leitura atrasada está fora da faixa física", async () => {
+    usarSensores(sensor("UR-01", "Umidade Relativa"));
+    const ev = eventoNoHorario(unixtimeComAtraso(2 * 60 * 60 * 1000), ["UR-01", 120]);
+
+    await processar(ev);
+
+    expect(medidaRepository.inserirMedidaIdempotente).toHaveBeenCalledWith(
+      expect.objectContaining({ valida: false, unixtime: ev.unixtime }),
+      expect.anything(),
+    );
+    expect(avaliadas()).toEqual([]);
+  });
+
+  it("conta cada leitura atrasada quando o evento traz duas medidas novas", async () => {
+    usarSensores(sensor("PM25-01", "PM2.5"), sensor("PM25-02", "PM2.5"));
+    const ev = eventoNoHorario(unixtimeComAtraso(2 * 60 * 60 * 1000), ["PM25-01", 52.3], ["PM25-02", 53.1]);
+
+    const resultado = await processar(ev);
+
+    expect(resultado.leiturasAtrasadas).toBe(2);
+    expect(metricas.obterMetricas().leiturasAtrasadasSemAvaliacao).toBe(2);
+    expect(avaliadas()).toEqual([]);
+  });
+
+  it("registra o log INFO com os dados da leitura quando a leitura atrasada é gravada", async () => {
+    let consultasNoLog: unknown[][] = [];
+    const info = jest.spyOn(logger, "info").mockImplementation(() => {
+      consultasNoLog = queryClientMock.mock.calls.map(([sql]) => [sql]);
+    });
+    usarSensores(sensor("PM25-01", "PM2.5"));
+    const ev = eventoNoHorario(unixtimeComAtraso(2 * 60 * 60 * 1000), ["PM25-01", 52.3]);
+
+    await processar(ev);
+
+    expect(consultasNoLog).toEqual([["BEGIN"], ["COMMIT"]]);
+    expect(info).toHaveBeenCalledWith("Leitura atrasada gravada sem avaliar regras", {
+      estacao_uuid: ev.estacao_uuid,
+      unixtime: ev.unixtime,
+      atraso_s: agora.getTime() / 1000 - ev.unixtime,
+      contador: 1,
+    });
+  });
+  });
+
   it("devolve os alarmes e registra cada um em log só depois do COMMIT", async () => {
-    const warn = jest.spyOn(logger, "warn").mockImplementation(() => undefined);
+    let consultasNoLog: unknown[][] = [];
+    const warn = jest.spyOn(logger, "warn").mockImplementation(() => {
+      consultasNoLog = queryClientMock.mock.calls.map(([sql]) => [sql]);
+    });
     const alarme = {
       id: "alarme-1",
       regra_id: "regra-1",
@@ -168,6 +279,7 @@ describe("processar-telemetria.service - avaliação das regras (US-22)", () => 
 
     expect(resultado.alarmesAbertos).toEqual([alarme]);
     expect(resultado.alarmesNormalizados).toBe(1);
+    expect(consultasNoLog).toEqual([["BEGIN"], ["COMMIT"]]);
     expect(warn).toHaveBeenCalledWith("Alarme registrado: medida violou regra de alerta", {
       alarme_id: "alarme-1",
       regra_id: "regra-1",
