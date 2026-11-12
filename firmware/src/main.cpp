@@ -32,7 +32,7 @@ uint8_t quadroPm[32];
 uint8_t indicePm = 0;
 
 unsigned long previousMillis = 0;
-const unsigned long interval = 10000;
+const unsigned long interval = 300000; // envio para o tópico a cada 5 minutos
 
 // Monta o quadro de 32 bytes byte a byte: 0x42 0x4D, tamanho, dados, soma de verificação.
 // Concentração em "ambiente atmosférico": PM2.5 nos bytes 12-13 e PM10 nos bytes 14-15.
