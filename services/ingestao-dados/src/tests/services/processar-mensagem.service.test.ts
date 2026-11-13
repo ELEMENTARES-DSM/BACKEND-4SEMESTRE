@@ -9,6 +9,7 @@ import {
 import { buscarEstacaoParaValidacao } from "../../repositories/estacao.repository";
 import { gravacaoMetricsService } from "../../services/gravacao-metrics.service";
 import { pool } from "../../config/db";
+import { logger } from "../../utils/logger";
 
 jest.mock("../../repositories/staging.repository");
 jest.mock("../../repositories/estacao.repository");
@@ -131,6 +132,73 @@ describe("processarMensagem", () => {
       expect(registrar).not.toHaveBeenCalled();
     },
   );
+});
+
+describe("processarMensagem (US-28)", () => {
+  beforeEach(() => {
+    inserir.mockReset();
+    inserir.mockResolvedValue(true);
+  });
+
+  it("grava no PostgreSQL e registra log quando a leitura chega 10 min e 1 s atrasada", async () => {
+    const query = jest.fn().mockResolvedValue({ rowCount: 1 });
+    jest.mocked(pool.connect).mockResolvedValue({
+      query,
+      release: jest.fn(),
+      on: jest.fn(),
+      removeListener: jest.fn(),
+    } as never);
+    const ultimaConsultaNoLog: unknown[] = [];
+    const info = jest.spyOn(logger, "info").mockImplementation(() => {
+      ultimaConsultaNoLog.push(query.mock.calls.at(-1)?.[0]);
+    });
+    const leituraAtrasada = {
+      ...mensagem,
+      recebidoEm: "2026-10-14T12:10:01.000Z",
+    };
+
+    await expect(processarMensagem(leituraAtrasada)).resolves.toBe("recebida");
+
+    expect(inserir).toHaveBeenCalledWith(
+      expect.objectContaining({
+        estacaoId: mensagem.estacaoId,
+        recebidoEm: leituraAtrasada.recebidoEm,
+        unixtime: Date.parse("2026-10-14T12:00:00Z") / 1000,
+        status: "recebida",
+      }),
+      expect.anything(),
+    );
+    expect(info).toHaveBeenCalledWith("Leitura atrasada gravada direto no PostgreSQL", {
+      estacao_uuid: mensagem.estacaoId,
+      unixtime: Date.parse("2026-10-14T12:00:00Z") / 1000,
+      atraso_s: 601,
+    });
+    expect(ultimaConsultaNoLog).toEqual(["COMMIT"]);
+    info.mockRestore();
+  });
+
+  it("segue o caminho normal quando a leitura chega exatamente 10 min atrasada", async () => {
+    const info = jest.spyOn(logger, "info").mockImplementation(() => undefined);
+    const leituraNoLimite = {
+      ...mensagem,
+      recebidoEm: "2026-10-14T12:10:00.000Z",
+    };
+
+    await expect(processarMensagem(leituraNoLimite)).resolves.toBe("recebida");
+
+    expect(inserir).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recebidoEm: leituraNoLimite.recebidoEm,
+        status: "recebida",
+      }),
+      expect.anything(),
+    );
+    expect(info).not.toHaveBeenCalledWith(
+      "Leitura atrasada gravada direto no PostgreSQL",
+      expect.anything(),
+    );
+    info.mockRestore();
+  });
 });
 
 describe("processarMensagem - registro de duplicatas (TASK 13.02)", () => {

@@ -14,6 +14,7 @@ const registro = {
   id: "staging-1",
   estacao_uuid: "estacao-1",
   unixtime: "1792400000",
+  criado_em: new Date("2026-10-14T12:10:01.000Z"),
   payload: { leituras: [{ sensor: "TMP", valor: 23 }] },
 };
 
@@ -61,8 +62,13 @@ describe("RabbitMqTelemetriaPublisher", () => {
   });
 
   it("marca como publicada após confirmação positiva do broker", async () => {
+    let eventoPublicado: { staging_id: string; recebidoEm: string } | undefined;
     channel.publish.mockImplementation((_exchange, _key, _content, options, callback) => {
       expect(options).toMatchObject({ persistent: true, mandatory: true });
+      eventoPublicado = JSON.parse((_content as Buffer).toString()) as {
+        staging_id: string;
+        recebidoEm: string;
+      };
       (callback as (erro?: Error | null) => void)(null);
       return true;
     });
@@ -72,6 +78,10 @@ describe("RabbitMqTelemetriaPublisher", () => {
 
     expect(marcarPublicada).toHaveBeenCalledWith(registro.id);
     expect(marcarPendente).not.toHaveBeenCalled();
+    expect(eventoPublicado).toEqual(expect.objectContaining({
+      staging_id: registro.id,
+      recebidoEm: registro.criado_em.toISOString(),
+    }));
     await publisher.encerrar();
   });
 

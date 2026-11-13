@@ -7,6 +7,8 @@ export interface EventoTelemetriaDTO {
   staging_id: string;
   estacao_uuid: string;
   unixtime: number;
+  /** Hora UTC de recebimento, ausente em eventos publicados antes da US-28. */
+  recebidoEm?: string;
   leituras: LeituraEventoDTO[];
 }
 

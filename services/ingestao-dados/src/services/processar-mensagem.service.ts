@@ -13,6 +13,13 @@ import { logger } from "../utils/logger";
 
 const validador = new ValidarPayloadService();
 
+// US-28: uma leitura recebida mais de 10 minutos após a medição vai pelo PostgreSQL.
+export const LIMITE_ATRASO_MS = 10 * 60 * 1000;
+
+export function leituraAtrasada(recebidoEm: string, timestamp: string): boolean {
+  return Date.parse(recebidoEm) - Date.parse(timestamp) > LIMITE_ATRASO_MS;
+}
+
 /** O consumidor deve confirmar a mensagem somente após esta Promise resolver. */
 export async function processarMensagem(
   mensagem: MensagemIngestaoInput,
@@ -76,6 +83,14 @@ async function persistirMensagem(
     return rejeitar(mensagem, motivoEstacao);
   }
 
+  const payloadValidado = validacao.payloadValidado!;
+  const atrasoMs =
+    Date.parse(mensagem.recebidoEm) - Date.parse(payloadValidado.timestamp);
+  const atrasada = leituraAtrasada(
+    mensagem.recebidoEm,
+    payloadValidado.timestamp,
+  );
+
   // A detecção de duplicata da TASK 13.01 é o índice único da staging
   // (uq_staging_estacao_unixtime) com o ON CONFLICT do inserirStaging.
   // "duplicata" significa que a mensagem foi ignorada: não grava e não segue.
@@ -84,6 +99,13 @@ async function persistirMensagem(
   const resultado = await gravarAceita(mensagem);
   if (resultado === "recebida") {
     gravacaoMetricsService.incrementarGravada();
+    if (atrasada) {
+      logger.info("Leitura atrasada gravada direto no PostgreSQL", {
+        estacao_uuid: mensagem.estacaoId,
+        unixtime: Math.floor(Date.parse(payloadValidado.timestamp) / 1000),
+        atraso_s: atrasoMs / 1000,
+      });
+    }
   }
   if (resultado === "duplicata") {
     registrarDuplicadaIgnorada({
