@@ -59,6 +59,28 @@ integration("staging PostgreSQL", () => {
     expect(rows[0].criado_em.toISOString()).toBe("2026-10-14T12:00:05.000Z");
   });
 
+  it("grava leitura atrasada na staging com o unixtime da medição e o recebimento", async () => {
+    const lidoEm = "2026-10-14T10:00:00.000Z";
+    const recebidoEm = "2026-10-14T12:00:00.000Z";
+    const leituraAtrasada = {
+      ...mensagem,
+      recebidoEm,
+      payloadBruto: `{"timestamp":"${lidoEm}","leituras":[{"sensor":"temperatura","valor":25}]}`,
+    };
+
+    await expect(processarMensagem(leituraAtrasada)).resolves.toBe("recebida");
+
+    const { rows } = await pool.query("SELECT * FROM staging_telemetria");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      estacao_uuid: mensagem.estacaoId,
+      status: "recebida",
+      unixtime: String(Date.parse(lidoEm) / 1000),
+      motivo_rejeicao: null,
+    });
+    expect(rows[0].criado_em.toISOString()).toBe(recebidoEm);
+  });
+
   it("grava rejeitada não JSON exatamente como recebida", async () => {
     const payloadBruto = "  inválido\n";
     expect(await processarMensagem({ ...mensagem, payloadBruto })).toBe("rejeitada");

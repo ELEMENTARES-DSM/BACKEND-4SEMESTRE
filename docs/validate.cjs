@@ -13,6 +13,9 @@ const HTTP_METHODS = new Set([
   "trace",
 ]);
 
+// Serviço de simulação MQTT e CLI de lote; não expõe API HTTP.
+const SERVICOS_SEM_API_HTTP = new Set(["simulador-estacoes"]);
+
 async function main() {
   const servicesRoot = path.resolve(__dirname, "../services");
 
@@ -35,6 +38,11 @@ async function main() {
   }
 
   for (const service of services) {
+    if (SERVICOS_SEM_API_HTTP.has(service)) {
+      console.log(`${service}: sem API HTTP; OpenAPI não se aplica.`);
+      continue;
+    }
+
     const file = path.join(
       servicesRoot,
       service,

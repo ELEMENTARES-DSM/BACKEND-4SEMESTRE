@@ -149,6 +149,10 @@ export class RabbitMqTelemetriaPublisher {
             staging_id: registro.id,
             estacao_uuid: registro.estacao_uuid,
             unixtime: Number(registro.unixtime),
+            recebidoEm:
+              registro.criado_em instanceof Date
+                ? registro.criado_em.toISOString()
+                : new Date(registro.criado_em).toISOString(),
             leituras: registro.payload.leituras.map(({ sensor, valor }) => ({ sensor, valor })),
           };
           await this.publicarConfirmado(channel, evento);

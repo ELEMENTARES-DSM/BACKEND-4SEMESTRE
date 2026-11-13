@@ -17,6 +17,7 @@ export interface MensagemPendente {
   id: string;
   estacao_uuid: string;
   unixtime: string;
+  criado_em: Date | string;
   payload: { leituras?: Array<{ sensor: string; valor: number }> };
 }
 
@@ -69,7 +70,7 @@ export async function reservarProximaPendente(): Promise<MensagemPendente | null
   try {
     await client.query("BEGIN");
     const { rows } = await client.query<MensagemPendente>(`
-      SELECT id, estacao_uuid, unixtime, payload
+      SELECT id, estacao_uuid, unixtime, criado_em, payload
       FROM staging_telemetria
       WHERE status IN ('recebida', 'pendente') AND processando = FALSE
       ORDER BY criado_em ASC, id ASC

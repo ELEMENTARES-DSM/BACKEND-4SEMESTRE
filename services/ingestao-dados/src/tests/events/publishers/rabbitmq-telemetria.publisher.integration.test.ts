@@ -124,8 +124,11 @@ integration("recuperação do publicador RabbitMQ", () => {
   it("recupera 50 mensagens na ordem de recebimento, mesmo com duas instâncias", async () => {
     const inicio = Date.now() - 60000;
     const idsEsperados: string[] = [];
+    const recebidosEsperados: string[] = [];
     for (let indice = 0; indice < 50; indice += 1) {
-      idsEsperados.push(await inserirMensagem(new Date(inicio + indice * 1000)));
+      const recebidoEm = new Date(inicio + indice * 1000);
+      idsEsperados.push(await inserirMensagem(recebidoEm));
+      recebidosEsperados.push(recebidoEm.toISOString());
     }
 
     const primeiraInstancia = new RabbitMqTelemetriaPublisher({
@@ -154,8 +157,12 @@ integration("recuperação do publicador RabbitMQ", () => {
       expect(mensagem).not.toBe(false);
       if (!mensagem) throw new Error("Fila sem a mensagem confirmada esperada");
       expect(mensagem.properties.deliveryMode).toBe(2);
-      const evento = JSON.parse(mensagem.content.toString()) as { staging_id: string };
+      const evento = JSON.parse(mensagem.content.toString()) as {
+        staging_id: string;
+        recebidoEm: string;
+      };
       idsRecebidos.push(evento.staging_id);
+      expect(evento.recebidoEm).toBe(recebidosEsperados[indice]);
     }
     expect(idsRecebidos).toEqual(idsEsperados);
 
