@@ -1,6 +1,6 @@
-# Monitoramento do Pulso Urbano: Prometheus + exporters (ELEM-128).
+# Monitoramento do Pulso Urbano: Prometheus + Grafana + exporters (ELEM-128 e ELEM-129).
 # Arquivo SEPARADO: não altera o docker-compose.yml da aplicação.
-# Entra na mesma rede Docker do backend. O Grafana entra na ELEM-129.
+# Entra na mesma rede Docker do backend.
 #
 # Uso (na raiz do repositório, com o backend já no ar):
 #   docker compose -f monitoramento/docker-compose.monitoring.yml --env-file .env up -d
@@ -22,6 +22,23 @@ services:
       - prometheus-data:/prometheus
     ports:
       - "9090:9090"
+    networks: [app-network]
+
+  # Painéis: já nasce com a fonte de dados (Prometheus) e o painel "Saúde da Plataforma"
+  grafana:
+    image: grafana/grafana:12.1.1
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?defina GRAFANA_PASSWORD no .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    depends_on: [prometheus]
     networks: [app-network]
 
   # Testa de fora para dentro: /health de cada serviço (via nginx) e portas TCP
@@ -75,3 +92,4 @@ networks:
 
 volumes:
   prometheus-data:
+  grafana-data:
