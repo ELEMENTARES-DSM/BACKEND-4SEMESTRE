@@ -7,7 +7,7 @@ import {
   MensagemStaging,
   proximaPendente,
 } from "../../../repositories/staging-valkey.repository";
-import { RabbitMqTelemetriaPublisher } from "../../../events/publishers/rabbitmq-telemetria.publisher";
+import { montarEvento, RabbitMqTelemetriaPublisher } from "../../../events/publishers/rabbitmq-telemetria.publisher";
 
 // Unitário: Valkey (repository), RabbitMQ (conexão e canal falsos) e relógio mockados.
 jest.mock("../../../repositories/staging-valkey.repository");
@@ -34,6 +34,24 @@ type MockChannel = EventEmitter & {
   close: MockAsync;
   publish: jest.Mock<Publicar>;
 };
+
+describe("montarEvento", () => {
+  it("deve montar staging_id, estação do tópico, unixtime e só sensor e valor das leituras quando recebe a mensagem do Valkey", () => {
+    // Dado (Arrange)
+    const pendente = mensagem("id-1");
+
+    // Quando (Act)
+    const evento = montarEvento(pendente);
+
+    // Então (Assert)
+    expect(evento).toEqual({
+      staging_id: "id-1",
+      estacao_uuid: ESTACAO,
+      unixtime: Date.parse("2026-11-16T09:59:00Z") / 1000,
+      leituras: [{ sensor: "TMP", valor: 23 }],
+    });
+  });
+});
 
 describe("RabbitMqTelemetriaPublisher", () => {
   let channel: MockChannel;
@@ -67,6 +85,15 @@ describe("RabbitMqTelemetriaPublisher", () => {
     }
   }
 
+  // Conecta com a lista vazia e espera a rodada automática da conexão terminar,
+  // para o teste chamar processarPendentes sozinho.
+  async function conectarSemPendentes(): Promise<void> {
+    await publisher.iniciar();
+    await aguardar(() => jest.mocked(proximaPendente).mock.calls.length > 0);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    jest.mocked(proximaPendente).mockClear();
+  }
+
   beforeEach(() => {
     jest.spyOn(console, "error").mockImplementation(() => undefined);
     jest.spyOn(console, "warn").mockImplementation(() => undefined);
@@ -94,11 +121,7 @@ describe("RabbitMqTelemetriaPublisher", () => {
       createConfirmChannel: jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(channel),
     });
     conectar = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(connection);
-    publisher = new RabbitMqTelemetriaPublisher({
-      url: "amqp://test",
-      conectar: conectar as never,
-      agora: () => AGORA,
-    });
+    publisher = new RabbitMqTelemetriaPublisher({ url: "amqp://test", conectar: conectar as never, agora: () => AGORA });
   });
 
   afterEach(async () => {
@@ -106,40 +129,8 @@ describe("RabbitMqTelemetriaPublisher", () => {
     jest.restoreAllMocks();
   });
 
-  describe("US-40 · publicação a partir de staging:pendentes", () => {
-    it("deve publicar com staging_id igual ao id do Valkey, a estação do tópico, o unixtime e as leituras quando há uma pendente", async () => {
-      // Dado (Arrange)
-      enfileirar(mensagem("id-1"));
-      confirmarTudo();
-
-      // Quando (Act)
-      await publisher.iniciar();
-      await aguardar(() => fila.length === 0);
-
-      // Então (Assert)
-      expect(publicadas()).toEqual([{
-        staging_id: "id-1",
-        estacao_uuid: ESTACAO,
-        unixtime: Date.parse("2026-11-16T09:59:00Z") / 1000,
-        leituras: [{ sensor: "TMP", valor: 23 }],
-      }]);
-      expect(channel.publish.mock.calls[0][3]).toMatchObject({ persistent: true, mandatory: true, messageId: "id-1" });
-    });
-
-    it("deve publicar na ordem da lista quando há várias pendentes", async () => {
-      // Dado (Arrange)
-      enfileirar(mensagem("a"), mensagem("b"), mensagem("c"));
-      confirmarTudo();
-
-      // Quando (Act)
-      await publisher.iniciar();
-      await aguardar(() => fila.length === 0);
-
-      // Então (Assert)
-      expect(publicadas().map((e) => e.staging_id)).toEqual(["a", "b", "c"]);
-    });
-
-    it("deve marcar encaminhada pelo id confirmado, com o agora injetado, quando o RabbitMQ confirma", async () => {
+  describe("iniciar", () => {
+    it("deve publicar as pendentes que já estavam na lista quando conecta ao RabbitMQ", async () => {
       // Dado (Arrange)
       enfileirar(mensagem("a"), mensagem("b"));
       confirmarTudo();
@@ -149,162 +140,220 @@ describe("RabbitMqTelemetriaPublisher", () => {
       await aguardar(() => fila.length === 0);
 
       // Então (Assert)
-      expect(jest.mocked(marcarEncaminhada).mock.calls).toEqual([["a", AGORA], ["b", AGORA]]);
+      expect(publicadas().map((e) => e.staging_id)).toEqual(["a", "b"]);
     });
 
-    it("deve marcar encaminhada só depois da confirmação quando o RabbitMQ demora a confirmar", async () => {
-      // Dado (Arrange)
-      enfileirar(mensagem("a"));
-      let confirmar!: () => void;
-      channel.publish.mockImplementation((_e, _k, _c, _o, callback) => {
-        confirmar = () => callback(null);
-        return true;
+    describe("US-40 · Cenário 3 · fila fora do ar", () => {
+      it("deve manter as pendentes na lista sem ler o Valkey quando a conexão com o RabbitMQ falha", async () => {
+        // Dado (Arrange)
+        enfileirar(mensagem("a"));
+        conectar.mockRejectedValue(new Error("ECONNREFUSED"));
+
+        // Quando (Act)
+        await publisher.iniciar();
+
+        // Então (Assert)
+        expect(proximaPendente).not.toHaveBeenCalled();
+        expect(channel.publish).not.toHaveBeenCalled();
+        expect(fila).toEqual(["a"]);
       });
-      await publisher.iniciar();
-      await aguardar(() => channel.publish.mock.calls.length === 1);
-
-      // Quando (Act)
-      const antes = jest.mocked(marcarEncaminhada).mock.calls.length;
-      confirmar();
-      await aguardar(() => fila.length === 0);
-
-      // Então (Assert)
-      expect(antes).toBe(0);
-      expect(marcarEncaminhada).toHaveBeenCalledWith("a", AGORA);
-    });
-
-    it("deve parar a rodada e manter a mensagem na frente da lista quando o RabbitMQ rejeita a confirmação", async () => {
-      // Dado (Arrange)
-      enfileirar(mensagem("a"), mensagem("b"));
-      channel.publish.mockImplementation((_e, _k, _c, _o, callback) => {
-        callback(new Error("nack"));
-        return true;
-      });
-
-      // Quando (Act)
-      await publisher.iniciar();
-      await aguardar(() => channel.publish.mock.calls.length > 0);
-      await new Promise((resolve) => setTimeout(resolve, 30));
-
-      // Então (Assert)
-      expect(channel.publish).toHaveBeenCalledTimes(1);
-      expect(marcarEncaminhada).not.toHaveBeenCalled();
-      expect(fila).toEqual(["a", "b"]);
-    });
-
-    it("deve não marcar encaminhada quando mandatory é devolvida sem rota, mesmo com confirmação positiva", async () => {
-      // Dado (Arrange)
-      enfileirar(mensagem("a"));
-      channel.publish.mockImplementation((_e, _k, _c, _o, callback) => {
-        channel.emit("return", { fields: { replyCode: 312, replyText: "NO_ROUTE" } });
-        callback(null);
-        return true;
-      });
-
-      // Quando (Act)
-      await publisher.iniciar();
-      await aguardar(() => jest.mocked(console.error).mock.calls.length > 0);
-
-      // Então (Assert)
-      expect(marcarEncaminhada).not.toHaveBeenCalled();
-      expect(console.error).toHaveBeenCalledWith(expect.stringContaining("NO_ROUTE"));
-      expect(fila).toEqual(["a"]);
-    });
-
-    it("deve tirar da lista e seguir para a próxima quando o id não tem mensagem no Valkey", async () => {
-      // Dado (Arrange)
-      fila.push("sem-mensagem");
-      enfileirar(mensagem("b"));
-      confirmarTudo();
-
-      // Quando (Act)
-      await publisher.iniciar();
-      await aguardar(() => fila.length === 0);
-
-      // Então (Assert)
-      expect(descartarPendente).toHaveBeenCalledWith("sem-mensagem");
-      expect(publicadas().map((e) => e.staging_id)).toEqual(["b"]);
     });
   });
 
-  describe("US-40 · uma rodada de publicação por vez", () => {
-    it("deve ter no máximo uma rodada ativa quando chegam vários pedidos ao mesmo tempo", async () => {
-      // Dado (Arrange)
-      let ativas = 0;
-      let maximo = 0;
-      let liberar!: () => void;
-      const travada = new Promise<void>((resolve) => { liberar = resolve; });
-      jest.mocked(proximaPendente).mockImplementation(async () => {
-        ativas += 1;
-        maximo = Math.max(maximo, ativas);
-        await travada;
-        ativas -= 1;
-        return null;
+  describe("processarPendentes", () => {
+    describe("US-40 · publicação a partir de staging:pendentes", () => {
+      it("deve publicar com staging_id igual ao id do Valkey e as opções de entrega quando há uma pendente", async () => {
+        // Dado (Arrange)
+        await conectarSemPendentes();
+        enfileirar(mensagem("id-1"));
+        confirmarTudo();
+
+        // Quando (Act)
+        await publisher.processarPendentes();
+
+        // Então (Assert)
+        expect(publicadas()).toEqual([montarEvento(mensagem("id-1"))]);
+        expect(channel.publish.mock.calls[0][3]).toMatchObject({ persistent: true, mandatory: true, messageId: "id-1" });
       });
-      await publisher.iniciar();
 
-      await aguardar(() => ativas === 1);
+      it("deve publicar na ordem da lista quando há várias pendentes", async () => {
+        // Dado (Arrange)
+        await conectarSemPendentes();
+        enfileirar(mensagem("a"), mensagem("b"), mensagem("c"));
+        confirmarTudo();
 
-      // Quando (Act)
-      const pedidos = [publisher.processarPendentes(), publisher.processarPendentes(), publisher.processarPendentes()];
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      liberar();
-      await Promise.all(pedidos);
-      await aguardar(() => ativas === 0 && jest.mocked(proximaPendente).mock.calls.length >= 2);
+        // Quando (Act)
+        await publisher.processarPendentes();
 
-      // Então (Assert)
-      expect(maximo).toBe(1);
-      // A rodada inicial e uma única rodada extra pelos três pedidos.
-      expect(proximaPendente).toHaveBeenCalledTimes(2);
+        // Então (Assert)
+        expect(publicadas().map((e) => e.staging_id)).toEqual(["a", "b", "c"]);
+      });
+
+      it("deve marcar encaminhada pelo id confirmado, com o agora injetado, quando o RabbitMQ confirma", async () => {
+        // Dado (Arrange)
+        await conectarSemPendentes();
+        enfileirar(mensagem("a"), mensagem("b"));
+        confirmarTudo();
+
+        // Quando (Act)
+        await publisher.processarPendentes();
+
+        // Então (Assert)
+        expect(jest.mocked(marcarEncaminhada).mock.calls).toEqual([["a", AGORA], ["b", AGORA]]);
+      });
+
+      it("deve marcar encaminhada só depois da confirmação quando o RabbitMQ demora a confirmar", async () => {
+        // Dado (Arrange)
+        await conectarSemPendentes();
+        enfileirar(mensagem("a"));
+        let confirmar!: () => void;
+        channel.publish.mockImplementation((_e, _k, _c, _o, callback) => {
+          confirmar = () => callback(null);
+          return true;
+        });
+
+        // Quando (Act)
+        const rodada = publisher.processarPendentes();
+        await aguardar(() => channel.publish.mock.calls.length === 1);
+        const antesDaConfirmacao = jest.mocked(marcarEncaminhada).mock.calls.length;
+        confirmar();
+        await rodada;
+
+        // Então (Assert)
+        expect(antesDaConfirmacao).toBe(0);
+        expect(marcarEncaminhada).toHaveBeenCalledWith("a", AGORA);
+      });
+
+      it("deve parar a rodada e manter a mensagem na frente da lista quando o RabbitMQ rejeita a confirmação", async () => {
+        // Dado (Arrange)
+        await conectarSemPendentes();
+        enfileirar(mensagem("a"), mensagem("b"));
+        channel.publish.mockImplementation((_e, _k, _c, _o, callback) => {
+          callback(new Error("nack"));
+          return true;
+        });
+
+        // Quando (Act)
+        await publisher.processarPendentes();
+
+        // Então (Assert)
+        expect(channel.publish).toHaveBeenCalledTimes(1);
+        expect(marcarEncaminhada).not.toHaveBeenCalled();
+        expect(fila).toEqual(["a", "b"]);
+      });
+
+      it("deve não marcar encaminhada quando mandatory é devolvida sem rota, mesmo com confirmação positiva", async () => {
+        // Dado (Arrange)
+        await conectarSemPendentes();
+        enfileirar(mensagem("a"));
+        channel.publish.mockImplementation((_e, _k, _c, _o, callback) => {
+          channel.emit("return", { fields: { replyCode: 312, replyText: "NO_ROUTE" } });
+          callback(null);
+          return true;
+        });
+
+        // Quando (Act)
+        await publisher.processarPendentes();
+
+        // Então (Assert)
+        expect(marcarEncaminhada).not.toHaveBeenCalled();
+        expect(console.error).toHaveBeenCalledWith(expect.stringContaining("NO_ROUTE"));
+        expect(fila).toEqual(["a"]);
+      });
+
+      it("deve tirar da lista e seguir para a próxima quando o id não tem mensagem no Valkey", async () => {
+        // Dado (Arrange)
+        await conectarSemPendentes();
+        fila.push("sem-mensagem");
+        enfileirar(mensagem("b"));
+        confirmarTudo();
+
+        // Quando (Act)
+        await publisher.processarPendentes();
+
+        // Então (Assert)
+        expect(descartarPendente).toHaveBeenCalledWith("sem-mensagem");
+        expect(publicadas().map((e) => e.staging_id)).toEqual(["b"]);
+      });
     });
 
-    it("deve fazer outra rodada quando um pedido chega durante a rodada atual", async () => {
-      // Dado (Arrange)
-      confirmarTudo();
-      let liberar!: () => void;
-      const travada = new Promise<void>((resolve) => { liberar = resolve; });
-      jest.mocked(proximaPendente)
-        .mockImplementationOnce(async () => { await travada; return null; })
-        .mockImplementation(async () => fila[0] ?? null);
-      await publisher.iniciar();
+    describe("US-40 · uma rodada de publicação por vez", () => {
+      it("deve ter no máximo uma rodada ativa quando chegam vários pedidos ao mesmo tempo", async () => {
+        // Dado (Arrange)
+        await conectarSemPendentes();
+        let ativas = 0;
+        let maximo = 0;
+        let liberar!: () => void;
+        const travada = new Promise<void>((resolve) => { liberar = resolve; });
+        jest.mocked(proximaPendente).mockImplementation(async () => {
+          ativas += 1;
+          maximo = Math.max(maximo, ativas);
+          await travada;
+          ativas -= 1;
+          return null;
+        });
 
-      // Quando (Act)
-      enfileirar(mensagem("chegou-durante"));
-      await publisher.processarPendentes();
-      liberar();
-      await aguardar(() => fila.length === 0);
+        // Quando (Act)
+        const primeira = publisher.processarPendentes();
+        await Promise.all([publisher.processarPendentes(), publisher.processarPendentes()]);
+        liberar();
+        await primeira;
 
-      // Então (Assert)
-      expect(publicadas().map((e) => e.staging_id)).toEqual(["chegou-durante"]);
+        // Então (Assert)
+        expect(maximo).toBe(1);
+        // A rodada do primeiro pedido e uma única rodada extra pelos outros dois.
+        expect(proximaPendente).toHaveBeenCalledTimes(2);
+      });
+
+      it("deve fazer outra rodada quando um pedido chega durante a rodada atual", async () => {
+        // Dado (Arrange)
+        await conectarSemPendentes();
+        confirmarTudo();
+        let liberar!: () => void;
+        const travada = new Promise<void>((resolve) => { liberar = resolve; });
+        jest.mocked(proximaPendente)
+          .mockImplementationOnce(async () => { await travada; return null; })
+          .mockImplementation(async () => fila[0] ?? null);
+
+        // Quando (Act)
+        const primeira = publisher.processarPendentes();
+        enfileirar(mensagem("chegou-durante"));
+        await publisher.processarPendentes();
+        liberar();
+        await primeira;
+
+        // Então (Assert)
+        expect(publicadas().map((e) => e.staging_id)).toEqual(["chegou-durante"]);
+      });
     });
-  });
 
-  describe("US-40 · Cenário 3 · fila fora do ar", () => {
-    it("deve manter as pendentes na lista sem ler o Valkey quando não há conexão com o RabbitMQ", async () => {
-      // Dado (Arrange)
-      enfileirar(mensagem("a"));
-      conectar.mockRejectedValue(new Error("ECONNREFUSED"));
+    describe("US-40 · Cenário 3 · fila fora do ar", () => {
+      it("deve não ler o Valkey quando não há canal com o RabbitMQ", async () => {
+        // Dado (Arrange)
+        enfileirar(mensagem("a"));
+        conectar.mockRejectedValue(new Error("ECONNREFUSED"));
+        await publisher.iniciar();
 
-      // Quando (Act)
-      await publisher.iniciar();
-      await publisher.processarPendentes();
+        // Quando (Act)
+        await publisher.processarPendentes();
 
-      // Então (Assert)
-      expect(proximaPendente).not.toHaveBeenCalled();
-      expect(channel.publish).not.toHaveBeenCalled();
-      expect(fila).toEqual(["a"]);
-    });
+        // Então (Assert)
+        expect(proximaPendente).not.toHaveBeenCalled();
+        expect(fila).toEqual(["a"]);
+      });
 
-    it("deve registrar no log e não lançar quando o Valkey falha ao ler as pendentes", async () => {
-      // Dado (Arrange)
-      jest.mocked(proximaPendente).mockRejectedValue(new Error("The client is offline"));
+      it("deve registrar no log e não lançar quando o Valkey falha ao ler as pendentes", async () => {
+        // Dado (Arrange)
+        await conectarSemPendentes();
+        jest.mocked(proximaPendente).mockRejectedValue(new Error("The client is offline"));
 
-      // Quando (Act)
-      await publisher.iniciar();
-      await aguardar(() => jest.mocked(console.error).mock.calls.length > 0);
+        // Quando (Act)
+        const resultado = publisher.processarPendentes();
 
-      // Então (Assert)
-      expect(console.error).toHaveBeenCalledWith(expect.stringContaining("The client is offline"));
+        // Então (Assert)
+        await expect(resultado).resolves.toBeUndefined();
+        expect(console.error).toHaveBeenCalledWith(expect.stringContaining("The client is offline"));
+      });
     });
   });
 });
