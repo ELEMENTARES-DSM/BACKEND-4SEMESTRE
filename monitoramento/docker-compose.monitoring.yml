@@ -82,7 +82,9 @@ services:
     image: oliver006/redis_exporter:v1.74.0
     restart: unless-stopped
     environment:
-      REDIS_ADDR: redis://redis:6379
+      # redis_exporter também lê o Valkey; o job continua "redis" no Prometheus
+      REDIS_ADDR: redis://valkey:6379
+      REDIS_PASSWORD: ${VALKEY_PASSWORD}
     networks: [app-network]
 
 networks:
