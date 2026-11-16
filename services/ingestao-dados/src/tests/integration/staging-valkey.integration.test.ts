@@ -123,7 +123,7 @@ integration("US-40 · staging no Valkey com Mosquitto, Valkey e PostgreSQL reais
     iniciarVerificacao(300);
 
     consumidor = new ConsumidorMqttTelemetria({
-      config: { brokerUrl: MQTT_TEST_URL as string, usuario: "ingestao-dados", senha: "teste", qos: 1 },
+      config: { brokerUrl: MQTT_TEST_URL as string, qos: 1 },
       proximoPasso: async (mensagem) => {
         const id = await receberMensagem(mensagem);
         gravacoes.push(id);

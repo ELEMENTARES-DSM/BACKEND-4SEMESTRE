@@ -4,15 +4,38 @@ import { carregarConfigMqtt } from "../../config/mqtt.config";
 describe("carregarConfigMqtt", () => {
   const envValido = {
     MQTT_BROKER_URL: "mqtt://mosquitto:1883",
-    MQTT_USER: "ingestao-dados",
-    MQTT_PASSWORD: "segredo",
     MQTT_QOS: "1",
   };
 
-  it("deve devolver URL, usuário, senha e QoS quando as variáveis estão preenchidas", () => {
+  it("deve devolver a URL e o QoS sem usuário e senha quando o broker não pede credencial", () => {
     // Dado (Arrange)
     // Quando (Act)
     const config = carregarConfigMqtt(envValido);
+
+    // Então (Assert)
+    expect(config).toEqual({ brokerUrl: "mqtt://mosquitto:1883", qos: 1 });
+    expect(config.usuario).toBeUndefined();
+    expect(config.senha).toBeUndefined();
+  });
+
+  it("deve tratar usuário e senha vazios como ausentes quando o .env deixa as variáveis em branco", () => {
+    // Dado (Arrange)
+    const env = { ...envValido, MQTT_USER: "", MQTT_PASSWORD: "" };
+
+    // Quando (Act)
+    const config = carregarConfigMqtt(env);
+
+    // Então (Assert)
+    expect(config.usuario).toBeUndefined();
+    expect(config.senha).toBeUndefined();
+  });
+
+  it("deve devolver usuário e senha quando as variáveis estão preenchidas", () => {
+    // Dado (Arrange)
+    const env = { ...envValido, MQTT_USER: "ingestao-dados", MQTT_PASSWORD: "segredo" };
+
+    // Quando (Act)
+    const config = carregarConfigMqtt(env);
 
     // Então (Assert)
     expect(config).toEqual({ brokerUrl: "mqtt://mosquitto:1883", usuario: "ingestao-dados", senha: "segredo", qos: 1 });
@@ -29,15 +52,15 @@ describe("carregarConfigMqtt", () => {
     expect(config.qos).toBe(1);
   });
 
-  it("deve lançar erro quando a senha está ausente", () => {
+  it("deve lançar erro quando MQTT_BROKER_URL está ausente", () => {
     // Dado (Arrange)
-    const env = { ...envValido, MQTT_PASSWORD: "" };
+    const env = { ...envValido, MQTT_BROKER_URL: "" };
 
     // Quando (Act)
     const carregar = () => carregarConfigMqtt(env);
 
     // Então (Assert)
-    expect(carregar).toThrow("MQTT_BROKER_URL, MQTT_USER e MQTT_PASSWORD são obrigatórios");
+    expect(carregar).toThrow("MQTT_BROKER_URL é obrigatório");
   });
 
   it("deve lançar erro quando o QoS está fora de 1 e 2", () => {

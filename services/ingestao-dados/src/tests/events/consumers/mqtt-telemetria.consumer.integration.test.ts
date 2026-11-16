@@ -77,8 +77,6 @@ function criarConsumidor(
   const consumidor = new ConsumidorMqttTelemetria({
     config: {
       brokerUrl: `mqtt://127.0.0.1:${porta}`,
-      usuario: "ingestao-dados",
-      senha: "teste",
       qos: 1,
     },
     proximoPasso: async (mensagem) => {
@@ -306,7 +304,7 @@ describe("US-11 · consumidor com broker MQTT de verdade (aedes)", () => {
     const tentativas: string[] = [];
     let falhasRestantes = 2;
     const consumidor = new ConsumidorMqttTelemetria({
-      config: { brokerUrl: `mqtt://127.0.0.1:${broker.porta}`, usuario: "ingestao-dados", senha: "teste", qos: 1 },
+      config: { brokerUrl: `mqtt://127.0.0.1:${broker.porta}`, qos: 1 },
       // Simula o Valkey fora do ar nas duas primeiras tentativas.
       proximoPasso: async (mensagem) => {
         tentativas.push(mensagem.payloadBruto);

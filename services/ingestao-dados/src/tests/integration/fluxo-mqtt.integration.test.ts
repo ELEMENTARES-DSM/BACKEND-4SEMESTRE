@@ -85,7 +85,8 @@ integration("TASK 11.05 · fluxo MQTT → Valkey → verificação", () => {
       });
     });
     consumidor = new ConsumidorMqttTelemetria({
-      config: { brokerUrl: `mqtt://127.0.0.1:${port}`, usuario: "ingestao-dados", senha: "teste", qos: 1 },
+      // US-29: sem usuário e senha, como o Mosquitto do compose.
+      config: { brokerUrl: `mqtt://127.0.0.1:${port}`, qos: 1 },
       proximoPasso: receberMensagem,
       metricasRecebidas: recebidas,
       reentregaMs: 300,

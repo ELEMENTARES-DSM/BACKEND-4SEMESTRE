@@ -51,8 +51,8 @@ export class ConsumidorMqttTelemetria {
       clean: false,
       // A assinatura é refeita manualmente a cada conexão (ver assinar).
       resubscribe: false,
-      username: config.usuario,
-      password: config.senha,
+      // US-29: o broker aceita conexão anônima; credencial só vai se existir.
+      ...(config.usuario ? { username: config.usuario, password: config.senha } : {}),
     });
 
     // A reconexão é automática (reconnectPeriod padrão do mqtt.js). A cada

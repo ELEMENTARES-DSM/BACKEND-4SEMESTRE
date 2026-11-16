@@ -17,8 +17,6 @@ const TOPICO_B = `pulso/estacoes/${UUID_B}/telemetria`;
 
 const config: ConfigMqtt = {
   brokerUrl: "mqtt://mosquitto:1883",
-  usuario: "ingestao-dados",
-  senha: "segredo",
   qos: 1,
 };
 
@@ -106,9 +104,36 @@ describe("ConsumidorMqttTelemetria", () => {
             clientId: CLIENT_ID,
             clean: false,
             protocolVersion: 4,
-            username: "ingestao-dados",
-            password: "segredo",
           }),
+        );
+      });
+
+      it("deve conectar sem username e password quando a config não tem usuário", () => {
+        // Dado (Arrange)
+        // Quando (Act)
+        criarServico();
+
+        // Então (Assert)
+        const opcoes = conectar.mock.calls[0][1];
+        expect(opcoes).not.toHaveProperty("username");
+        expect(opcoes).not.toHaveProperty("password");
+      });
+
+      it("deve enviar username e password quando a config tem usuário", () => {
+        // Dado (Arrange)
+        const comCredencial = { ...config, usuario: "ingestao-dados", senha: "segredo" };
+
+        // Quando (Act)
+        new ConsumidorMqttTelemetria({
+          config: comCredencial,
+          proximoPasso: async () => undefined,
+          conectar: conectar as unknown as typeof mqtt.connect,
+        }).iniciar();
+
+        // Então (Assert)
+        expect(conectar).toHaveBeenCalledWith(
+          "mqtt://mosquitto:1883",
+          expect.objectContaining({ username: "ingestao-dados", password: "segredo" }),
         );
       });
 
