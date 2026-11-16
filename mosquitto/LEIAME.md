@@ -36,6 +36,32 @@ mosquitto_pub -h localhost -p 1883 -i aabbccddeeff -q 1 \
 A ingestão e o simulador não precisam de `MQTT_USER`/`MQTT_PASSWORD`; se
 existirem, a ingestão envia, mas o broker não pede.
 
+## Testar
+
+```bash
+bash scripts/mqtt/testar.sh <mac> [host]     # ex.: aabbccddeeff 127.0.0.1
+```
+
+Os clientes MQTT rodam na imagem do broker (só precisa do Docker). Cenários:
+
+| # | O que verifica |
+|---|---|
+| 1 | contêiner `healthy` |
+| 2 | Cenário 1: publica com `-i <mac>` e QoS 1, sem credencial; o assinante de `pulso/estacoes/+/telemetria` recebe |
+| 3 | Cenário 2: o mesmo com um MAC aleatório nunca usado |
+| 4 | Cenário 4: assinante `-i teste-ingestao -c -q 1` sai, 3 publicações QoS 1, ao reconectar recebe as 3 |
+| 5 | Cenário 5: igual ao 4, com `docker compose restart mosquitto` antes de reconectar |
+| 6 | ACL pelo MAC: só roda se houver `acl_file`; hoje é pulado |
+
+Resultado esperado (leva cerca de 50 s):
+
+```
+Resultado: 5 passou(aram), 0 falhou(aram), 1 pulado(s)
+```
+
+O workflow `.github/workflows/broker.yml` roda o mesmo script a cada mudança
+em `mosquitto/**` ou `scripts/mqtt/**`.
+
 ## Por que não há ACL
 
 Testado no `eclipse-mosquitto:2.1.2-alpine` com `allow_anonymous true`:
