@@ -5,7 +5,7 @@ import request from "supertest";
 import jwt from "jsonwebtoken";
 
 import app from "../../app";
-import { contarPendentes } from "../../repositories/staging.repository";
+import { contarPendentes } from "../../repositories/staging-valkey.repository";
 import { rejectionMetricsService } from "../../services/rejection-metrics.service";
 import { duplicateMetricsService } from "../../services/duplicate-metrics.service";
 import { receivedMetricsService } from "../../services/received-metrics.service";
@@ -15,7 +15,7 @@ import {
   TIMESTAMP_INVALIDO,
 } from "../../validations/motivos-rejeicao";
 
-jest.mock("../../repositories/staging.repository", () => ({
+jest.mock("../../repositories/staging-valkey.repository", () => ({
   contarPendentes: jest.fn(),
 }));
 
@@ -38,6 +38,35 @@ describe("GET /ingestao/metricas", () => {
     duplicateMetricsService.reset();
     receivedMetricsService.reset();
     gravacaoMetricsService.reset();
+  });
+
+  describe("US-40 · mensagensPendentes vem do Valkey", () => {
+    it("deve retornar mensagensPendentes com o tamanho de staging:pendentes quando há pendentes", async () => {
+      // Dado (Arrange)
+      jest.mocked(contarPendentes).mockResolvedValue(3);
+
+      // Quando (Act)
+      const resposta = await request(app)
+        .get("/ingestao/metricas")
+        .set("Authorization", `Bearer ${criarToken()}`);
+
+      // Então (Assert)
+      expect(resposta.status).toBe(200);
+      expect(resposta.body.mensagensPendentes).toBe(3);
+    });
+
+    it("deve retornar 500 quando o Valkey não responde", async () => {
+      // Dado (Arrange)
+      jest.mocked(contarPendentes).mockRejectedValue(new Error("The client is offline"));
+
+      // Quando (Act)
+      const resposta = await request(app)
+        .get("/ingestao/metricas")
+        .set("Authorization", `Bearer ${criarToken()}`);
+
+      // Então (Assert)
+      expect(resposta.status).toBe(500);
+    });
   });
 
   it("deve retornar 200 e leiturasRejeitadas como {} quando não há rejeições registradas", async () => {

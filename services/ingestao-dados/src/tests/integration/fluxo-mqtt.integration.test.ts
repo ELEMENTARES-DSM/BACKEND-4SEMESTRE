@@ -6,7 +6,7 @@ import { pool } from "../../config/db";
 import { encerrarValkey, valkey } from "../../config/valkey";
 import { ConsumidorMqttTelemetria } from "../../events/consumers/mqtt-telemetria.consumer";
 import { RabbitMqTelemetriaPublisher } from "../../events/publishers/rabbitmq-telemetria.publisher";
-import { LISTA_RECEBIDAS } from "../../repositories/staging-valkey.repository";
+import { LISTA_PENDENTES, LISTA_RECEBIDAS } from "../../repositories/staging-valkey.repository";
 import {
   encerrarVerificacao,
   iniciarVerificacao,
@@ -117,6 +117,8 @@ integration("TASK 11.05 · fluxo MQTT → Valkey → verificação", () => {
     jest.spyOn(console, "error").mockImplementation(() => undefined);
     processarPendentes.mockResolvedValue(undefined);
     await pool.query("TRUNCATE staging_telemetria, estacoes");
+    // O publicador é falso aqui: as pendentes de um teste não podem contar no seguinte.
+    await valkey().del(LISTA_PENDENTES);
     recebidas.reset();
     duplicateMetricsService.reset();
     rejectionMetricsService.reset();
@@ -219,33 +221,31 @@ integration("TASK 11.05 · fluxo MQTT → Valkey → verificação", () => {
     expect(await linhasStaging(estacaoId)).toHaveLength(2);
   });
 
-  it("deve manter recebida, não mexer no último sinal e gravar quando a staging_telemetria volta", async () => {
+  it("deve seguir para a publicação, registrando no log e sem mexer no último sinal, quando a staging_telemetria está fora", async () => {
     // Dado (Arrange)
     const estacaoId = randomUUID();
     await cadastrarEstacao(pool, estacaoId);
-    // Tira a staging_telemetria do ar renomeando a tabela: toda gravação falha no banco.
+    const erroLog = jest.spyOn(logger, "error").mockImplementation(() => undefined);
+    // Tira a staging_telemetria do ar renomeando a tabela: toda gravação nela falha.
     await pool.query("ALTER TABLE staging_telemetria RENAME TO staging_telemetria_fora");
 
     // Quando (Act)
     try {
       await estacao.publishAsync(topicoDe(estacaoId), payload("2026-10-20T12:20:00Z"), { qos: 1 });
-      await esperar(async () => jest.mocked(logger.warn).mock.calls.some(
-        ([mensagem]) => mensagem === "Verificação adiada para a próxima rodada"));
-
-      // Então (Assert)
-      const { rows } = await pool.query("SELECT count(*)::int AS total FROM staging_telemetria_fora");
-      expect(rows[0].total).toBe(0);
-      expect((await sinalEstacao(estacaoId)).ultimo_ping).toBeNull();
-      expect(await valkey().lLen(LISTA_RECEBIDAS)).toBe(1);
-      // A mensagem já está no Valkey: o broker recebeu a confirmação.
-      expect(recebidas.obterTotal()).toBe(1);
+      await esperarVerificadas(1);
     } finally {
       await pool.query("ALTER TABLE staging_telemetria_fora RENAME TO staging_telemetria");
     }
 
-    await esperar(async () => (await linhasStaging(estacaoId)).length === 1, 15000);
-    expect((await linhasStaging(estacaoId))[0].status).toBe("recebida");
-    expect((await sinalEstacao(estacaoId)).ultimo_ping).not.toBeNull();
+    // Então (Assert)
+    expect(await valkey().lLen(LISTA_PENDENTES)).toBe(1);
+    expect(processarPendentes).toHaveBeenCalledTimes(1);
+    expect(erroLog).toHaveBeenCalledWith(
+      "PostgreSQL indisponível ao gravar a aceita e o último sinal; a leitura segue pelo Valkey",
+      expect.objectContaining({ erro: expect.stringContaining("staging_telemetria") }),
+    );
+    expect(await linhasStaging(estacaoId)).toHaveLength(0);
+    expect((await sinalEstacao(estacaoId)).ultimo_ping).toBeNull();
     expect(gravacaoMetricsService.obterMensagensGravadas()).toBe(1);
   }, 30000);
 

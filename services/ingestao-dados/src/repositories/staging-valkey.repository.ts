@@ -9,6 +9,12 @@ export const LISTA_PENDENTES = "staging:pendentes";
 
 export const chaveMensagem = (id: string): string => `staging:msg:${id}`;
 
+// Encaminhada, recusada e duplicada expiram 7 dias depois de decididas.
+// Recebida e pendente nunca expiram: ainda não chegaram ao RabbitMQ.
+export const RETENCAO_MS = 7 * 24 * 60 * 60 * 1000;
+
+export const expiraEm = (agora: Date): Date => new Date(agora.getTime() + RETENCAO_MS);
+
 export type StatusStaging = "recebida" | "recusada" | "duplicada" | "pendente" | "encaminhada";
 
 export interface MensagemStaging extends MensagemBruta {
@@ -53,15 +59,20 @@ export async function lerMensagem(id: string): Promise<MensagemStaging | null> {
   };
 }
 
-/** Recusada ou duplicada: sai da fila de verificação e não segue para telemetria.bruta. */
+/**
+ * Recusada ou duplicada: sai da fila de verificação, não segue para
+ * telemetria.bruta e expira em 7 dias.
+ */
 export async function encerrarSemPublicar(
   id: string,
   status: "recusada" | "duplicada",
+  agora: Date,
   motivo?: string,
 ): Promise<void> {
   await valkey()
     .multi()
     .hSet(chaveMensagem(id), motivo === undefined ? { status } : { status, motivo })
+    .expireAt(chaveMensagem(id), expiraEm(agora))
     .lRem(LISTA_RECEBIDAS, 1, id)
     .exec();
 }
@@ -74,4 +85,31 @@ export async function marcarPendente(id: string): Promise<void> {
     .rPush(LISTA_PENDENTES, id)
     .lRem(LISTA_RECEBIDAS, 1, id)
     .exec();
+}
+
+/** Próxima a publicar, sem tirar da lista: só sai depois da confirmação do RabbitMQ. */
+export async function proximaPendente(): Promise<string | null> {
+  return valkey().lIndex(LISTA_PENDENTES, 0);
+}
+
+/**
+ * Confirmada pelo RabbitMQ: status "encaminhada", expira em 7 dias e sai da
+ * lista pelo id (LREM, não LPOP), para nunca tirar outro id da frente.
+ */
+export async function marcarEncaminhada(id: string, agora: Date): Promise<void> {
+  await valkey()
+    .multi()
+    .hSet(chaveMensagem(id), { status: "encaminhada" })
+    .expireAt(chaveMensagem(id), expiraEm(agora))
+    .lRem(LISTA_PENDENTES, 1, id)
+    .exec();
+}
+
+/** Id na lista sem a mensagem (apagada à mão): sai da lista para não travar a fila. */
+export async function descartarPendente(id: string): Promise<void> {
+  await valkey().lRem(LISTA_PENDENTES, 1, id);
+}
+
+export async function contarPendentes(): Promise<number> {
+  return valkey().lLen(LISTA_PENDENTES);
 }

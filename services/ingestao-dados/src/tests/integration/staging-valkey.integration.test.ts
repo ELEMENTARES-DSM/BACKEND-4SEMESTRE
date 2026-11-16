@@ -1,11 +1,15 @@
 import { randomUUID } from "node:crypto";
+import amqp, { Channel } from "amqplib";
 import mqtt from "mqtt";
 import { Pool } from "pg";
 import { createClient } from "redis";
 import { pool } from "../../config/db";
 import { ClienteValkey, encerrarValkey, valkey } from "../../config/valkey";
 import { ConsumidorMqttTelemetria } from "../../events/consumers/mqtt-telemetria.consumer";
-import { RabbitMqTelemetriaPublisher } from "../../events/publishers/rabbitmq-telemetria.publisher";
+import {
+  EXCHANGE_TELEMETRIA_BRUTA,
+  RabbitMqTelemetriaPublisher,
+} from "../../events/publishers/rabbitmq-telemetria.publisher";
 import {
   chaveMensagem,
   LISTA_PENDENTES,
@@ -16,17 +20,19 @@ import {
   iniciarVerificacao,
   receberMensagem,
 } from "../../services/processar-mensagem.service";
-import { configurarPublisherStaging } from "../../services/staging-publisher.service";
+import { configurarPublisherStaging, encerrarPublisherStaging } from "../../services/staging-publisher.service";
 import { logger } from "../../utils/logger";
 import { cadastrarEstacao, criarTabelaEstacoes } from "./helpers/estacoes";
 import { ProxyTcp } from "./helpers/proxy-tcp";
 import { esperar, esperarValkeyPronto } from "./helpers/valkey";
 
-// US-40 com Mosquitto, Valkey e PostgreSQL de teste em container. O serviço
-// fala com o Valkey e com o PostgreSQL por proxies TCP: derrubar o proxy
-// simula o container parado, religar simula ele voltando.
-const { STAGING_TEST_DATABASE_URL, VALKEY_TEST_URL, MQTT_TEST_URL } = process.env;
-const integration = STAGING_TEST_DATABASE_URL && VALKEY_TEST_URL && MQTT_TEST_URL ? describe : describe.skip;
+// US-40 com Mosquitto, Valkey, PostgreSQL e RabbitMQ de teste em container. O
+// serviço fala com o Valkey e com o PostgreSQL por proxies TCP: derrubar o
+// proxy simula o container parado, religar simula ele voltando.
+const { STAGING_TEST_DATABASE_URL, VALKEY_TEST_URL, MQTT_TEST_URL, RABBITMQ_TEST_URL } = process.env;
+const integration = STAGING_TEST_DATABASE_URL && VALKEY_TEST_URL && MQTT_TEST_URL && RABBITMQ_TEST_URL
+  ? describe
+  : describe.skip;
 
 const BANCO_VALKEY = 4;
 const topicoDe = (uuid: string) => `pulso/estacoes/${uuid}/telemetria`;
@@ -46,6 +52,22 @@ integration("US-40 · staging no Valkey com Mosquitto, Valkey e PostgreSQL reais
 
   // Conferências direto no Valkey de teste, sem passar pelo proxy derrubado.
   let direto: ClienteValkey;
+  // Fila só deste arquivo, ligada ao fanout telemetria.bruta.
+  let admin: amqp.ChannelModel;
+  let canal: Channel;
+  let observada: string;
+  const publicadas = new Map<string, { staging_id: string; estacao_uuid: string }>();
+
+  const lerPublicadas = async (): Promise<void> => {
+    let mensagem = await canal.get(observada, { noAck: true });
+    while (mensagem) {
+      const evento = JSON.parse(mensagem.content.toString());
+      publicadas.set(evento.staging_id, evento);
+      mensagem = await canal.get(observada, { noAck: true });
+    }
+  };
+
+  const status = async (id: string) => direto.hGet(chaveMensagem(id), "status");
 
   const hashes = async (estacaoId: string) => {
     const ids = gravacoes.slice();
@@ -90,7 +112,14 @@ integration("US-40 · staging no Valkey com Mosquitto, Valkey e PostgreSQL reais
     direto = createClient({ url: urlDireta.toString() });
     await direto.connect();
 
-    configurarPublisherStaging({ processarPendentes: async () => undefined } as unknown as RabbitMqTelemetriaPublisher);
+    admin = await amqp.connect(RABBITMQ_TEST_URL as string);
+    canal = await admin.createChannel();
+    await canal.assertExchange(EXCHANGE_TELEMETRIA_BRUTA, "fanout", { durable: true });
+    observada = (await canal.assertQueue("", { exclusive: true })).queue;
+    await canal.bindQueue(observada, EXCHANGE_TELEMETRIA_BRUTA, "");
+    const publicador = new RabbitMqTelemetriaPublisher({ url: RABBITMQ_TEST_URL as string, intervaloRecuperacaoMs: 300 });
+    configurarPublisherStaging(publicador);
+    await publicador.iniciar();
     iniciarVerificacao(300);
 
     consumidor = new ConsumidorMqttTelemetria({
@@ -112,6 +141,9 @@ integration("US-40 · staging no Valkey com Mosquitto, Valkey e PostgreSQL reais
     try {
       encerrarVerificacao();
       await consumidor.encerrar();
+      await encerrarPublisherStaging();
+      await canal.close();
+      await admin.close();
       await new Promise<void>((resolve) => estacao.end(true, {}, () => resolve()));
       await direto.flushDb();
       await direto.disconnect();
@@ -162,8 +194,8 @@ integration("US-40 · staging no Valkey com Mosquitto, Valkey e PostgreSQL reais
         recebidoEm: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
         status: "recebida",
       });
-      await esperar(async () => (await direto.hGet(chaveMensagem(gravada.id), "status")) === "pendente");
-      expect(await direto.lRange(LISTA_PENDENTES, 0, -1)).toContain(gravada.id);
+      await esperar(async () => (await status(gravada.id)) === "encaminhada");
+      expect(await direto.lRange(LISTA_PENDENTES, 0, -1)).not.toContain(gravada.id);
       expect(await direto.lRange(LISTA_RECEBIDAS, 0, -1)).not.toContain(gravada.id);
     });
   });
@@ -187,6 +219,9 @@ integration("US-40 · staging no Valkey com Mosquitto, Valkey e PostgreSQL reais
         conteudo: payload,
       });
       expect(await direto.lRange(LISTA_PENDENTES, 0, -1)).not.toContain(gravada.id);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await lerPublicadas();
+      expect(publicadas.has(gravada.id)).toBe(false);
     });
   });
 
@@ -211,11 +246,51 @@ integration("US-40 · staging no Valkey com Mosquitto, Valkey e PostgreSQL reais
       await esperar(async () => (await hashes(estacaoId)).some((h) => h.conteudo === payload), 30000);
       const daLeitura = (await hashes(estacaoId)).filter((h) => h.conteudo === payload);
       expect(daLeitura).toHaveLength(1);
-      await esperar(async () => (await direto.hGet(chaveMensagem(daLeitura[0].id), "status")) === "pendente");
+      await esperar(async () => (await status(daLeitura[0].id)) === "encaminhada", 20000);
     }, 45000);
   });
 
-  describe("US-40 · erro temporário: PostgreSQL fora", () => {
+  describe("US-40 · Cenário 4 · PostgreSQL parado", () => {
+    it("deve continuar publicando em telemetria.bruta quando o PostgreSQL para e a estação já foi vista", async () => {
+      // Dado (Arrange)
+      const estacaoId = randomUUID();
+      await cadastrarEstacao(banco, estacaoId);
+      await publicarAteGravar(estacaoId, leitura("2026-10-20T12:30:00Z"));
+      const [vista] = await hashes(estacaoId);
+      await esperar(async () => (await status(vista.id)) === "encaminhada");
+      const { rows: sinalAntes } = await banco.query("SELECT ultimo_ping FROM estacoes WHERE id = $1", [estacaoId]);
+      const payloads = [leitura("2026-10-20T12:31:00Z"), leitura("2026-10-20T12:32:00Z")];
+
+      // Quando (Act)
+      await proxyBanco.derrubar();
+      try {
+        for (const payload of payloads) await estacao.publishAsync(topicoDe(estacaoId), payload, { qos: 1 });
+        await esperar(async () => (await hashes(estacaoId)).length === 3);
+        const novas = (await hashes(estacaoId)).filter((h) => payloads.includes(h.conteudo));
+
+        // Então (Assert)
+        await esperar(async () => (await Promise.all(novas.map((h) => status(h.id)))).every((s) => s === "encaminhada"), 20000);
+        await esperar(async () => {
+          await lerPublicadas();
+          return novas.every((h) => publicadas.has(h.id));
+        });
+        expect(novas.map((h) => publicadas.get(h.id))).toEqual(
+          novas.map((h) => expect.objectContaining({ staging_id: h.id, estacao_uuid: estacaoId })),
+        );
+        expect(logger.error).toHaveBeenCalledWith(
+          "PostgreSQL indisponível ao gravar a aceita e o último sinal; a leitura segue pelo Valkey",
+          expect.objectContaining({ stagingId: novas[0].id }),
+        );
+      } finally {
+        await proxyBanco.ligar();
+      }
+      // Até a 40.04 o último sinal fica no PostgreSQL: com ele fora, não muda.
+      const { rows: sinalDepois } = await banco.query("SELECT ultimo_ping FROM estacoes WHERE id = $1", [estacaoId]);
+      expect(sinalDepois[0].ultimo_ping).toEqual(sinalAntes[0].ultimo_ping);
+    }, 45000);
+  });
+
+  describe("US-40 · erro temporário: PostgreSQL fora e estação nunca vista", () => {
     it("deve confirmar e manter recebida sem mexer no último sinal, e verificar quando o PostgreSQL volta", async () => {
       // Dado (Arrange)
       const estacaoId = randomUUID();
@@ -239,7 +314,7 @@ integration("US-40 · staging no Valkey com Mosquitto, Valkey e PostgreSQL reais
         "Verificação adiada para a próxima rodada",
         expect.objectContaining({ stagingId: gravada.id }),
       );
-      await esperar(async () => (await direto.hGet(chaveMensagem(gravada.id), "status")) === "pendente", 20000);
+      await esperar(async () => (await status(gravada.id)) === "encaminhada", 20000);
       const { rows } = await banco.query("SELECT id, status FROM staging_telemetria WHERE estacao_uuid = $1", [estacaoId]);
       expect(rows).toEqual([{ id: gravada.id, status: "recebida" }]);
     }, 45000);

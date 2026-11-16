@@ -17,16 +17,21 @@ import {
   verificarMensagem,
   verificarRecebidas,
 } from "../../services/processar-mensagem.service";
+import { solicitarProcessamentoPendentes } from "../../services/staging-publisher.service";
+import { limparCadastrosConhecidos } from "../../services/validar-estacao.service";
 import { pool } from "../../config/db";
 import { logger } from "../../utils/logger";
 
-// Unitário: Valkey, PostgreSQL e os registros de log/métrica ficam mockados.
+// Unitário: Valkey, PostgreSQL, RabbitMQ (publicador) e os registros de log/métrica ficam mockados.
 jest.mock("../../repositories/staging-valkey.repository");
 jest.mock("../../repositories/staging.repository");
 jest.mock("../../repositories/estacao.repository");
 jest.mock("../../services/registro-rejeicao.service");
 jest.mock("../../services/registro-duplicada.service");
+jest.mock("../../services/staging-publisher.service");
 jest.mock("../../config/db");
+
+const AGORA = new Date("2026-11-16T10:00:00.000Z");
 
 const ESTACAO_A = "00000000-0000-4000-8000-00000000000a";
 const ESTACAO_B = "00000000-0000-4000-8000-00000000000b";
@@ -62,6 +67,7 @@ beforeEach(() => {
   jest.mocked(gravarBruta).mockResolvedValue("id-gerado");
   jest.mocked(listarRecebidas).mockResolvedValue([]);
   gravacaoMetricsService.reset();
+  limparCadastrosConhecidos();
   jest.spyOn(logger, "warn").mockImplementation(() => undefined);
   jest.spyOn(logger, "error").mockImplementation(() => undefined);
 });
@@ -119,7 +125,7 @@ describe("US-40 · Cenário 2 · recusada fica no Valkey com o motivo e não seg
 
     // Então (Assert)
     expect(resultado).toBe("recusada");
-    expect(encerrarSemPublicar).toHaveBeenCalledWith(mensagem.id, "recusada", "Nível de bateria fora de 0 a 100");
+    expect(encerrarSemPublicar).toHaveBeenCalledWith(mensagem.id, "recusada", expect.any(Date), "Nível de bateria fora de 0 a 100");
     expect(marcarPendente).not.toHaveBeenCalled();
     expect(registrar).toHaveBeenCalledWith("Nível de bateria fora de 0 a 100", ESTACAO_A);
   });
@@ -142,7 +148,7 @@ describe("US-40 · Cenário 2 · recusada fica no Valkey com o motivo e não seg
         motivoRejeicao: "Payload malformado",
       }),
     );
-    expect(encerrarSemPublicar).toHaveBeenCalledWith(mensagem.id, "recusada", "Payload malformado");
+    expect(encerrarSemPublicar).toHaveBeenCalledWith(mensagem.id, "recusada", expect.any(Date), "Payload malformado");
   });
 
   it("deve guardar o JSON e o unixtime quando a recusa é por leituras vazias", async () => {
@@ -186,7 +192,7 @@ describe("US-40 · Cenário 2 · recusada fica no Valkey com o motivo e não seg
 
     // Então (Assert)
     expect(resultado).toBe("recusada");
-    expect(encerrarSemPublicar).toHaveBeenCalledWith(mensagem.id, "recusada", "Estação desconhecida");
+    expect(encerrarSemPublicar).toHaveBeenCalledWith(mensagem.id, "recusada", expect.any(Date), "Estação desconhecida");
     expect(estacao).not.toHaveBeenCalled();
     expect(inserir).not.toHaveBeenCalled();
   });
@@ -230,7 +236,7 @@ describe("US-12 · conferência da estação lida do Valkey", () => {
     await verificarMensagem(staging());
 
     // Então (Assert)
-    expect(encerrarSemPublicar).toHaveBeenCalledWith(expect.any(String), "recusada", "Estação inativa");
+    expect(encerrarSemPublicar).toHaveBeenCalledWith(expect.any(String), "recusada", expect.any(Date), "Estação inativa");
     expect(registrar).toHaveBeenCalledWith("Estação inativa", ESTACAO_A);
   });
 
@@ -268,7 +274,7 @@ describe("US-28 · horário da leitura lido do Valkey", () => {
     await verificarMensagem(mensagem);
 
     // Então (Assert)
-    expect(encerrarSemPublicar).toHaveBeenCalledWith(mensagem.id, "recusada", "Timestamp fora da faixa");
+    expect(encerrarSemPublicar).toHaveBeenCalledWith(mensagem.id, "recusada", expect.any(Date), "Timestamp fora da faixa");
   });
 });
 
@@ -286,6 +292,17 @@ describe("US-40 · aceita entra em staging:pendentes", () => {
     expect(gravacaoMetricsService.obterMensagensGravadas()).toBe(1);
     expect(registrar).not.toHaveBeenCalled();
     expect(registrarDuplicada).not.toHaveBeenCalled();
+  });
+
+  it("deve pedir a publicação depois de marcar pendente quando a mensagem é aceita", async () => {
+    // Dado (Arrange)
+    // Quando (Act)
+    await verificarMensagem(staging());
+
+    // Então (Assert)
+    const marcou = jest.mocked(marcarPendente).mock.invocationCallOrder[0];
+    const pediu = jest.mocked(solicitarProcessamentoPendentes).mock.invocationCallOrder[0];
+    expect(marcou).toBeLessThan(pediu);
   });
 
   it("deve gravar a aceita na staging_telemetria com o id do Valkey e o conteúdo como chegou", async () => {
@@ -323,7 +340,7 @@ describe("US-13 · duplicata pelo índice da staging_telemetria (até a 40.04)",
 
     // Então (Assert)
     expect(resultado).toBe("duplicada");
-    expect(encerrarSemPublicar).toHaveBeenCalledWith(mensagem.id, "duplicada");
+    expect(encerrarSemPublicar).toHaveBeenCalledWith(mensagem.id, "duplicada", expect.any(Date));
     expect(marcarPendente).not.toHaveBeenCalled();
     expect(registrarDuplicada).toHaveBeenCalledTimes(1);
     expect(registrarDuplicada).toHaveBeenCalledWith({ estacaoId: ESTACAO_A, timestamp: "2026-10-14T12:00:00Z" });
@@ -341,29 +358,84 @@ describe("US-13 · duplicata pelo índice da staging_telemetria (até a 40.04)",
   });
 });
 
-describe("US-40 · erro temporário na verificação", () => {
-  it.each([payloadValido, "não é JSON"])(
-    "deve lançar sem registrar rejeição nem contar quando o PostgreSQL falha ao gravar: %s",
-    async (bruto) => {
-      // Dado (Arrange)
-      const erro = new Error("Banco indisponível");
-      inserir.mockRejectedValue(erro);
+describe("US-40 · Cenário 7 · expiração a partir do relógio", () => {
+  it("deve passar o agora injetado para a expiração quando a mensagem é recusada", async () => {
+    // Dado (Arrange)
+    const mensagem = staging({ payloadBruto: "não é JSON" });
 
-      // Quando (Act)
-      const resultado = verificarMensagem(staging({ payloadBruto: bruto }));
+    // Quando (Act)
+    await verificarMensagem(mensagem, () => AGORA);
 
-      // Então (Assert)
-      await expect(resultado).rejects.toBe(erro);
-      expect(registrar).not.toHaveBeenCalled();
-      expect(registrarDuplicada).not.toHaveBeenCalled();
-      expect(encerrarSemPublicar).not.toHaveBeenCalled();
-      expect(marcarPendente).not.toHaveBeenCalled();
-      expect(gravacaoMetricsService.obterMensagensGravadas()).toBe(0);
-      expect(gravacaoMetricsService.obterRejeitadasGravadas()).toBe(0);
-    },
-  );
+    // Então (Assert)
+    expect(encerrarSemPublicar).toHaveBeenCalledWith(mensagem.id, "recusada", AGORA, "Payload malformado");
+  });
 
-  it("deve lançar sem gravar nem registrar rejeição quando a consulta da estação falha", async () => {
+  it("deve passar o agora injetado para a expiração quando a mensagem é duplicada", async () => {
+    // Dado (Arrange)
+    inserir.mockResolvedValue(false);
+    const mensagem = staging();
+
+    // Quando (Act)
+    await verificarMensagem(mensagem, () => AGORA);
+
+    // Então (Assert)
+    expect(encerrarSemPublicar).toHaveBeenCalledWith(mensagem.id, "duplicada", AGORA);
+  });
+});
+
+describe("US-40 · Cenário 4 · PostgreSQL fora não trava o Valkey nem a publicação", () => {
+  it("deve marcar pendente, pedir a publicação e registrar no log quando a staging_telemetria ou o último sinal falham", async () => {
+    // Dado (Arrange)
+    inserir.mockRejectedValue(new Error("Banco indisponível"));
+    const mensagem = staging();
+
+    // Quando (Act)
+    const resultado = await verificarMensagem(mensagem);
+
+    // Então (Assert)
+    expect(resultado).toBe("pendente");
+    expect(marcarPendente).toHaveBeenCalledWith(mensagem.id);
+    expect(solicitarProcessamentoPendentes).toHaveBeenCalled();
+    expect(registrarDuplicada).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalledWith(
+      "PostgreSQL indisponível ao gravar a aceita e o último sinal; a leitura segue pelo Valkey",
+      { stagingId: mensagem.id, erro: "Banco indisponível" },
+    );
+  });
+
+  it("deve marcar recusada com o motivo e registrar no log quando a staging_telemetria falha ao gravar a recusa", async () => {
+    // Dado (Arrange)
+    inserir.mockRejectedValue(new Error("Banco indisponível"));
+    const mensagem = staging({ payloadBruto: "não é JSON" });
+
+    // Quando (Act)
+    const resultado = await verificarMensagem(mensagem);
+
+    // Então (Assert)
+    expect(resultado).toBe("recusada");
+    expect(encerrarSemPublicar).toHaveBeenCalledWith(mensagem.id, "recusada", expect.any(Date), "Payload malformado");
+    expect(registrar).toHaveBeenCalledWith("Payload malformado", ESTACAO_A);
+    expect(logger.error).toHaveBeenCalledWith(
+      "PostgreSQL indisponível ao gravar a recusada; a leitura segue pelo Valkey",
+      expect.objectContaining({ stagingId: mensagem.id }),
+    );
+  });
+
+  it("deve aceitar com o cadastro guardado quando o banco cai depois de a estação ter sido vista", async () => {
+    // Dado (Arrange)
+    await verificarMensagem(staging({ id: "antes" }));
+    estacao.mockRejectedValue(new Error("Banco indisponível"));
+    inserir.mockRejectedValue(new Error("Banco indisponível"));
+
+    // Quando (Act)
+    const resultado = await verificarMensagem(staging({ id: "durante" }));
+
+    // Então (Assert)
+    expect(resultado).toBe("pendente");
+    expect(marcarPendente).toHaveBeenCalledWith("durante");
+  });
+
+  it("deve lançar, como erro temporário, sem gravar nem registrar rejeição quando o banco falha e a estação nunca foi vista", async () => {
     // Dado (Arrange)
     const erro = new Error("Banco indisponível");
     estacao.mockRejectedValue(erro);
@@ -375,6 +447,8 @@ describe("US-40 · erro temporário na verificação", () => {
     await expect(resultado).rejects.toBe(erro);
     expect(inserir).not.toHaveBeenCalled();
     expect(registrar).not.toHaveBeenCalled();
+    expect(encerrarSemPublicar).not.toHaveBeenCalled();
+    expect(marcarPendente).not.toHaveBeenCalled();
   });
 });
 

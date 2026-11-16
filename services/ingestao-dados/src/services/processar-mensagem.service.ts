@@ -13,6 +13,7 @@ import { conferirEstacao } from "./validar-estacao.service";
 import { registrarRejeicao } from "./registro-rejeicao.service";
 import { registrarDuplicadaIgnorada } from "./registro-duplicada.service";
 import { gravacaoMetricsService } from "./gravacao-metrics.service";
+import { solicitarProcessamentoPendentes } from "./staging-publisher.service";
 import { extrairEstacaoId } from "../utils/topico-estacao";
 import { ESTACAO_DESCONHECIDA } from "../validations/motivos-rejeicao";
 import { logger } from "../utils/logger";
@@ -106,12 +107,16 @@ async function rodada(): Promise<void> {
 /**
  * Verificações de formato e estação (US-12) e de horário (US-28), sobre a
  * mensagem lida do Valkey. Erro permanente vira "recusada" com o motivo e não
- * segue para telemetria.bruta; exceção é erro temporário.
+ * segue para telemetria.bruta; exceção é erro temporário. O agora marca o
+ * início dos 7 dias de expiração da recusada e da duplicada.
  */
-export async function verificarMensagem(staging: MensagemStaging): Promise<ResultadoVerificacao> {
+export async function verificarMensagem(
+  staging: MensagemStaging,
+  agora: () => Date = () => new Date(),
+): Promise<ResultadoVerificacao> {
   const estacaoId = extrairEstacaoId(staging.topico);
   if (!estacaoId) {
-    return recusar(staging, ESTACAO_DESCONHECIDA);
+    return recusar(staging, ESTACAO_DESCONHECIDA, agora());
   }
 
   const mensagem: MensagemIngestaoInput = {
@@ -123,7 +128,7 @@ export async function verificarMensagem(staging: MensagemStaging): Promise<Resul
 
   const validacao = validador.validar(mensagem);
   if (!validacao.sucesso || !validacao.payloadValidado) {
-    return recusar(staging, validacao.motivoRejeicao ?? "Payload inválido", mensagem);
+    return recusar(staging, validacao.motivoRejeicao ?? "Payload inválido", agora(), mensagem);
   }
 
   // A conferência da estação vem depois do payload, como na ordem dos critérios.
@@ -133,32 +138,68 @@ export async function verificarMensagem(staging: MensagemStaging): Promise<Resul
     staging.recebidoEm,
   );
   if (motivoEstacao !== undefined) {
-    return recusar(staging, motivoEstacao, mensagem);
+    return recusar(staging, motivoEstacao, agora(), mensagem);
   }
 
   // Até a 40.04, a duplicata (TASK 13.01) é o índice único da staging_telemetria.
-  if ((await gravarAceita(mensagem, staging.id)) === "duplicata") {
-    await encerrarSemPublicar(staging.id, "duplicada");
+  // Com o PostgreSQL fora não dá para saber: a leitura segue como aceita e o
+  // servico-validacao descarta a repetição pelo UNIQUE (sensor_id, unixtime).
+  const gravacao = await semTravarNoPostgres(
+    () => gravarAceita(mensagem, staging.id),
+    "gravar a aceita e o último sinal",
+    staging.id,
+  );
+  if (gravacao === "duplicata") {
+    await encerrarSemPublicar(staging.id, "duplicada", agora());
     registrarDuplicadaIgnorada({ estacaoId, timestamp: validacao.payloadValidado.timestamp });
     return "duplicada";
   }
 
   await marcarPendente(staging.id);
   gravacaoMetricsService.incrementarGravada();
+  solicitarProcessamentoPendentes();
   return "pendente";
 }
 
 async function recusar(
   staging: MensagemStaging,
   motivoRecusa: string,
+  agora: Date,
   mensagem?: MensagemIngestaoInput,
 ): Promise<ResultadoVerificacao> {
   // Sem UUID no tópico não há estação para a linha da staging_telemetria.
-  if (mensagem) await gravarRejeitada(mensagem, motivoRecusa, staging.id);
-  await encerrarSemPublicar(staging.id, "recusada", motivoRecusa);
+  if (mensagem) {
+    await semTravarNoPostgres(
+      () => gravarRejeitada(mensagem, motivoRecusa, staging.id),
+      "gravar a recusada",
+      staging.id,
+    );
+  }
+  await encerrarSemPublicar(staging.id, "recusada", agora, motivoRecusa);
   gravacaoMetricsService.incrementarRejeitadaGravada();
   registrarRejeicao(motivoRecusa, mensagem?.estacaoId ?? staging.topico);
   return "recusada";
+}
+
+/**
+ * US-40 · Cenário 4: até a 40.04 a staging_telemetria e o último sinal ainda
+ * ficam no PostgreSQL. Falha ali vai para o log e não trava o Valkey nem a
+ * publicação.
+ */
+async function semTravarNoPostgres<T>(
+  gravar: () => Promise<T>,
+  acao: string,
+  stagingId: string,
+): Promise<T | undefined> {
+  try {
+    return await gravar();
+  } catch (erro) {
+    logger.error(`PostgreSQL indisponível ao ${acao}; a leitura segue pelo Valkey`, {
+      stagingId,
+      erro: motivo(erro),
+    });
+    return undefined;
+  }
 }
 
 function motivo(erro: unknown): string {
