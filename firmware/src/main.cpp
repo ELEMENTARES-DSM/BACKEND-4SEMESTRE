@@ -5,7 +5,7 @@
 
 const char* ssid = "nome-wifi";
 const char* pwd = "senha-wifi";
-const char* mqtt_server = "test.mosquitto.org"; // alterar para broker local
+const char* mqtt_server = "test.mosquitto.org"; // alterar para broker local IP:1883
 
 String uid;
 String topico;
@@ -57,7 +57,7 @@ void processarByte(uint8_t b) {
   temQuadro = true;
 }
 
-// Chamada a cada volta do loop: o sensor envia um quadro por segundo e aqui só
+// Chamada a cada volta do loop: o sensor envia um quadro por segundo e
 // guardamos o mais recente.
 void lerSensorPm() {
   while (Serial2.available() > 0) {
@@ -152,9 +152,11 @@ void loop() {
         Serial.println("Aguardando horario do NTP, nao publicou");
       } else {
         String data = "{\"macaddress\":\"" + uid +
-                      "\",\"unixtime\":" + String((long)now) +
-                      ",\"pm25\":" + String(pm25) +
-                      ",\"pm10\":" + String(pm10) + "}";
+              "\",\"timestamp\":" + String((long)now) +
+              ",\"leituras\":[" +
+              "{\"sensor\":\"PM25\",\"valor\":" + String(pm25) + "}," +
+              "{\"sensor\":\"PM10\",\"valor\":" + String(pm10) + "}" +
+              "]}";
 
         Serial.println("Publicando:");
         Serial.println(data);
