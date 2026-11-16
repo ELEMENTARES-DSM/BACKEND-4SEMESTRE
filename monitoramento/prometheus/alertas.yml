@@ -1,0 +1,57 @@
+groups:
+  - name: pulso-urbano
+    rules:
+      - alert: ServicoFora
+        expr: probe_success{job="health-servicos"} == 0
+        for: 1m
+        labels: { severidade: critico }
+        annotations:
+          resumo: "{{ $labels.servico }} não responde ao /health há 1 minuto"
+
+      - alert: InfraestruturaFora
+        expr: probe_success{job="portas-infra"} == 0
+        for: 1m
+        labels: { severidade: critico }
+        annotations:
+          resumo: "{{ $labels.servico }} não aceita conexão há 1 minuto"
+
+      - alert: RespostaLenta
+        expr: probe_duration_seconds{job="health-servicos"} > 1 and probe_success{job="health-servicos"} == 1
+        for: 5m
+        labels: { severidade: alerta }
+        annotations:
+          resumo: "{{ $labels.servico }} leva mais de 1s para responder"
+
+      - alert: FilaAcumulando
+        expr: sum(rabbitmq_queue_messages_ready) > 1000
+        for: 5m
+        labels: { severidade: alerta }
+        annotations:
+          resumo: "Mais de 1000 mensagens paradas no RabbitMQ: algum consumidor travou"
+
+      - alert: ContainerReiniciando
+        expr: changes(container_start_time_seconds{name=~".+"}[10m]) > 2
+        labels: { severidade: alerta }
+        annotations:
+          resumo: "Container {{ $labels.name }} reiniciou mais de 2 vezes em 10 minutos"
+
+      - alert: MemoriaAlta
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.85
+        for: 5m
+        labels: { severidade: alerta }
+        annotations:
+          resumo: "Servidor com mais de 85% da memória em uso"
+
+      - alert: DiscoQuaseCheio
+        expr: (1 - node_filesystem_avail_bytes{mountpoint="/",fstype!="rootfs"} / node_filesystem_size_bytes{mountpoint="/",fstype!="rootfs"}) > 0.80
+        for: 10m
+        labels: { severidade: alerta }
+        annotations:
+          resumo: "Disco do servidor acima de 80%"
+
+      - alert: CPUAlta
+        expr: (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))) > 0.85
+        for: 10m
+        labels: { severidade: alerta }
+        annotations:
+          resumo: "CPU do servidor acima de 85% por 10 minutos"

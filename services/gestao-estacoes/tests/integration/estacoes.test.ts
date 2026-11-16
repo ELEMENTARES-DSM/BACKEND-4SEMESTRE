@@ -127,3 +127,31 @@ describe("PATCH /api/v1/internal/estacoes/:uuid/inativar", () => {
   });
 });
 
+describe("Rotas públicas de municípios e status (ELEM-202)", () => {
+  test("deve retornar 200 OK nas rotas públicas sem token, soma de status consistente, latência < 200ms e 401 na rota privada", async () => {
+    const resMunicipios = await api
+      .get("/estacoes/publico/municipios")
+      .timeout(5000)
+      .expect(200);
+
+    expect(Array.isArray(resMunicipios.body.municipios)).toBe(true);
+
+    const inicio = performance.now();
+    const resStatus = await api
+      .get("/estacoes/publico/sjc/status")
+      .timeout(5000)
+      .expect(200);
+    const duracaoMs = performance.now() - inicio;
+
+    expect(duracaoMs).toBeLessThan(200);
+    expect(resStatus.body.resumo).toBeDefined();
+    expect(
+      resStatus.body.resumo.ativas +
+        resStatus.body.resumo.com_falha +
+        resStatus.body.resumo.inativas,
+    ).toBe(resStatus.body.resumo.total);
+
+    await api.get("/estacoes/status").timeout(5000).expect(401);
+  });
+});
+
