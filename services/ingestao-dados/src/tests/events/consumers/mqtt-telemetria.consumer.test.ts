@@ -108,7 +108,7 @@ describe("ConsumidorMqttTelemetria", () => {
         );
       });
 
-      it("deve conectar sem username e password quando a config não tem usuário", () => {
+      it("deve conectar sem username e password quando não há credencial", () => {
         // Dado (Arrange)
         // Quando (Act)
         criarServico();
@@ -119,7 +119,42 @@ describe("ConsumidorMqttTelemetria", () => {
         expect(opcoes).not.toHaveProperty("password");
       });
 
-      it("deve enviar username e password quando a config tem usuário", () => {
+      it("deve conectar sem username e password quando só a senha existe", () => {
+        // Dado (Arrange)
+        // MQTT 3.1.1 não aceita senha sem usuário: a senha sozinha é ignorada.
+        const soSenha = { ...config, senha: "segredo" };
+
+        // Quando (Act)
+        new ConsumidorMqttTelemetria({
+          config: soSenha,
+          proximoPasso: async () => undefined,
+          conectar: conectar as unknown as typeof mqtt.connect,
+        }).iniciar();
+
+        // Então (Assert)
+        const opcoes = conectar.mock.calls[0][1];
+        expect(opcoes).not.toHaveProperty("username");
+        expect(opcoes).not.toHaveProperty("password");
+      });
+
+      it("deve enviar o username sem senha quando só o usuário existe", () => {
+        // Dado (Arrange)
+        const soUsuario = { ...config, usuario: "ingestao-dados" };
+
+        // Quando (Act)
+        new ConsumidorMqttTelemetria({
+          config: soUsuario,
+          proximoPasso: async () => undefined,
+          conectar: conectar as unknown as typeof mqtt.connect,
+        }).iniciar();
+
+        // Então (Assert)
+        const opcoes = conectar.mock.calls[0][1];
+        expect(opcoes.username).toBe("ingestao-dados");
+        expect(opcoes.password).toBeUndefined();
+      });
+
+      it("deve enviar username e password quando existem", () => {
         // Dado (Arrange)
         const comCredencial = { ...config, usuario: "ingestao-dados", senha: "segredo" };
 

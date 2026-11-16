@@ -7,7 +7,7 @@ describe("carregarConfigMqtt", () => {
     MQTT_QOS: "1",
   };
 
-  it("deve devolver a URL e o QoS sem usuário e senha quando o broker não pede credencial", () => {
+  it("deve aceitar a configuração quando usuário e senha estão ausentes", () => {
     // Dado (Arrange)
     // Quando (Act)
     const config = carregarConfigMqtt(envValido);
@@ -28,6 +28,30 @@ describe("carregarConfigMqtt", () => {
     // Então (Assert)
     expect(config.usuario).toBeUndefined();
     expect(config.senha).toBeUndefined();
+  });
+
+  it("deve aceitar a configuração com só o usuário quando a senha está ausente", () => {
+    // Dado (Arrange)
+    const env = { ...envValido, MQTT_USER: "ingestao-dados" };
+
+    // Quando (Act)
+    const config = carregarConfigMqtt(env);
+
+    // Então (Assert)
+    expect(config.usuario).toBe("ingestao-dados");
+    expect(config.senha).toBeUndefined();
+  });
+
+  it("deve aceitar a configuração com só a senha quando o usuário está ausente", () => {
+    // Dado (Arrange)
+    const env = { ...envValido, MQTT_PASSWORD: "segredo" };
+
+    // Quando (Act)
+    const config = carregarConfigMqtt(env);
+
+    // Então (Assert)
+    expect(config.usuario).toBeUndefined();
+    expect(config.senha).toBe("segredo");
   });
 
   it("deve devolver usuário e senha quando as variáveis estão preenchidas", () => {
