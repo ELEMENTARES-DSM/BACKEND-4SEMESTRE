@@ -4,6 +4,7 @@ module.exports = {
   roots: ["<rootDir>/src"],
   testMatch: ["**/*.spec.ts", "**/*.test.ts"],
   clearMocks: true,
+  resetMocks: true,
   collectCoverageFrom: [
     "src/services/rejection-metrics.service.ts",
     "src/services/registro-rejeicao.service.ts",

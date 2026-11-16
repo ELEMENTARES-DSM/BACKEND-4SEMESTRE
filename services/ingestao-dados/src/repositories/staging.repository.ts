@@ -1,9 +1,10 @@
-import { randomUUID } from "node:crypto";
 import { PoolClient } from "pg";
 import { pool } from "../config/db";
 import { protegerCliente } from "../utils/conexao-pg";
 
 export interface RegistroStaging {
+  /** Mesmo id da mensagem no Valkey (staging:msg:{id}), que vira o staging_id das medidas. */
+  id: string;
   estacaoId: string;
   unixtime: number | null;
   recebidoEm: string;
@@ -155,13 +156,11 @@ export async function inserirStaging(
         motivo_rejeicao
       )
       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
-      ON CONFLICT (estacao_uuid, unixtime)
-        WHERE status <> 'rejeitada'
-      DO NOTHING
+      ON CONFLICT DO NOTHING
       RETURNING id
     `,
     [
-      randomUUID(),
+      registro.id,
       registro.estacaoId,
       registro.unixtime,
       registro.recebidoEm,
@@ -172,5 +171,13 @@ export async function inserirStaging(
     ],
   );
 
-  return resultado.rows.length > 0;
+  if (resultado.rows.length > 0) return true;
+
+  // Sem linha nova: ou é duplicata (uq_staging_estacao_unixtime), ou é a mesma
+  // mensagem do Valkey verificada de novo depois de uma falha no meio do caminho.
+  const mesma = await executor.query(
+    "SELECT 1 FROM staging_telemetria WHERE id = $1",
+    [registro.id],
+  );
+  return mesma.rows.length > 0;
 }

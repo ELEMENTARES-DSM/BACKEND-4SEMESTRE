@@ -46,6 +46,7 @@ function extrairUnixtime(payload: unknown): number | null {
 
 export async function gravarAceita(
   mensagem: MensagemIngestaoInput,
+  id: string,
 ): Promise<ResultadoGravacao> {
   const validacao = validador.validar(mensagem);
 
@@ -68,6 +69,7 @@ export async function gravarAceita(
 
     const gravou = await inserirStaging(
       {
+        id,
         estacaoId: mensagem.estacaoId,
         unixtime,
         recebidoEm: mensagem.recebidoEm,
@@ -104,6 +106,7 @@ export async function gravarAceita(
 export async function gravarRejeitada(
   mensagem: MensagemIngestaoInput,
   motivo: string,
+  id: string,
 ): Promise<ResultadoGravacao> {
   if (!motivo.trim() || motivo.length > 255) {
     throw new Error("O motivo da rejeição deve ter entre 1 e 255 caracteres");
@@ -112,6 +115,7 @@ export async function gravarRejeitada(
   const json = lerJson(mensagem.payloadBruto);
 
   await inserirStaging({
+    id,
     estacaoId: mensagem.estacaoId,
     unixtime: extrairUnixtime(json.valor),
     recebidoEm: mensagem.recebidoEm,
