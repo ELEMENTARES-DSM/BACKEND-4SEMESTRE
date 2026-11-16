@@ -36,7 +36,7 @@ scrape_configs:
     params:
       module: [tcp_connect]
     static_configs:
-      - targets: ["postgres:5432", "redis:6379", "rabbitmq:5672", "mosquitto:1883"]
+      - targets: ["postgres:5432", "valkey:6379", "rabbitmq:5672", "mosquitto:1883"]
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
