@@ -48,6 +48,31 @@ No Windows, use o Git Bash. O script precisa de Docker e Node 24 na máquina.
 - As duplicatas são contadas pelo próprio teste, que sabe quantas cópias enviou. No banco, o teste confere que ficou uma linha no staging e uma medida por sensor.
 - Rodar dois lotes simples com o mesmo `--inicio` repete os horários: o segundo lote vira duplicata e o balanço não fecha (a linha do staging só conta quando o conteúdo é o do manifesto). Sem `--inicio`, o lote começa depois do último horário das estações de teste no staging, ou no horário atual, se for maior.
 
+## Teste da grandeza nova (US-39)
+
+Coloca uma grandeza nova no ar, do cadastro à medida gravada, e confere cada passo. Também é o roteiro de "como colocar uma grandeza nova no ar":
+
+```bash
+scripts/teste-grandeza-nova.sh
+```
+
+Precisa do compose no ar (inclusive `gestao-estacoes`, `ingestao-dados`, `servico-validacao` e `nginx`) e das migrations aplicadas. Usa a estação TF-10 da semente e deixa tudo como estava ao terminar. É só para o ambiente de teste: o reenvio da DLQ reprocessa todas as mensagens que estiverem lá.
+
+| Passo | O que acontece | O que o teste confere |
+| --- | --- | --- |
+| 1 | `GET /estacoes/tipos-sensor` | Direção do Vento, `°`, 0 a 360, agregação `media_circular` |
+| 2 | A placa publica `{"sensor":"DIR-E2E","valor":270}` **antes** do sensor existir | A leitura vai para a `validacao.dlq` com "Sensor inexistente na estação" |
+| 3 | O Administrador cadastra na estação o sensor `DIR-E2E` da grandeza Direção do Vento, com o **mesmo código** que a placa envia | `201`, unidade `°` |
+| 4 | O Administrador reenvia a DLQ (`POST /validacao/dlq/reenviar`) | Uma linha em `medidas` com valor 270,00 e `valida = true` |
+| 5 | A placa publica 400 | A medida é gravada com `valida = false` e não abre alarme |
+| 6 | O sensor `TEMP-01` passa a enviar em Kelvin (`unidade_leitura` K, `fator_conversao` 1, `offset` -273,15) e publica 300 | A medida vale 26,85 e é válida |
+| 7 | Cadastro de outro sensor com o código `TEMP-01` na mesma estação | `409` com o código na mensagem |
+| 8 | Excluir a Direção do Vento (em uso) e uma grandeza criada e nunca usada | `409` com "usada por N sensor(es)" e `204` |
+
+Se a leitura chegar mais de 10 minutos depois da hora da medição (por exemplo, num reenvio demorado), a medida é gravada, mas não avalia regras de alerta (US-28).
+
+Para uma grandeza que **não** está no catálogo: o Administrador a cadastra em `POST /estacoes/tipos-sensor` (nome, unidade, faixa física e agregação) antes do sensor. O código do sensor precisa ser igual ao que a placa envia e é único na estação.
+
 ## Testes do conferidor
 
 ```bash
