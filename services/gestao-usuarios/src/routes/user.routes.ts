@@ -7,6 +7,7 @@ import {
   createUserSchema,
   updateUserSchema,
   updateStatusSchema,
+  trocarPapelSchema,
   userIdParamSchema,
   cadastroMunicipeSchema,
 } from "../validations/user.validation";
@@ -27,6 +28,7 @@ router.post("/", validate(createUserSchema), userController.create);
 router.get("/", userController.findAll);
 router.get("/:id", validate(userIdParamSchema, "params"), userController.findById);
 router.put("/:id", validate(userIdParamSchema, "params"), validate(updateUserSchema), userController.update);
+router.patch("/:id/papel", validate(userIdParamSchema, "params"), validate(trocarPapelSchema), userController.trocarPapel);
 router.patch("/:id/status", validate(userIdParamSchema, "params"), validate(updateStatusSchema), userController.updateStatus);
 router.delete("/:id", validate(userIdParamSchema, "params"), userController.remove);
 
