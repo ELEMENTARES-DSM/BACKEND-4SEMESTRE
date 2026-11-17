@@ -43,10 +43,10 @@ export function getValkeyClient(): ValkeyClientInterface {
           memory.set(key, val);
           return val;
         },
-        async expire(_key: string, _seconds: number) {
+        async expire() {
           return 1;
         },
-        on(_event: string, _listener: (err: Error) => void) {},
+        on() {},
       };
     }
   }
