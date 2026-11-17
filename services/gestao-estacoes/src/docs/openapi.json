@@ -366,6 +366,149 @@
         }
       }
     },
+    "/tipos-sensor": {
+      "get": {
+        "tags": ["Estações"],
+        "operationId": "listTiposSensor",
+        "summary": "Listar grandezas do catálogo",
+        "description": "Retorna as grandezas (tipos de sensor) do catálogo, com unidade, faixa física e agregação das séries. Disponível para qualquer perfil autenticado.",
+        "responses": {
+          "200": {
+            "description": "Lista de grandezas do catálogo, ordenada pelo nome.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TipoSensor"
+                  }
+                },
+                "example": [
+                  {
+                    "id": "5549e54b-346e-4a87-8f7d-d2604c878530",
+                    "nome": "Direção do Vento",
+                    "unidade": "°",
+                    "faixa_min": "0.00",
+                    "faixa_max": "360.00",
+                    "agregacao": "media_circular"
+                  },
+                  {
+                    "id": "0b6f2c1e-6d0a-4f0e-9a39-3f3a4c2b8a11",
+                    "nome": "Precipitação",
+                    "unidade": "mm",
+                    "faixa_min": "0.00",
+                    "faixa_max": "500.00",
+                    "agregacao": "soma"
+                  }
+                ]
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          }
+        }
+      },
+      "post": {
+        "tags": ["Estações"],
+        "operationId": "createTipoSensor",
+        "summary": "Cadastrar grandeza no catálogo",
+        "description": "Cria uma grandeza (nome, unidade, faixa física e agregação) no catálogo. Restrito ao perfil ADMINISTRADOR. `faixa_min` deve ser menor que `faixa_max`, com no máximo 2 casas decimais. `agregacao` é opcional e vale `media` quando omitida.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTipoSensorInput"
+              },
+              "example": {
+                "nome": "Nebulosidade",
+                "unidade": "%",
+                "faixa_min": 0,
+                "faixa_max": 100,
+                "agregacao": "media"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Grandeza criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TipoSensor"
+                },
+                "example": {
+                  "id": "7c1d9a52-8f3e-4b6a-a1d4-2e5f6a7b8c90",
+                  "nome": "Nebulosidade",
+                  "unidade": "%",
+                  "faixa_min": "0.00",
+                  "faixa_max": "100.00",
+                  "agregacao": "media"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dados inválidos, ou `faixa_min` maior ou igual a `faixa_max`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "faixaInvertida": {
+                    "summary": "Faixa mínima maior ou igual à máxima",
+                    "value": {
+                      "message": "faixa_min deve ser menor que faixa_max."
+                    }
+                  },
+                  "agregacaoInvalida": {
+                    "summary": "Agregação fora da lista",
+                    "value": {
+                      "message": "Dados inválidos",
+                      "errors": {
+                        "agregacao": ["Invalid option: expected one of \"media\"|\"soma\"|\"media_circular\""]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "403": {
+            "description": "Perfil sem permissão para cadastrar grandezas (somente ADMINISTRADOR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "erro": "Acesso negado. Perfil insuficiente para esta ação."
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Já existe uma grandeza com esse nome no catálogo.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "message": "Já existe uma grandeza com o nome \"Temperatura\" no catálogo."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/internal/estacoes/{uuid}/inativar": {
       "patch": {
         "tags": ["Interno"],
@@ -568,6 +711,74 @@
             "type": "string",
             "format": "date-time",
             "example": "2026-09-25T01:40:01.011Z"
+          }
+        }
+      },
+      "TipoSensor": {
+        "type": "object",
+        "required": ["id", "nome", "unidade", "faixa_min", "faixa_max", "agregacao"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "5549e54b-346e-4a87-8f7d-d2604c878530"
+          },
+          "nome": {
+            "type": "string",
+            "example": "Direção do Vento"
+          },
+          "unidade": {
+            "type": "string",
+            "example": "°"
+          },
+          "faixa_min": {
+            "type": "string",
+            "example": "0.00",
+            "description": "Valor mínimo físico (NUMERIC, devolvido como texto)."
+          },
+          "faixa_max": {
+            "type": "string",
+            "example": "360.00",
+            "description": "Valor máximo físico (NUMERIC, devolvido como texto)."
+          },
+          "agregacao": {
+            "type": "string",
+            "enum": ["media", "soma", "media_circular"],
+            "example": "media_circular",
+            "description": "Como as séries por hora e por dia agregam as leituras: `media`, `soma` (ex.: Precipitação) ou `media_circular` (ex.: Direção do Vento). O cálculo é da US-35."
+          }
+        }
+      },
+      "CreateTipoSensorInput": {
+        "type": "object",
+        "required": ["nome", "unidade", "faixa_min", "faixa_max"],
+        "properties": {
+          "nome": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "example": "Nebulosidade"
+          },
+          "unidade": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20,
+            "example": "%"
+          },
+          "faixa_min": {
+            "type": "number",
+            "example": 0,
+            "description": "Valor mínimo físico. Até 2 casas decimais."
+          },
+          "faixa_max": {
+            "type": "number",
+            "example": 100,
+            "description": "Valor máximo físico. Até 2 casas decimais; deve ser maior que `faixa_min`."
+          },
+          "agregacao": {
+            "type": "string",
+            "enum": ["media", "soma", "media_circular"],
+            "default": "media"
           }
         }
       },
