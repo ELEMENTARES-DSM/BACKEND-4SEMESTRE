@@ -1,0 +1,894 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Pulso Urbano — API Pública",
+    "version": "1.0.0",
+    "description": "Especificação pública da plataforma Pulso Urbano (Squad Elementares — FATEC SJC). Contém exclusivamente as operações abertas a munícipes, cidadãos e consultas públicas (login, autocadastro, séries históricas, últimas leituras, IQAr, exportação de CSV, status das estações por município e alarmes ativos). Operações administrativas e de gestão são restritas e documentadas no manual interno da Tecsus."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "API Gateway Nginx local"
+    },
+    {
+      "url": "http://localhost",
+      "description": "Servidor de produção / desenvolvimento direto"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Autenticação",
+      "description": "Autenticação de usuários e emissão de tokens JWT"
+    },
+    {
+      "name": "Munícipes",
+      "description": "Autocadastro com aceite de aviso de privacidade"
+    },
+    {
+      "name": "Dados Ambientais",
+      "description": "Séries históricas, últimas leituras, IQAr e download de CSV com controle de limites de período e cotas"
+    },
+    {
+      "name": "Estações",
+      "description": "Consulta pública do status operacional das estações meteorológicas por município"
+    },
+    {
+      "name": "Alarmes",
+      "description": "Consulta pública de alarmes e avisos ambientais abertos"
+    }
+  ],
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "tags": [
+          "Autenticação"
+        ],
+        "operationId": "loginUsuario",
+        "summary": "Realizar login e obter token JWT",
+        "description": "Autentica um usuário cadastrado (munícipe, gestor ou administrador) e emite um token Bearer JWT (HS256) com validade de 8 horas.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              },
+              "examples": {
+                "loginMunicipe": {
+                  "summary": "Login de Munícipe",
+                  "value": {
+                    "email": "ana.silva@exemplo.com",
+                    "senha": "SenhaForte@2026"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login realizado com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                },
+                "examples": {
+                  "tokenValido": {
+                    "summary": "Credenciais válidas",
+                    "value": {
+                      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                      "usuario": {
+                        "id": "11111111-2222-3333-4444-555555555555",
+                        "nome": "Ana da Silva",
+                        "papel": "MUNICIPE",
+                        "municipio": "São José dos Campos"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciais inválidas.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "message": "Credenciais inválidas."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/usuarios/cadastro": {
+      "post": {
+        "tags": [
+          "Munícipes"
+        ],
+        "operationId": "cadastrarMunicipe",
+        "summary": "Autocadastro de munícipe",
+        "description": "Permite que qualquer cidadão crie uma conta pública própria vinculada ao papel canônico MUNICIPE. Exige aceite expresso do aviso de privacidade. Protegido por rate limiter de até 5 cadastros por hora por IP.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CadastroMunicipeRequest"
+              },
+              "examples": {
+                "cadastroValido": {
+                  "summary": "Cadastro válido de munícipe",
+                  "value": {
+                    "nome": "Ana da Silva",
+                    "email": "ana.silva@exemplo.com",
+                    "senha": "SenhaForte@2026",
+                    "municipio": "São José dos Campos",
+                    "aceite_privacidade": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Munícipe cadastrado com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsuarioPublicoResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dados inválidos (senha fraca ou ausência do aceite de privacidade).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "E-mail já cadastrado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de taxa excedido (máximo 5 cadastros por hora por IP).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analise/estacoes/{id}/series": {
+      "get": {
+        "tags": [
+          "Dados Ambientais"
+        ],
+        "operationId": "obterSeriesHistoricas",
+        "summary": "Obter séries históricas da estação",
+        "description": "Retorna leituras temporais agrupadas. Suporta requisições com ou sem token: sem login permite até 7 dias; MUNICIPE autenticado permite até 30 dias (debitando da cota semanal/mensal); GESTOR_PUBLICO e ADMINISTRADOR são ilimitados.",
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "UUID da estação meteorológica",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "example": "11111111-2222-3333-4444-555555555555"
+          },
+          {
+            "name": "grandeza",
+            "in": "query",
+            "required": false,
+            "description": "Grandeza desejada (ex: PM25, PM10, Temperatura)",
+            "schema": {
+              "type": "string",
+              "example": "PM25"
+            }
+          },
+          {
+            "name": "periodo",
+            "in": "query",
+            "required": false,
+            "description": "Período desejado (ex: 24h, 7d, 30d)",
+            "schema": {
+              "type": "string",
+              "example": "24h"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Série histórica recuperada com sucesso.",
+            "headers": {
+              "X-Cota-Semana-Restante": {
+                "description": "Saldo restante da cota semanal do usuário (quando autenticado)",
+                "schema": {
+                  "type": "string",
+                  "example": "1999"
+                }
+              },
+              "X-Cota-Mes-Restante": {
+                "description": "Saldo restante da cota mensal do usuário (quando autenticado)",
+                "schema": {
+                  "type": "string",
+                  "example": "5999"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeriesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Período solicitado excede o limite permitido para o perfil atual.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Cota semanal ou mensal de requisições excedida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceededResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analise/estacoes/{id}/ultimas-leituras": {
+      "get": {
+        "tags": [
+          "Dados Ambientais"
+        ],
+        "operationId": "obterUltimasLeituras",
+        "summary": "Obter últimas leituras dos sensores da estação",
+        "description": "Retorna o último valor calibrado de cada sensor ativo da estação indicada.",
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "UUID da estação",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "example": "11111111-2222-3333-4444-555555555555"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Últimas leituras recuperadas com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UltimasLeiturasResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analise/iqar": {
+      "get": {
+        "tags": [
+          "Dados Ambientais"
+        ],
+        "operationId": "obterIqar",
+        "summary": "Obter Índice de Qualidade do Ar (IQAr)",
+        "description": "Retorna o IQAr calculado segundo as faixas oficiais de qualidade do ar.",
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {}
+        ],
+        "responses": {
+          "200": {
+            "description": "Índice de qualidade do ar recuperado com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IqarResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analise/exportar/csv": {
+      "get": {
+        "tags": [
+          "Dados Ambientais"
+        ],
+        "operationId": "exportarCsvDados",
+        "summary": "Download de série temporal em formato CSV",
+        "description": "Exporta as medições da estação em formato CSV. Suporta automação via scripts diários com token de Munícipe. Requisições autenticadas debitam da cota do perfil e registram auditoria.",
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "name": "periodo",
+            "in": "query",
+            "required": false,
+            "description": "Período da exportação (ex: 24h, 7d, 30d)",
+            "schema": {
+              "type": "string",
+              "example": "24h"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Arquivo CSV retornado com sucesso.",
+            "headers": {
+              "Content-Disposition": {
+                "description": "attachment; filename=\"dados.csv\"",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Cota-Semana-Restante": {
+                "description": "Saldo restante da cota semanal",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "estacao;periodo;timestamp;valor\n1;24h;2026-11-17T08:00:00.000Z;15.5\n"
+              }
+            }
+          },
+          "400": {
+            "description": "Período solicitado superior ao limite do perfil.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Cota semanal ou mensal esgotada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceededResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/estacoes/publico/municipios": {
+      "get": {
+        "tags": [
+          "Estações"
+        ],
+        "operationId": "listarMunicipiosAtendidos",
+        "summary": "Listar municípios com estações monitoradas",
+        "description": "Retorna a relação de municípios cadastrados que possuem estações meteorológicas ativas.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Lista de municípios.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "example": "São José dos Campos"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/estacoes/publico/{municipio}/status": {
+      "get": {
+        "tags": [
+          "Estações"
+        ],
+        "operationId": "obterStatusEstacoesMunicipio",
+        "summary": "Obter status público das estações do município",
+        "description": "Retorna o status operacional das estações meteorológicas instaladas no município indicado (não debita cota de requisições).",
+        "security": [],
+        "parameters": [
+          {
+            "name": "municipio",
+            "in": "path",
+            "required": true,
+            "description": "Nome do município",
+            "schema": {
+              "type": "string"
+            },
+            "example": "São José dos Campos"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Status das estações do município.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusEstacoesMunicipioResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alertas/alarmes/ativos": {
+      "get": {
+        "tags": [
+          "Alarmes"
+        ],
+        "operationId": "obterAlarmesAtivosPublico",
+        "summary": "Listar alarmes ambientais ativos",
+        "description": "Consulta pública de avisos e alarmes ambientais atualmente abertos para acompanhamento da população (não debita cota de requisições).",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Lista de alarmes ambientais ativos.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AlarmePublicoResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Token JWT de autenticação emitido no endpoint /auth/login"
+      }
+    },
+    "schemas": {
+      "LoginRequest": {
+        "type": "object",
+        "required": [
+          "email",
+          "senha"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "ana.silva@exemplo.com"
+          },
+          "senha": {
+            "type": "string",
+            "format": "password",
+            "example": "SenhaForte@2026"
+          }
+        }
+      },
+      "LoginResponse": {
+        "type": "object",
+        "required": [
+          "token",
+          "usuario"
+        ],
+        "properties": {
+          "token": {
+            "type": "string",
+            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+          },
+          "usuario": {
+            "type": "object",
+            "required": [
+              "id",
+              "nome",
+              "papel"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "nome": {
+                "type": "string",
+                "example": "Ana da Silva"
+              },
+              "papel": {
+                "type": "string",
+                "example": "MUNICIPE"
+              },
+              "municipio": {
+                "type": "string",
+                "nullable": true,
+                "example": "São José dos Campos"
+              }
+            }
+          }
+        }
+      },
+      "CadastroMunicipeRequest": {
+        "type": "object",
+        "required": [
+          "nome",
+          "email",
+          "senha",
+          "aceite_privacidade"
+        ],
+        "properties": {
+          "nome": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 120,
+            "example": "Ana da Silva"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "ana.silva@exemplo.com"
+          },
+          "senha": {
+            "type": "string",
+            "minLength": 8,
+            "example": "SenhaForte@2026"
+          },
+          "municipio": {
+            "type": "string",
+            "example": "São José dos Campos"
+          },
+          "aceite_privacidade": {
+            "type": "boolean",
+            "enum": [
+              true
+            ],
+            "example": true
+          }
+        }
+      },
+      "UsuarioPublicoResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "nome",
+          "email",
+          "papel_id",
+          "esta_ativo",
+          "criado_em"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "11111111-2222-3333-4444-555555555555"
+          },
+          "nome": {
+            "type": "string",
+            "example": "Ana da Silva"
+          },
+          "email": {
+            "type": "string",
+            "example": "ana.silva@exemplo.com"
+          },
+          "papel_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "municipio": {
+            "type": "string",
+            "nullable": true,
+            "example": "São José dos Campos"
+          },
+          "esta_ativo": {
+            "type": "boolean",
+            "example": true
+          },
+          "criado_em": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "SeriesResponse": {
+        "type": "object",
+        "required": [
+          "estacao_id",
+          "pontos"
+        ],
+        "properties": {
+          "estacao_id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "11111111-2222-3333-4444-555555555555"
+          },
+          "grandeza": {
+            "type": "string",
+            "example": "PM25"
+          },
+          "periodo": {
+            "type": "string",
+            "example": "24h"
+          },
+          "pontos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "timestamp",
+                "valor"
+              ],
+              "properties": {
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "valor": {
+                  "type": "number",
+                  "example": 15.5
+                }
+              }
+            }
+          }
+        }
+      },
+      "UltimasLeiturasResponse": {
+        "type": "object",
+        "required": [
+          "estacao_id",
+          "leituras"
+        ],
+        "properties": {
+          "estacao_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "leituras": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "grandeza",
+                "valor",
+                "unidade"
+              ],
+              "properties": {
+                "grandeza": {
+                  "type": "string",
+                  "example": "PM25"
+                },
+                "valor": {
+                  "type": "number",
+                  "example": 12.4
+                },
+                "unidade": {
+                  "type": "string",
+                  "example": "µg/m³"
+                },
+                "tempo_relativo": {
+                  "type": "string",
+                  "example": "há 2 minutos"
+                }
+              }
+            }
+          }
+        }
+      },
+      "IqarResponse": {
+        "type": "object",
+        "required": [
+          "indice",
+          "classificacao",
+          "cor"
+        ],
+        "properties": {
+          "indice": {
+            "type": "integer",
+            "example": 45
+          },
+          "classificacao": {
+            "type": "string",
+            "example": "Boa"
+          },
+          "cor": {
+            "type": "string",
+            "example": "#00E400"
+          },
+          "municipio": {
+            "type": "string",
+            "example": "São José dos Campos"
+          }
+        }
+      },
+      "StatusEstacoesMunicipioResponse": {
+        "type": "object",
+        "required": [
+          "municipio",
+          "estacoes"
+        ],
+        "properties": {
+          "municipio": {
+            "type": "string",
+            "example": "São José dos Campos"
+          },
+          "estacoes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "nome",
+                "status"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "nome": {
+                  "type": "string",
+                  "example": "Estação Centro"
+                },
+                "status": {
+                  "type": "string",
+                  "example": "Ativa"
+                }
+              }
+            }
+          }
+        }
+      },
+      "AlarmePublicoResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "severidade",
+          "situacao",
+          "municipio",
+          "criado_em"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "severidade": {
+            "type": "string",
+            "enum": [
+              "ATENCAO",
+              "ALERTA",
+              "CRITICO"
+            ],
+            "example": "ALERTA"
+          },
+          "situacao": {
+            "type": "string",
+            "enum": [
+              "aberto",
+              "normalizado"
+            ],
+            "example": "aberto"
+          },
+          "municipio": {
+            "type": "string",
+            "example": "São José dos Campos"
+          },
+          "criado_em": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "QuotaExceededResponse": {
+        "type": "object",
+        "required": [
+          "erro",
+          "renovaEm"
+        ],
+        "properties": {
+          "erro": {
+            "type": "string",
+            "example": "Limite de cota semanal de requisições excedido para o seu perfil."
+          },
+          "renovaEm": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-11-23T00:00:00.000Z"
+          },
+          "semanaRestante": {
+            "type": "integer",
+            "example": 0
+          },
+          "mesRestante": {
+            "type": "integer",
+            "example": 120
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "example": "Mensagem descritiva do erro."
+          }
+        }
+      }
+    }
+  }
+}
