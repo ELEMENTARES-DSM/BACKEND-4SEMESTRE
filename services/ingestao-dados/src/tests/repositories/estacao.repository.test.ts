@@ -1,71 +1,71 @@
 import { describe, it, expect, jest, beforeEach, afterEach } from "@jest/globals";
 import { PoolClient } from "pg";
 import { pool } from "../../config/db";
-import {
-  atualizarSinalEstacao,
-  buscarEstacaoParaValidacao,
-} from "../../repositories/estacao.repository";
+import { atualizarSinalEstacao, buscarEstacaoParaValidacao } from "../../repositories/estacao.repository";
 
-describe("estacao.repository - buscarEstacaoParaValidacao", () => {
+// Unitário: o PostgreSQL (pool e cliente) é mockado.
+describe("buscarEstacaoParaValidacao", () => {
   afterEach(() => {
     jest.restoreAllMocks();
   });
 
-  it("retorna status e data do cadastro lendo só a tabela estacoes", async () => {
+  it("deve devolver o status e o criado_em lendo só a tabela estacoes quando a estação existe", async () => {
+    // Dado (Arrange)
     const criado_em = new Date("2026-01-01T00:00:00Z");
-    const consulta = jest
-      .spyOn(pool, "query")
-      .mockResolvedValue({ rows: [{ status: "Inativa", criado_em }] } as never);
+    const consulta = jest.spyOn(pool, "query").mockResolvedValue({ rows: [{ status: "Inativa", criado_em }] } as never);
 
-    await expect(buscarEstacaoParaValidacao("estacao-123")).resolves.toEqual({ status: "Inativa", criado_em });
-    expect(consulta.mock.calls[0]).toEqual([
-      "SELECT status, criado_em FROM estacoes WHERE id = $1",
-      ["estacao-123"],
-    ]);
+    // Quando (Act)
+    const estacao = await buscarEstacaoParaValidacao("estacao-123");
+
+    // Então (Assert)
+    expect(estacao).toEqual({ status: "Inativa", criado_em });
+    expect(consulta.mock.calls[0]).toEqual(["SELECT status, criado_em FROM estacoes WHERE id = $1", ["estacao-123"]]);
   });
 
-  it("retorna null quando a estação não existe", async () => {
+  it("deve devolver null quando a estação não existe", async () => {
+    // Dado (Arrange)
     jest.spyOn(pool, "query").mockResolvedValue({ rows: [] } as never);
 
-    await expect(buscarEstacaoParaValidacao("estacao-inexistente")).resolves.toBeNull();
+    // Quando (Act)
+    const estacao = await buscarEstacaoParaValidacao("estacao-inexistente");
+
+    // Então (Assert)
+    expect(estacao).toBeNull();
   });
 });
 
-describe("estacao.repository - atualizarSinalEstacao", () => {
+describe("atualizarSinalEstacao", () => {
   let mockClient: jest.Mocked<PoolClient>;
 
   beforeEach(() => {
-    mockClient = {
-      query: jest.fn(),
-    } as unknown as jest.Mocked<PoolClient>;
+    mockClient = { query: jest.fn() } as unknown as jest.Mocked<PoolClient>;
+    (mockClient.query as jest.Mock).mockResolvedValue({ rowCount: 1 } as never);
   });
 
-  it("deve atualizar ultimo_ping e nivel_bateria quando nivelBateria for informado", async () => {
-    (mockClient.query as jest.Mock).mockResolvedValue({ rowCount: 1 } as never);
+  it("deve atualizar ultimo_ping e nivel_bateria quando nivelBateria é informado", async () => {
+    // Dado (Arrange)
+    const sinal = { estacaoId: "estacao-123", ultimoPing: "2026-10-16T10:00:00.000Z", nivelBateria: 87 };
 
-    const resultado = await atualizarSinalEstacao(mockClient, {
-      estacaoId: "estacao-123",
-      ultimoPing: "2026-10-16T10:00:00.000Z",
-      nivelBateria: 87,
-    });
+    // Quando (Act)
+    const atualizou = await atualizarSinalEstacao(mockClient, sinal);
 
-    expect(resultado).toBe(true);
+    // Então (Assert)
+    expect(atualizou).toBe(true);
     expect(mockClient.query).toHaveBeenCalledWith(
       expect.stringContaining("UPDATE estacoes"),
       ["2026-10-16T10:00:00.000Z", 87, "estacao-123"],
     );
   });
 
-  it("deve atualizar apenas ultimo_ping quando nivelBateria for undefined", async () => {
-    (mockClient.query as jest.Mock).mockResolvedValue({ rowCount: 1 } as never);
+  it("deve atualizar só o ultimo_ping quando nivelBateria é undefined", async () => {
+    // Dado (Arrange)
+    const sinal = { estacaoId: "estacao-123", ultimoPing: "2026-10-16T10:00:00.000Z", nivelBateria: undefined };
 
-    const resultado = await atualizarSinalEstacao(mockClient, {
-      estacaoId: "estacao-123",
-      ultimoPing: "2026-10-16T10:00:00.000Z",
-      nivelBateria: undefined,
-    });
+    // Quando (Act)
+    const atualizou = await atualizarSinalEstacao(mockClient, sinal);
 
-    expect(resultado).toBe(true);
+    // Então (Assert)
+    expect(atualizou).toBe(true);
     expect(mockClient.query).toHaveBeenCalledWith(
       expect.stringContaining("UPDATE estacoes"),
       ["2026-10-16T10:00:00.000Z", "estacao-123"],
