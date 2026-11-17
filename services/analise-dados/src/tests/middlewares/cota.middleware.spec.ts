@@ -118,11 +118,9 @@ describe("Cota Middleware e Rastreamento de Uso (Task 42.05)", () => {
       const req2 = criarReqRes({ authorization: `Bearer ${token}` });
       const next2 = jest.fn();
       await new Promise<void>((resolve) => {
-        authOpcional(req2.req, req2.res, () => {
-          aplicarCotaEAuditar(req2.req, req2.res, () => {
-            next2();
-            resolve();
-          });
+        authOpcional(req2.req, req2.res, async () => {
+          await aplicarCotaEAuditar(req2.req, req2.res, next2);
+          resolve();
         });
       });
 
