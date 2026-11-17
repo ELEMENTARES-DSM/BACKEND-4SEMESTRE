@@ -1,23 +1,10 @@
 export type StatusSensor = "Ativo" | "Inativo";
 
-export type TipoSensor =
-  | "Temperatura"
-  | "Umidade Relativa"
-  | "PM2.5"
-  | "PM10"
-  | "Velocidade do Vento";
-
-export const CATALOGO_TIPO_UNIDADE: Record<TipoSensor, string> = {
-  Temperatura: "°C",
-  "Umidade Relativa": "%",
-  "PM2.5": "µg/m³",
-  PM10: "µg/m³",
-  "Velocidade do Vento": "km/h",
-};
-
-export const TIPOS_SENSOR = Object.keys(
-  CATALOGO_TIPO_UNIDADE
-) as TipoSensor[];
+/**
+ * Nome de uma grandeza do catálogo (tabela tipos_sensor). A lista não é mais
+ * fixa: o Administrador cadastra grandezas novas sem mudar o código.
+ */
+export type TipoSensor = string;
 
 export interface Sensor {
   id: string;

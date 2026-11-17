@@ -1,5 +1,5 @@
 import * as tipoSensorRepository from "../../repositories/tipo-sensor.repository";
-import { criar, listar } from "../../services/tipo-sensor.service";
+import { criar, listar, obterPorNome } from "../../services/tipo-sensor.service";
 import { CreateTipoSensorDTO } from "../../dto/create-tipo-sensor.dto";
 import { TipoSensorCatalogo } from "../../models/tipo-sensor.model";
 import { AppError } from "../../middlewares/error-handler";
@@ -46,6 +46,34 @@ describe("tipo-sensor.service (US-39)", () => {
 
       // Então
       expect(resultado).toEqual([grandezaCriada]);
+    });
+  });
+
+  describe("obterPorNome", () => {
+    it("deve devolver a grandeza quando o nome existe no catálogo", async () => {
+      // Dado
+      repo.findByNome.mockResolvedValue(grandezaCriada);
+
+      // Quando
+      const resultado = await obterPorNome("Nebulosidade");
+
+      // Então
+      expect(repo.findByNome).toHaveBeenCalledWith("Nebulosidade");
+      expect(resultado).toBe(grandezaCriada);
+    });
+
+    it("deve responder 400 com o nome pedido quando a grandeza não existe", async () => {
+      // Dado
+      repo.findByNome.mockResolvedValue(null);
+
+      // Quando
+      const promessa = obterPorNome("Radiação Solar");
+
+      // Então
+      await expect(promessa).rejects.toMatchObject({
+        statusCode: 400,
+        message: 'Tipo de sensor "Radiação Solar" não existe no catálogo de grandezas.',
+      });
     });
   });
 

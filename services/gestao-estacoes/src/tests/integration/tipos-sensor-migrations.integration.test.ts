@@ -1,55 +1,28 @@
-import path from "node:path";
 import { Pool, PoolClient } from "pg";
 import { abrirBancoDeTeste } from "../../../tests/integration/ambiente";
+import {
+  abrirSchema,
+  carregarMigration,
+  executar,
+  fecharSchema,
+} from "../../../tests/integration/schema-descartavel";
 
-/**
- * Executa o SQL das migrations 907 e 908 num schema descartável do banco de
- * teste. Assim o teste não depende da ordem das migrations seguintes nem mexe
- * nas tabelas que a API em teste está usando.
- */
-const PASTA = path.resolve(__dirname, "../../db/migrations");
+/** Executa o SQL das migrations 907 e 908 num schema descartável do banco de teste. */
 const SCHEMA = "mig_tipos_sensor_teste";
 
-interface MigrationCjs {
-  up: (pgm: { sql: (texto: string) => void }) => void;
-  down: (pgm: { sql: (texto: string) => void }) => void;
-}
-
-const carregar = (arquivo: string): MigrationCjs =>
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  require(path.join(PASTA, arquivo)) as MigrationCjs;
-
-const sqlDe = (passo: (pgm: { sql: (texto: string) => void }) => void): string[] => {
-  const comandos: string[] = [];
-  passo({ sql: (texto) => comandos.push(texto) });
-  return comandos;
-};
-
-const executar = async (client: PoolClient, comandos: string[]) => {
-  for (const comando of comandos) await client.query(comando);
-};
-
-const criarTabela = carregar("1790529879907_cria-tipos-sensor.cjs");
-const carga = carregar("1790529879908_carga-grandezas-iniciais.cjs");
+const criarTabela = carregarMigration("1790529879907_cria-tipos-sensor.cjs");
+const carga = carregarMigration("1790529879908_carga-grandezas-iniciais.cjs");
 
 let pool: Pool;
 let client: PoolClient;
 
 beforeAll(async () => {
   pool = abrirBancoDeTeste();
-  client = await pool.connect();
-  await client.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`);
-  await client.query(`CREATE SCHEMA ${SCHEMA}`);
-  await client.query(`SET search_path TO ${SCHEMA}, public`);
+  client = await abrirSchema(pool, SCHEMA);
 });
 
 afterAll(async () => {
-  try {
-    await client.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`);
-  } finally {
-    client.release();
-    await pool.end();
-  }
+  await fecharSchema(pool, client, SCHEMA);
 });
 
 const existeTabela = async () => {
@@ -62,8 +35,8 @@ const existeTabela = async () => {
 describe("migrations ...907 e ...908: catálogo tipos_sensor (US-39)", () => {
   it("deve criar a tabela e carregar as 8 grandezas com a agregação correta quando as migrations sobem", async () => {
     // Quando
-    await executar(client, sqlDe(criarTabela.up));
-    await executar(client, sqlDe(carga.up));
+    await executar(client, criarTabela.up);
+    await executar(client, carga.up);
 
     // Então
     expect(await existeTabela()).toBe(true);
@@ -85,8 +58,8 @@ describe("migrations ...907 e ...908: catálogo tipos_sensor (US-39)", () => {
 
   it("deve manter as 8 linhas quando as migrations sobem de novo (idempotência)", async () => {
     // Quando
-    await executar(client, sqlDe(criarTabela.up));
-    await executar(client, sqlDe(carga.up));
+    await executar(client, criarTabela.up);
+    await executar(client, carga.up);
 
     // Então
     const r = await client.query(`SELECT count(*)::int AS total FROM tipos_sensor`);
@@ -98,7 +71,7 @@ describe("migrations ...907 e ...908: catálogo tipos_sensor (US-39)", () => {
     await client.query(`UPDATE tipos_sensor SET faixa_max = 70 WHERE nome = 'Temperatura'`);
 
     // Quando
-    await executar(client, sqlDe(carga.up));
+    await executar(client, carga.up);
 
     // Então
     const r = await client.query(`SELECT faixa_max::text FROM tipos_sensor WHERE nome = 'Temperatura'`);
@@ -131,14 +104,14 @@ describe("migrations ...907 e ...908: catálogo tipos_sensor (US-39)", () => {
     );
 
     // Quando: desce a carga (908)
-    await executar(client, sqlDe(carga.down));
+    await executar(client, carga.down);
 
     // Então: só a grandeza do Administrador ficou
     const r = await client.query(`SELECT nome FROM tipos_sensor`);
     expect(r.rows).toEqual([{ nome: "Nebulosidade" }]);
 
     // Quando: desce a tabela (907)
-    await executar(client, sqlDe(criarTabela.down));
+    await executar(client, criarTabela.down);
 
     // Então
     expect(await existeTabela()).toBe(false);

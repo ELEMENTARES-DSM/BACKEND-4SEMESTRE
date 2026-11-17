@@ -1,9 +1,10 @@
 import * as sensorRepository from "../repositories/sensor.repository";
 import * as estacaoRepository from "../repositories/estacao.repository";
+import * as tipoSensorService from "./tipo-sensor.service";
 import { CreateSensorDTO } from "../dto/create-sensor.dto";
 import { UpdateSensorDTO } from "../dto/update-sensor.dto";
 import { UserContext } from "../dto/user-context.dto";
-import { CATALOGO_TIPO_UNIDADE, StatusSensor } from "../models/sensor.model";
+import { StatusSensor } from "../models/sensor.model";
 import { AppError } from "../middlewares/error-handler";
 
 const garantirPosseDaEstacao = async (
@@ -54,13 +55,14 @@ export const create = async (
   data: CreateSensorDTO
 ) => {
   await garantirPosseDaEstacao(estacaoId, usuario);
-  await garantirTipoDisponivel(estacaoId, data.tipo);
+  const grandeza = await tipoSensorService.obterPorNome(data.tipo);
+  await garantirTipoDisponivel(estacaoId, grandeza.nome);
 
   return sensorRepository.create(estacaoId, {
     codigo: data.codigo,
     nome: data.nome,
-    tipo: data.tipo,
-    unidadeMedida: CATALOGO_TIPO_UNIDADE[data.tipo],
+    tipo: grandeza.nome,
+    unidadeMedida: grandeza.unidade,
     fator: data.fator ?? 1.0,
     ganho: data.ganho ?? 0.0,
   });
@@ -87,11 +89,12 @@ export const update = async (
   }
 
   await garantirPosseDaEstacao(sensor.estacao_id, usuario);
-  await garantirTipoDisponivel(sensor.estacao_id, data.tipo, sensorId);
+  const grandeza = await tipoSensorService.obterPorNome(data.tipo);
+  await garantirTipoDisponivel(sensor.estacao_id, grandeza.nome, sensorId);
 
   const atualizado = await sensorRepository.update(sensorId, {
-    tipo: data.tipo,
-    unidadeMedida: CATALOGO_TIPO_UNIDADE[data.tipo],
+    tipo: grandeza.nome,
+    unidadeMedida: grandeza.unidade,
     fator: data.fator ?? 1.0,
     ganho: data.ganho ?? 0.0,
   });

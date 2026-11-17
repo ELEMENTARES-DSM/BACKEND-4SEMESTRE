@@ -1,10 +1,10 @@
 import { z } from "zod";
-import { TIPOS_SENSOR } from "../models/sensor.model";
 
 export const createSensorSchema = z.object({
   codigo: z.string().trim().min(1).max(30).optional(),
   nome: z.string().trim().min(1).max(100).optional(),
-  tipo: z.enum(TIPOS_SENSOR as [string, ...string[]]),
+  // Nome de uma grandeza do catálogo; quem confere se existe é o service.
+  tipo: z.string().trim().min(1).max(100),
   fator: z.number().optional(),
   ganho: z.number().optional(),
 });

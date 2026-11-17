@@ -10,6 +10,8 @@ module.exports = {
     "src/routes/public-estacao.routes.ts",
     "src/services/tipo-sensor.service.ts",
     "src/validations/tipo-sensor.validation.ts",
+    "src/services/sensor.service.ts",
+    "src/validations/sensor.validation.ts",
   ],
   coverageThreshold: {
     global: {
