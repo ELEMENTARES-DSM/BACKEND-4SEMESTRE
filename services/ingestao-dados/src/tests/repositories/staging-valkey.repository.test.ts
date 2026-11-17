@@ -1,6 +1,7 @@
 import { valkey } from "../../config/valkey";
 import {
   chaveMensagem,
+  chaveVisto,
   contarPendentes,
   descartarPendente,
   encerrarSemPublicar,
@@ -12,6 +13,7 @@ import {
   LISTA_RECEBIDAS,
   marcarEncaminhada,
   marcarPendente,
+  marcarVisto,
   proximaPendente,
   RETENCAO_MS,
 } from "../../repositories/staging-valkey.repository";
@@ -44,6 +46,7 @@ beforeEach(() => {
     lRange: jest.fn(async () => ["a", "b"]),
     lRem: jest.fn(async () => 1),
     hGetAll: jest.fn(async () => ({})),
+    set: jest.fn(async (): Promise<string | null> => null),
   };
   jest.mocked(valkey).mockReturnValue(cliente as never);
 });
@@ -140,6 +143,72 @@ describe("encerrarSemPublicar", () => {
 
     // Então (Assert)
     expect(comandos).toContainEqual(["hSet", chaveMensagem("id-1"), { status: "duplicada" }]);
+  });
+});
+
+describe("marcarVisto", () => {
+  const ESTACAO = "00000000-0000-4000-8000-00000000000a";
+  const UNIXTIME = 1792400000;
+
+  describe("US-13 · duplicata por estação e horário no Valkey", () => {
+    it("deve devolver nova quando a chave staging:visto não existia", async () => {
+      // Dado (Arrange)
+      cliente.set.mockResolvedValue(null);
+
+      // Quando (Act)
+      const resultado = await marcarVisto(ESTACAO, UNIXTIME, "id-1", AGORA);
+
+      // Então (Assert)
+      expect(resultado).toBe("nova");
+    });
+
+    it("deve devolver nova quando a chave já guarda o mesmo id, porque é a mesma mensagem verificada de novo", async () => {
+      // Dado (Arrange)
+      cliente.set.mockResolvedValue("id-1");
+
+      // Quando (Act)
+      const resultado = await marcarVisto(ESTACAO, UNIXTIME, "id-1", AGORA);
+
+      // Então (Assert)
+      expect(resultado).toBe("nova");
+    });
+
+    it("deve devolver duplicada quando a chave guarda o id de outra mensagem", async () => {
+      // Dado (Arrange)
+      cliente.set.mockResolvedValue("id-original");
+
+      // Quando (Act)
+      const resultado = await marcarVisto(ESTACAO, UNIXTIME, "id-copia", AGORA);
+
+      // Então (Assert)
+      expect(resultado).toBe("duplicada");
+    });
+
+    it("deve usar SET NX GET com expiração 7 dias depois do agora quando marca a chave", async () => {
+      // Dado (Arrange)
+      // Quando (Act)
+      await marcarVisto(ESTACAO, UNIXTIME, "id-1", AGORA);
+
+      // Então (Assert)
+      expect(cliente.set).toHaveBeenCalledWith(chaveVisto(ESTACAO, UNIXTIME), "id-1", {
+        NX: true,
+        GET: true,
+        PXAT: SETE_DIAS_DEPOIS.getTime(),
+      });
+      expect(chaveVisto(ESTACAO, UNIXTIME)).toBe(`staging:visto:${ESTACAO}:${UNIXTIME}`);
+    });
+
+    it("deve propagar o erro quando o Valkey está fora", async () => {
+      // Dado (Arrange)
+      const erro = new Error("Valkey indisponível");
+      cliente.set.mockRejectedValue(erro);
+
+      // Quando (Act)
+      const resultado = marcarVisto(ESTACAO, UNIXTIME, "id-1", AGORA);
+
+      // Então (Assert)
+      await expect(resultado).rejects.toBe(erro);
+    });
   });
 });
 

@@ -5,10 +5,11 @@ import {
   lerMensagem,
   listarRecebidas,
   marcarPendente,
+  marcarVisto,
   MensagemStaging,
 } from "../repositories/staging-valkey.repository";
+import { atualizarSinalEstacao } from "../repositories/estacao.repository";
 import { ValidarPayloadService } from "./validar-payload.service";
-import { gravarAceita, gravarRejeitada } from "./gravar-staging.service";
 import { conferirEstacao } from "./validar-estacao.service";
 import { registrarRejeicao } from "./registro-rejeicao.service";
 import { registrarDuplicadaIgnorada } from "./registro-duplicada.service";
@@ -141,23 +142,25 @@ export async function verificarMensagem(
     return recusar(staging, motivoEstacao, agora(), mensagem);
   }
 
-  // Até a 40.04, a duplicata (TASK 13.01) é o índice único da staging_telemetria.
-  // Com o PostgreSQL fora não dá para saber: a leitura segue como aceita e o
-  // servico-validacao descarta a repetição pelo UNIQUE (sensor_id, unixtime).
-  const gravacao = await semTravarNoPostgres(
-    () => gravarAceita(mensagem, staging.id),
-    "gravar a aceita e o último sinal",
-    staging.id,
-  );
-  if (gravacao === "duplicata") {
+  // Duplicata (US-13) pela chave staging:visto no Valkey, mesmo com o PostgreSQL fora.
+  const { timestamp, nivel_bateria } = validacao.payloadValidado;
+  const unixtime = Math.floor(Date.parse(timestamp) / 1000);
+  if ((await marcarVisto(estacaoId, unixtime, staging.id, agora())) === "duplicada") {
     await encerrarSemPublicar(staging.id, "duplicada", agora());
-    registrarDuplicadaIgnorada({ estacaoId, timestamp: validacao.payloadValidado.timestamp });
+    registrarDuplicadaIgnorada({ estacaoId, timestamp });
     return "duplicada";
   }
 
   await marcarPendente(staging.id);
   gravacaoMetricsService.incrementarGravada();
   solicitarProcessamentoPendentes();
+  // Último sinal (US-14) só depois de a publicação já ter sido pedida. Com o
+  // PostgreSQL fora, fica para a próxima leitura aceita.
+  await semTravarNoPostgres(
+    () => atualizarSinalEstacao({ estacaoId, ultimoPing: staging.recebidoEm, nivelBateria: nivel_bateria }),
+    "atualizar o último sinal",
+    staging.id,
+  );
   return "pendente";
 }
 
@@ -167,14 +170,6 @@ async function recusar(
   agora: Date,
   mensagem?: MensagemIngestaoInput,
 ): Promise<ResultadoVerificacao> {
-  // Sem UUID no tópico não há estação para a linha da staging_telemetria.
-  if (mensagem) {
-    await semTravarNoPostgres(
-      () => gravarRejeitada(mensagem, motivoRecusa, staging.id),
-      "gravar a recusada",
-      staging.id,
-    );
-  }
   await encerrarSemPublicar(staging.id, "recusada", agora, motivoRecusa);
   gravacaoMetricsService.incrementarRejeitadaGravada();
   registrarRejeicao(motivoRecusa, mensagem?.estacaoId ?? staging.topico);
@@ -182,11 +177,10 @@ async function recusar(
 }
 
 /**
- * US-40 · Cenário 4: até a 40.04 a staging_telemetria e o último sinal ainda
- * ficam no PostgreSQL. Falha ali vai para o log e não trava o Valkey nem a
- * publicação.
+ * US-40 · Cenário 4: o último sinal fica no PostgreSQL. Falha ali vai para o
+ * log e não trava o Valkey nem a publicação.
  */
-async function semTravarNoPostgres<T>(
+export async function semTravarNoPostgres<T>(
   gravar: () => Promise<T>,
   acao: string,
   stagingId: string,

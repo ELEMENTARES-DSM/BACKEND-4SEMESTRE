@@ -16,15 +16,14 @@ import { configurarPublisherStaging } from "../../services/staging-publisher.ser
 import { ReceivedMetricsService } from "../../services/received-metrics.service";
 import { duplicateMetricsService } from "../../services/duplicate-metrics.service";
 import { rejectionMetricsService } from "../../services/rejection-metrics.service";
-import { gravacaoMetricsService } from "../../services/gravacao-metrics.service";
 import { logger } from "../../utils/logger";
 import { cadastrarEstacao, criarTabelaEstacoes } from "./helpers/estacoes";
 import { esperar, usarValkeyDeTeste } from "./helpers/valkey";
 
 // TASK 11.05: mensagem publicada no MQTT percorre o fluxo inteiro da ingestão
-// (Valkey, validação, estação, duplicata, staging_telemetria e último sinal)
-// com Valkey e PostgreSQL de teste. O broker é o aedes em memória, isolado por
-// arquivo; a publicação no RabbitMQ é só observada.
+// (Valkey, validação, estação, duplicata e último sinal) com Valkey e
+// PostgreSQL de teste. O broker é o aedes em memória, isolado por arquivo; a
+// publicação no RabbitMQ é só observada.
 const integration =
   process.env.STAGING_TEST_DATABASE_URL && process.env.VALKEY_TEST_URL ? describe : describe.skip;
 
@@ -42,12 +41,12 @@ integration("TASK 11.05 · fluxo MQTT → Valkey → verificação", () => {
   const payload = (timestamp: string, extras = "") =>
     `{"timestamp":"${timestamp}"${extras},"leituras":[{"sensor":"T-01","valor":25.4}]}`;
 
-  const linhasStaging = async (estacaoId: string) => {
-    const { rows } = await pool.query(
-      "SELECT * FROM staging_telemetria WHERE estacao_uuid = $1 ORDER BY criado_em",
-      [estacaoId],
+  // Mensagens da estação no Valkey (o banco lógico é só deste arquivo).
+  const mensagensDa = async (estacaoId: string) => {
+    const hashes = await Promise.all(
+      (await valkey().keys("staging:msg:*")).map((chave) => valkey().hGetAll(chave)),
     );
-    return rows;
+    return hashes.filter((h) => h.topico === topicoDe(estacaoId));
   };
 
   const sinalEstacao = async (estacaoId: string) => {
@@ -66,11 +65,6 @@ integration("TASK 11.05 · fluxo MQTT → Valkey → verificação", () => {
     pool.options.connectionString = process.env.STAGING_TEST_DATABASE_URL;
     pool.options.options = `-c search_path=${schema}`;
     await pool.query(`CREATE SCHEMA ${schema}`);
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const migration = require("../../db/migrations/1791986171448_create-staging-telemetria.cjs");
-    const comandos: string[] = [];
-    migration.up({ sql: (sql: string) => comandos.push(sql) });
-    for (const sql of comandos) await pool.query(sql);
     await criarTabelaEstacoes(pool);
     await usarValkeyDeTeste(3);
 
@@ -117,16 +111,15 @@ integration("TASK 11.05 · fluxo MQTT → Valkey → verificação", () => {
     jest.spyOn(console, "warn").mockImplementation(() => undefined);
     jest.spyOn(console, "error").mockImplementation(() => undefined);
     processarPendentes.mockResolvedValue(undefined);
-    await pool.query("TRUNCATE staging_telemetria, estacoes");
+    await pool.query("TRUNCATE estacoes");
     // O publicador é falso aqui: as pendentes de um teste não podem contar no seguinte.
     await valkey().del(LISTA_PENDENTES);
     recebidas.reset();
     duplicateMetricsService.reset();
     rejectionMetricsService.reset();
-    gravacaoMetricsService.reset();
   });
 
-  it("deve gravar recebida na staging_telemetria, atualizar o último sinal e pedir a publicação quando a leitura é válida", async () => {
+  it("deve marcar pendente, atualizar o último sinal e pedir a publicação quando a leitura é válida", async () => {
     // Dado (Arrange)
     const estacaoId = randomUUID();
     await cadastrarEstacao(pool, estacaoId, "Com Falha");
@@ -136,20 +129,15 @@ integration("TASK 11.05 · fluxo MQTT → Valkey → verificação", () => {
     await esperarVerificadas(1);
 
     // Então (Assert)
-    const linhas = await linhasStaging(estacaoId);
-    expect(linhas).toHaveLength(1);
-    expect(linhas[0]).toMatchObject({
-      status: "recebida",
-      unixtime: String(Date.parse("2026-10-20T12:00:00Z") / 1000),
-      motivo_rejeicao: null,
-    });
+    const [gravada] = await mensagensDa(estacaoId);
+    expect(gravada.status).toBe("pendente");
     const sinal = await sinalEstacao(estacaoId);
     expect(sinal.nivel_bateria).toBe(87);
-    expect(sinal.ultimo_ping.toISOString()).toBe(linhas[0].criado_em.toISOString());
+    expect(sinal.ultimo_ping.toISOString()).toBe(gravada.recebidoEm);
     expect(processarPendentes).toHaveBeenCalledTimes(1);
   });
 
-  it("deve gravar rejeitada e somar em leiturasRejeitadas quando o payload é inválido", async () => {
+  it("deve marcar recusada com o motivo e somar em leiturasRejeitadas quando o payload é inválido", async () => {
     // Dado (Arrange)
     const estacaoId = randomUUID();
     await cadastrarEstacao(pool, estacaoId);
@@ -159,32 +147,36 @@ integration("TASK 11.05 · fluxo MQTT → Valkey → verificação", () => {
     await esperarVerificadas(1);
 
     // Então (Assert)
-    const linhas = await linhasStaging(estacaoId);
-    expect(linhas).toHaveLength(1);
-    expect(linhas[0]).toMatchObject({ status: "rejeitada", motivo_rejeicao: "Payload malformado", payload_bruto: "texto solto" });
+    expect(await mensagensDa(estacaoId)).toEqual([
+      expect.objectContaining({ status: "recusada", motivo: "Payload malformado", conteudo: "texto solto" }),
+    ]);
     expect(rejectionMetricsService.obterMetricas()).toEqual({ "Payload malformado": 1 });
     expect((await sinalEstacao(estacaoId)).ultimo_ping).toBeNull();
     expect(processarPendentes).not.toHaveBeenCalled();
   });
 
-  it("deve somar em duplicadasIgnoradas e não gravar de novo quando a mensagem se repete", async () => {
-    // Dado (Arrange)
-    const estacaoId = randomUUID();
-    await cadastrarEstacao(pool, estacaoId);
-    const mensagem = payload("2026-10-20T12:05:00Z");
+  describe("US-40 · Cenário 5 · a mesma leitura chega 2 vezes", () => {
+    it("deve seguir 1 vez só e deixar a repetição duplicada quando a mensagem se repete", async () => {
+      // Dado (Arrange)
+      const estacaoId = randomUUID();
+      await cadastrarEstacao(pool, estacaoId);
+      const mensagem = payload("2026-10-20T12:05:00Z");
 
-    // Quando (Act)
-    await estacao.publishAsync(topicoDe(estacaoId), mensagem, { qos: 1 });
-    await estacao.publishAsync(topicoDe(estacaoId), mensagem, { qos: 1 });
-    await esperarVerificadas(2);
+      // Quando (Act)
+      await estacao.publishAsync(topicoDe(estacaoId), mensagem, { qos: 1 });
+      await estacao.publishAsync(topicoDe(estacaoId), mensagem, { qos: 1 });
+      await esperarVerificadas(2);
 
-    // Então (Assert)
-    expect(await linhasStaging(estacaoId)).toHaveLength(1);
-    expect(duplicateMetricsService.obterTotal()).toBe(1);
-    expect(rejectionMetricsService.obterMetricas()).toEqual({});
+      // Então (Assert)
+      const status = (await mensagensDa(estacaoId)).map((h) => h.status).sort();
+      expect(status).toEqual(["duplicada", "pendente"]);
+      expect(await valkey().lLen(LISTA_PENDENTES)).toBe(1);
+      expect(duplicateMetricsService.obterTotal()).toBe(1);
+      expect(rejectionMetricsService.obterMetricas()).toEqual({});
+    });
   });
 
-  it("deve gravar rejeitada com o motivo da US-12 quando a estação é desconhecida ou inativa", async () => {
+  it("deve marcar recusada com o motivo da US-12 quando a estação é desconhecida ou inativa", async () => {
     // Dado (Arrange)
     const desconhecida = randomUUID();
     const inativa = randomUUID();
@@ -196,11 +188,11 @@ integration("TASK 11.05 · fluxo MQTT → Valkey → verificação", () => {
     await esperarVerificadas(2);
 
     // Então (Assert)
-    expect(await linhasStaging(desconhecida)).toEqual([
-      expect.objectContaining({ status: "rejeitada", motivo_rejeicao: "Estação desconhecida" }),
+    expect(await mensagensDa(desconhecida)).toEqual([
+      expect.objectContaining({ status: "recusada", motivo: "Estação desconhecida" }),
     ]);
-    expect(await linhasStaging(inativa)).toEqual([
-      expect.objectContaining({ status: "rejeitada", motivo_rejeicao: "Estação inativa" }),
+    expect(await mensagensDa(inativa)).toEqual([
+      expect.objectContaining({ status: "recusada", motivo: "Estação inativa" }),
     ]);
     expect((await sinalEstacao(inativa)).ultimo_ping).toBeNull();
     expect(rejectionMetricsService.obterMetricas()).toEqual({ "Estação desconhecida": 1, "Estação inativa": 1 });
@@ -219,60 +211,43 @@ integration("TASK 11.05 · fluxo MQTT → Valkey → verificação", () => {
     await esperarVerificadas(3);
 
     // Então (Assert)
-    expect(await linhasStaging(estacaoId)).toHaveLength(2);
+    expect(await mensagensDa(estacaoId)).toHaveLength(3);
   });
 
-  it("deve seguir para a publicação, registrando no log e sem mexer no último sinal, quando a staging_telemetria está fora", async () => {
-    // Dado (Arrange)
-    const estacaoId = randomUUID();
-    await cadastrarEstacao(pool, estacaoId);
-    const erroLog = jest.spyOn(logger, "error").mockImplementation(() => undefined);
-    // Tira a staging_telemetria do ar renomeando a tabela: toda gravação nela falha.
-    await pool.query("ALTER TABLE staging_telemetria RENAME TO staging_telemetria_fora");
-
-    // Quando (Act)
-    try {
+  describe("US-14 · último sinal com o PostgreSQL fora", () => {
+    it("deve seguir para a publicação e atualizar o último sinal só na próxima leitura quando a tabela estacoes está fora", async () => {
+      // Dado (Arrange)
+      const estacaoId = randomUUID();
+      await cadastrarEstacao(pool, estacaoId);
       await estacao.publishAsync(topicoDe(estacaoId), payload("2026-10-20T12:20:00Z"), { qos: 1 });
       await esperarVerificadas(1);
-    } finally {
-      await pool.query("ALTER TABLE staging_telemetria_fora RENAME TO staging_telemetria");
-    }
+      const sinalAntes = (await sinalEstacao(estacaoId)).ultimo_ping;
+      const erroLog = jest.spyOn(logger, "error").mockImplementation(() => undefined);
+      // Tira a tabela do ar: a conferência usa o último cadastro lido e o
+      // último sinal falha.
+      await pool.query("ALTER TABLE estacoes RENAME TO estacoes_fora");
 
-    // Então (Assert)
-    expect(await valkey().lLen(LISTA_PENDENTES)).toBe(1);
-    expect(processarPendentes).toHaveBeenCalledTimes(1);
-    expect(erroLog).toHaveBeenCalledWith(
-      "PostgreSQL indisponível ao gravar a aceita e o último sinal; a leitura segue pelo Valkey",
-      expect.objectContaining({ erro: expect.stringContaining("staging_telemetria") }),
-    );
-    expect(await linhasStaging(estacaoId)).toHaveLength(0);
-    expect((await sinalEstacao(estacaoId)).ultimo_ping).toBeNull();
-    expect(gravacaoMetricsService.obterMensagensGravadas()).toBe(1);
-  }, 30000);
+      // Quando (Act)
+      try {
+        await estacao.publishAsync(topicoDe(estacaoId), payload("2026-10-20T12:21:00Z"), { qos: 1 });
+        await esperarVerificadas(2);
+      } finally {
+        await pool.query("ALTER TABLE estacoes_fora RENAME TO estacoes");
+      }
+      const sinalComBancoFora = (await sinalEstacao(estacaoId)).ultimo_ping;
+      await estacao.publishAsync(topicoDe(estacaoId), payload("2026-10-20T12:22:00Z"), { qos: 1 });
+      await esperarVerificadas(3);
 
-  it("deve fazer os contadores de gravadas e rejeitadas gravadas baterem com a staging_telemetria", async () => {
-    // Dado (Arrange)
-    const estacaoId = randomUUID();
-    await cadastrarEstacao(pool, estacaoId);
-    const valida = payload("2026-10-20T12:25:00Z");
-
-    // Quando (Act)
-    await estacao.publishAsync(topicoDe(estacaoId), valida, { qos: 1 });
-    await estacao.publishAsync(topicoDe(estacaoId), valida, { qos: 1 });
-    await estacao.publishAsync(topicoDe(estacaoId), "texto solto", { qos: 1 });
-    await estacao.publishAsync(topicoDe(randomUUID()), payload("2026-10-20T12:25:00Z"), { qos: 1 });
-    await esperarVerificadas(4);
-
-    // Então (Assert)
-    const { rows } = await pool.query(
-      "SELECT status, count(*)::int AS total FROM staging_telemetria GROUP BY status ORDER BY status",
-    );
-    expect(rows).toEqual([
-      { status: "recebida", total: 1 },
-      { status: "rejeitada", total: 2 },
-    ]);
-    expect(gravacaoMetricsService.obterMensagensGravadas()).toBe(1);
-    expect(gravacaoMetricsService.obterRejeitadasGravadas()).toBe(2);
-    expect(duplicateMetricsService.obterTotal()).toBe(1);
+      // Então (Assert)
+      expect(await valkey().lLen(LISTA_PENDENTES)).toBe(3);
+      expect(processarPendentes).toHaveBeenCalledTimes(3);
+      expect(erroLog).toHaveBeenCalledWith(
+        "PostgreSQL indisponível ao atualizar o último sinal; a leitura segue pelo Valkey",
+        expect.objectContaining({ erro: expect.stringContaining("estacoes") }),
+      );
+      expect(sinalComBancoFora).toEqual(sinalAntes);
+      const ultima = (await mensagensDa(estacaoId)).map((h) => h.recebidoEm).sort().at(-1);
+      expect((await sinalEstacao(estacaoId)).ultimo_ping.toISOString()).toBe(ultima);
+    }, 30000);
   });
 });

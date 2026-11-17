@@ -77,6 +77,30 @@ export async function encerrarSemPublicar(
     .exec();
 }
 
+export const chaveVisto = (estacaoId: string, unixtime: number): string =>
+  `staging:visto:${estacaoId}:${unixtime}`;
+
+/**
+ * Duplicata (US-13): marca estação + horário como vistos por 7 dias com um
+ * único SET NX GET. O valor é o id da mensagem, para a mesma mensagem
+ * verificada de novo depois de uma falha no meio do caminho não virar
+ * duplicata de si mesma. Depois dos 7 dias, a repetição é barrada pelo índice
+ * único de medidas (US-17).
+ */
+export async function marcarVisto(
+  estacaoId: string,
+  unixtime: number,
+  id: string,
+  agora: Date,
+): Promise<"nova" | "duplicada"> {
+  const anterior = await valkey().set(chaveVisto(estacaoId, unixtime), id, {
+    NX: true,
+    GET: true,
+    PXAT: expiraEm(agora).getTime(),
+  });
+  return anterior === null || anterior === id ? "nova" : "duplicada";
+}
+
 /** Aceita: entra no fim da lista de publicação. */
 export async function marcarPendente(id: string): Promise<void> {
   await valkey()

@@ -81,11 +81,6 @@ integration("US-40 · staging no Valkey com Mosquitto, Valkey e PostgreSQL reais
   beforeAll(async () => {
     banco = new Pool({ connectionString: STAGING_TEST_DATABASE_URL, options: `-c search_path=${schema}` });
     await banco.query(`CREATE SCHEMA ${schema}`);
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const migration = require("../../db/migrations/1791986171448_create-staging-telemetria.cjs");
-    const comandos: string[] = [];
-    migration.up({ sql: (sql: string) => comandos.push(sql) });
-    for (const sql of comandos) await banco.query(sql);
     await criarTabelaEstacoes(banco);
 
     const destinoBanco = new URL(STAGING_TEST_DATABASE_URL as string);
@@ -225,6 +220,37 @@ integration("US-40 · staging no Valkey com Mosquitto, Valkey e PostgreSQL reais
     });
   });
 
+  describe("US-40 · Cenário 5 · a mesma leitura chega 2 vezes", () => {
+    it("deve publicar em telemetria.bruta uma vez só e deixar a repetição duplicada quando a leitura se repete", async () => {
+      // Dado (Arrange)
+      const estacaoId = randomUUID();
+      await cadastrarEstacao(banco, estacaoId);
+      const payload = leitura("2026-10-20T12:07:00Z");
+      await publicarAteGravar(estacaoId, payload);
+      const antes = (await hashes(estacaoId)).length;
+
+      // Quando (Act)
+      await estacao.publishAsync(topicoDe(estacaoId), payload, { qos: 1 });
+      await esperar(async () => (await hashes(estacaoId)).length === antes + 1);
+
+      // Então (Assert)
+      const ids = (await hashes(estacaoId)).map((h) => h.id);
+      await esperar(async () => {
+        const todos = await Promise.all(ids.map(status));
+        return todos.filter((s) => s === "encaminhada").length === 1
+          && todos.filter((s) => s === "duplicada").length === ids.length - 1;
+      });
+      const [original] = (await Promise.all(ids.map(async (id) => ({ id, s: await status(id) }))))
+        .filter(({ s }) => s === "encaminhada");
+      const repetidas = ids.filter((id) => id !== original.id);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await lerPublicadas();
+      expect(publicadas.has(original.id)).toBe(true);
+      expect(repetidas.filter((id) => publicadas.has(id))).toEqual([]);
+      expect(await direto.ttl(chaveMensagem(repetidas[0]))).toBeGreaterThan(6 * 24 * 3600);
+    });
+  });
+
   describe("US-40 · Cenário 6 · Valkey parado", () => {
     it("deve não confirmar, desconectar e gravar a leitura quando o Valkey volta e o broker a entrega de novo", async () => {
       // Dado (Arrange)
@@ -278,16 +304,23 @@ integration("US-40 · staging no Valkey com Mosquitto, Valkey e PostgreSQL reais
           novas.map((h) => expect.objectContaining({ staging_id: h.id, estacao_uuid: estacaoId })),
         );
         expect(logger.error).toHaveBeenCalledWith(
-          "PostgreSQL indisponível ao gravar a aceita e o último sinal; a leitura segue pelo Valkey",
+          "PostgreSQL indisponível ao atualizar o último sinal; a leitura segue pelo Valkey",
           expect.objectContaining({ stagingId: novas[0].id }),
         );
       } finally {
         await proxyBanco.ligar();
       }
-      // Até a 40.04 o último sinal fica no PostgreSQL: com ele fora, não muda.
+      // US-14: com o PostgreSQL fora o último sinal não muda; volta na próxima leitura.
       const { rows: sinalDepois } = await banco.query("SELECT ultimo_ping FROM estacoes WHERE id = $1", [estacaoId]);
       expect(sinalDepois[0].ultimo_ping).toEqual(sinalAntes[0].ultimo_ping);
-    }, 45000);
+      const proxima = leitura("2026-10-20T12:33:00Z");
+      await publicarAteGravar(estacaoId, proxima);
+      const [daProxima] = (await hashes(estacaoId)).filter((h) => h.conteudo === proxima);
+      await esperar(async () => {
+        const { rows } = await banco.query("SELECT ultimo_ping FROM estacoes WHERE id = $1", [estacaoId]);
+        return rows[0].ultimo_ping?.toISOString() === daProxima.recebidoEm;
+      }, 20000);
+    }, 60000);
   });
 
   describe("US-40 · erro temporário: PostgreSQL fora e estação nunca vista", () => {
@@ -315,8 +348,8 @@ integration("US-40 · staging no Valkey com Mosquitto, Valkey e PostgreSQL reais
         expect.objectContaining({ stagingId: gravada.id }),
       );
       await esperar(async () => (await status(gravada.id)) === "encaminhada", 20000);
-      const { rows } = await banco.query("SELECT id, status FROM staging_telemetria WHERE estacao_uuid = $1", [estacaoId]);
-      expect(rows).toEqual([{ id: gravada.id, status: "recebida" }]);
+      const { rows: depois } = await banco.query("SELECT ultimo_ping FROM estacoes WHERE id = $1", [estacaoId]);
+      expect(depois[0].ultimo_ping.toISOString()).toBe(gravada.recebidoEm);
     }, 45000);
   });
 });
