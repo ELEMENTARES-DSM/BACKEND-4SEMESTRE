@@ -71,7 +71,7 @@ describe("sensor.repository (US-39)", () => {
         // Quando
         await chamar();
 
-        // Então: sem o alias a resposta traria offset_calibracao; sem as aspas o PostgreSQL recusa OFFSET
+        // Então: sem o alias a resposta traria offset_calibracao em vez de offset
         const [sql] = query.mock.calls[0];
         expect(sql).toContain(ALIAS);
         expect(sql).toContain("fator_conversao");

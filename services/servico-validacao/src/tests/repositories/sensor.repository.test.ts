@@ -44,7 +44,7 @@ describe("sensor.repository", () => {
     // Quando
     await buscarSensoresPorEvento("estacao-uuid-1", ["TEMP-01"], { query: queryMock as never });
 
-    // Então: OFFSET é palavra reservada, então o alias precisa das aspas
+    // Então: a coluna é offset_calibracao (OFFSET é palavra reservada) e o alias devolve o nome "offset"
     const sql = String(queryMock.mock.calls[0][0]);
     expect(sql).toContain("s.fator_conversao,");
     expect(sql).toContain('s.offset_calibracao AS "offset"');

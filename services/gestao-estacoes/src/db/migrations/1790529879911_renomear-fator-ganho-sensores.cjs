@@ -7,12 +7,13 @@
  * Fórmula: valor = bruto x fator_conversao + offset. O nome "ganho" confundia
  * (em eletrônica, ganho é multiplicativo, e aqui ele somava). A coluna é
  * offset_calibracao, e não offset, porque OFFSET é palavra reservada do
- * PostgreSQL ("s.offset" dá erro de sintaxe); o campo da API e da tela
- * continua se chamando offset.
+ * PostgreSQL: uma coluna chamada offset só existiria entre aspas ("offset") e
+ * qualquer SELECT offset FROM ... ou CREATE TABLE (offset ...) sem aspas dá erro
+ * de sintaxe. O campo da API e da tela continua se chamando offset.
  *
  * Mudança incompatível: esta migration vale para todos os serviços de uma vez.
- * O servico-validacao lê com alias (s.fator_conversao AS fator, ...) até a
- * ELEM-265. O release é único: backend e front no mesmo dia, com
+ * Quem lê a tabela precisa usar os nomes novos (o servico-validacao passou a
+ * lê-los na ELEM-265). O release é único: backend e front no mesmo dia, com
  * npm run migrate antes de subir os contêineres.
  *
  * Só DDL. Idempotente: cada RENAME só roda se a coluna antiga ainda existe

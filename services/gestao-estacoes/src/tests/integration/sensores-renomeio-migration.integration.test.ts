@@ -97,15 +97,19 @@ describe("migration ...911: renomeio fator/ganho (US-39)", () => {
     expect(r.rows[0]).toEqual({ fator: "1.000000", offset: "0.000000" });
   });
 
-  it("deve ler o offset pelo alias entre aspas, porque OFFSET é palavra reservada do PostgreSQL", async () => {
-    // Com o alias entre aspas funciona
+  it("deve entregar o offset pelo alias, porque a coluna não pode se chamar offset (palavra reservada do PostgreSQL)", async () => {
+    // O alias devolve o valor com o nome do campo da API
     const r = await client.query(
       `SELECT offset_calibracao AS "offset" FROM sensores WHERE tipo = 'Temperatura'`,
     );
     expect(r.rows[0].offset).toBe("-0.025000");
 
-    // Sem as aspas o PostgreSQL recusa (erro de sintaxe)
-    await expect(client.query(`SELECT s.offset FROM sensores s`)).rejects.toMatchObject({ code: "42601" });
+    // A coluna real não se chama offset: o nome qualificado é aceito pelo parser, mas não existe (42703)
+    await expect(client.query(`SELECT s.offset FROM sensores s`)).rejects.toMatchObject({ code: "42703" });
+
+    // E offset sem aspas, sozinho, é erro de sintaxe (42601): por isso a coluna é offset_calibracao
+    await expect(client.query(`SELECT offset FROM sensores`)).rejects.toMatchObject({ code: "42601" });
+    await expect(client.query(`CREATE TEMP TABLE sem_aspas (offset int)`)).rejects.toMatchObject({ code: "42601" });
   });
 
   it("deve poder subir de novo sem erro (idempotência)", async () => {

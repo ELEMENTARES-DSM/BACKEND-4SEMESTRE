@@ -13,8 +13,8 @@ export type DbQueryable = Pick<Pool | PoolClient, "query">;
  * (tipos_sensor) por JOIN (US-19 e US-39): o Administrador muda a faixa sem
  * mudar o código, e a próxima leitura já usa o valor novo.
  *
- * A coluna offset_calibracao (OFFSET é palavra reservada do PostgreSQL) sai
- * com o alias "offset", entre aspas.
+ * A coluna offset_calibracao (a coluna não pode se chamar offset: OFFSET é
+ * palavra reservada do PostgreSQL) sai com o alias "offset", o nome do campo.
  */
 export const buscarSensoresPorEvento = async (
   estacaoUuid: string,
