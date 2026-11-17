@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { faixaDoCatalogo } from "../../helpers/catalogo";
 
 // Schema isolado com estacoes, sensores e regras_alerta mínimos (as migrations
 // reais são do gestao-estacoes e do alertas-notificacoes) e as migrations reais
@@ -16,11 +17,21 @@ export async function prepararSchemaValidacao(pool: Pool, schema: string): Promi
       status VARCHAR(20) NOT NULL DEFAULT 'Ativa'
     )
   `);
+  // Só as colunas do catálogo (tipos_sensor, do gestao-estacoes) que o serviço lê (US-39).
+  await pool.query(`
+    CREATE TABLE tipos_sensor (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      nome VARCHAR(100) NOT NULL UNIQUE,
+      unidade VARCHAR(20) NOT NULL,
+      faixa_min NUMERIC(12,2) NOT NULL,
+      faixa_max NUMERIC(12,2) NOT NULL
+    )
+  `);
   await pool.query(`
     CREATE TABLE sensores (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       estacao_id UUID NOT NULL REFERENCES estacoes(id),
-      tipo VARCHAR(50) NOT NULL DEFAULT 'Temperatura',
+      tipo VARCHAR(100) NOT NULL DEFAULT 'Temperatura' REFERENCES tipos_sensor(nome),
       codigo VARCHAR(30),
       fator_conversao NUMERIC(12,6) NOT NULL DEFAULT 1.0,
       offset_calibracao NUMERIC(12,6) NOT NULL DEFAULT 0.0,
@@ -67,19 +78,48 @@ export async function cadastrarEstacao(
   ]);
 }
 
+export interface Grandeza {
+  nome: string;
+  unidade: string;
+  faixa_min: string;
+  faixa_max: string;
+}
+
+/** Cadastra ou atualiza uma grandeza no catálogo (o Administrador mudando a faixa, por exemplo). */
+export async function cadastrarGrandeza(pool: Pick<Pool, "query">, grandeza: Grandeza): Promise<void> {
+  await pool.query(
+    `INSERT INTO tipos_sensor (nome, unidade, faixa_min, faixa_max)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (nome) DO UPDATE
+       SET unidade = EXCLUDED.unidade,
+           faixa_min = EXCLUDED.faixa_min,
+           faixa_max = EXCLUDED.faixa_max`,
+    [grandeza.nome, grandeza.unidade, grandeza.faixa_min, grandeza.faixa_max],
+  );
+}
+
 export interface NovoSensor {
   estacaoId: string;
   codigo: string;
+  /** Grandeza da carga inicial do catálogo, ou uma já cadastrada com cadastrarGrandeza. */
   tipo?: string;
   status?: "Ativo" | "Inativo";
-  fator?: string;
-  ganho?: string;
+  fator_conversao?: string;
+  offset?: string;
 }
 
 export async function cadastrarSensor(
   pool: Pick<Pool, "query">,
   sensor: NovoSensor,
 ): Promise<string> {
+  const tipo = sensor.tipo ?? "Temperatura";
+  // O sensor referencia o catálogo por FK: as grandezas da carga inicial entram sob demanda
+  // (sem sobrescrever uma faixa que o teste tenha alterado).
+  const { rowCount } = await pool.query("SELECT 1 FROM tipos_sensor WHERE nome = $1", [tipo]);
+  if (rowCount === 0) {
+    await cadastrarGrandeza(pool, { nome: tipo, ...faixaDoCatalogo(tipo) });
+  }
+
   const { rows } = await pool.query<{ id: string }>(
     `INSERT INTO sensores (estacao_id, codigo, tipo, status, fator_conversao, offset_calibracao)
      VALUES ($1, $2, $3, $4, $5, $6)
@@ -87,10 +127,10 @@ export async function cadastrarSensor(
     [
       sensor.estacaoId,
       sensor.codigo,
-      sensor.tipo ?? "Temperatura",
+      tipo,
       sensor.status ?? "Ativo",
-      sensor.fator ?? "1.0",
-      sensor.ganho ?? "0.0",
+      sensor.fator_conversao ?? "1.0",
+      sensor.offset ?? "0.0",
     ],
   );
   return rows[0].id;

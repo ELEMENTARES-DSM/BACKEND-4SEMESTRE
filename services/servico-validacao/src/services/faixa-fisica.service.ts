@@ -1,3 +1,4 @@
+import { SensorEventoRow } from "../dto/evento-telemetria.dto";
 import { paraBigIntEscala6 } from "./calibracao.service";
 
 export interface FaixaFisica {
@@ -7,23 +8,20 @@ export interface FaixaFisica {
 }
 
 /**
- * Faixas físicas fixas por grandeza (US-19), com limites inclusivos. A chave é
- * o tipo do sensor cadastrado no gestao-estacoes. O gestor não edita esses valores.
- * PM10 não estava na TASK 19.01: usa a mesma faixa do PM2.5.
+ * Faixa física da grandeza do sensor (US-19), com limites inclusivos, vinda do
+ * catálogo (tipos_sensor) na mesma consulta que traz o sensor (US-39). Não há
+ * mais tabela fixa no código: o Administrador cadastra grandezas novas e muda
+ * faixas, e a mudança vale para as leituras seguintes (as medidas já gravadas
+ * não são reavaliadas).
  */
-export const FAIXAS_FISICAS: Readonly<Record<string, FaixaFisica>> = {
-  Temperatura: { minimo: "-50", maximo: "60", unidade: "°C" },
-  "Umidade Relativa": { minimo: "0", maximo: "100", unidade: "%" },
-  "PM2.5": { minimo: "0", maximo: "1000", unidade: "µg/m³" },
-  PM10: { minimo: "0", maximo: "1000", unidade: "µg/m³" },
-  "Velocidade do Vento": { minimo: "0", maximo: "400", unidade: "km/h" },
-  "Direção do Vento": { minimo: "0", maximo: "360", unidade: "°" },
-  Precipitação: { minimo: "0", maximo: "500", unidade: "mm" },
-  "Pressão Atmosférica": { minimo: "600", maximo: "1100", unidade: "hPa" },
-};
-
-export function buscarFaixaFisica(tipo: string | undefined): FaixaFisica | undefined {
-  return tipo === undefined ? undefined : FAIXAS_FISICAS[tipo];
+export function faixaDoSensor(
+  sensor: Pick<SensorEventoRow, "faixa_min" | "faixa_max" | "unidade">,
+): FaixaFisica {
+  return {
+    minimo: sensor.faixa_min,
+    maximo: sensor.faixa_max,
+    unidade: sensor.unidade,
+  };
 }
 
 /**
