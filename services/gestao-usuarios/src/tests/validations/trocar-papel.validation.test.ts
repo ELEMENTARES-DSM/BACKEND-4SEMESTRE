@@ -1,16 +1,18 @@
 import { trocarPapelSchema } from "../../validations/user.validation";
 
 describe("trocarPapelSchema", () => {
+  const UUID_VALIDO = "11111111-2222-4333-8444-555555555555";
+
   it("valida com sucesso payload com papel_id válido", () => {
     const valid = trocarPapelSchema.safeParse({
-      papel_id: "11111111-2222-3333-4444-555555555555",
+      papel_id: UUID_VALIDO,
     });
     expect(valid.success).toBe(true);
   });
 
   it("valida com sucesso payload com papel_id e município", () => {
     const valid = trocarPapelSchema.safeParse({
-      papel_id: "11111111-2222-3333-4444-555555555555",
+      papel_id: UUID_VALIDO,
       municipio: "São José dos Campos",
     });
     expect(valid.success).toBe(true);
@@ -30,9 +32,10 @@ describe("trocarPapelSchema", () => {
 
   it("rejeita município maior que 100 caracteres", () => {
     const invalid = trocarPapelSchema.safeParse({
-      papel_id: "11111111-2222-3333-4444-555555555555",
+      papel_id: UUID_VALIDO,
       municipio: "A".repeat(101),
     });
     expect(invalid.success).toBe(false);
   });
 });
+
