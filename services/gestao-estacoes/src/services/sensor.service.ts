@@ -63,6 +63,7 @@ export const create = async (
     nome: data.nome,
     tipo: grandeza.nome,
     unidadeMedida: grandeza.unidade,
+    unidadeLeitura: data.unidade_leitura ?? null,
     fator: data.fator ?? 1.0,
     ganho: data.ganho ?? 0.0,
   });
@@ -95,6 +96,7 @@ export const update = async (
   const atualizado = await sensorRepository.update(sensorId, {
     tipo: grandeza.nome,
     unidadeMedida: grandeza.unidade,
+    unidadeLeitura: data.unidade_leitura ?? null,
     fator: data.fator ?? 1.0,
     ganho: data.ganho ?? 0.0,
   });

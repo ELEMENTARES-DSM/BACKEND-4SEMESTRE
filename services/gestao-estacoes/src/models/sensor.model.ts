@@ -13,6 +13,8 @@ export interface Sensor {
   nome: string | null;
   tipo: TipoSensor;
   unidade_medida: string;
+  /** Unidade em que a placa envia (ex.: K). Só informa; a conversão é do fator e do offset. */
+  unidade_leitura: string | null;
   fator: string;
   ganho: string;
   status: StatusSensor;

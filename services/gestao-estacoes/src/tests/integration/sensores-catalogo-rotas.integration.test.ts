@@ -96,4 +96,49 @@ describe("cadastro de sensor com grandeza do catálogo contra o PostgreSQL (US-3
     // Então
     expect(res.status).toBe(409);
   });
+
+  it("deve gravar a unidade de leitura K e devolver K e °C quando o sensor é em Kelvin (Cenário 5)", async () => {
+    // Quando
+    const res = await cadastrar({
+      codigo: "TEMP-K",
+      tipo: "Temperatura",
+      unidade_leitura: "K",
+      fator: 1,
+      ganho: -273.15,
+    });
+
+    // Então
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ unidade_leitura: "K", unidade_medida: "°C" });
+    const gravado = await pool.query(
+      "SELECT unidade_leitura, unidade_medida FROM sensores WHERE id = $1",
+      [res.body.id],
+    );
+    expect(gravado.rows).toEqual([{ unidade_leitura: "K", unidade_medida: "°C" }]);
+
+    const lista = await api
+      .get(`/estacoes/estacoes/${estacaoId}/sensores`)
+      .auth(token, { type: "bearer" })
+      .timeout(5000);
+    expect(lista.body).toEqual(
+      expect.arrayContaining([expect.objectContaining({ codigo: "TEMP-K", unidade_leitura: "K" })]),
+    );
+  });
+
+  it("deve devolver unidade_leitura nula quando o sensor não informa a unidade de leitura", async () => {
+    // Quando
+    const res = await cadastrar({ codigo: "UMI-01", tipo: "Umidade Relativa" });
+
+    // Então
+    expect(res.status).toBe(201);
+    expect(res.body.unidade_leitura).toBeNull();
+  });
+
+  it("deve responder 400 quando a unidade de leitura passa de 20 caracteres", async () => {
+    // Quando
+    const res = await cadastrar({ codigo: "PM-01", tipo: "PM10", unidade_leitura: "u".repeat(21) });
+
+    // Então
+    expect(res.status).toBe(400);
+  });
 });

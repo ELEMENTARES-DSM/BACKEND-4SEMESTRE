@@ -59,6 +59,7 @@ const sensorSalvo = (tipo: string, unidade: string): Sensor => ({
   nome: null,
   tipo,
   unidade_medida: unidade,
+  unidade_leitura: null,
   fator: "1.000000",
   ganho: "0.000000",
   status: "Ativo",

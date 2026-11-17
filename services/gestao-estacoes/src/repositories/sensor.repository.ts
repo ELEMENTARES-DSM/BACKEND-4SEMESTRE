@@ -6,6 +6,7 @@ interface DadosSensor {
   nome?: string;
   tipo: TipoSensor;
   unidadeMedida: string;
+  unidadeLeitura: string | null;
   fator: number;
   ganho: number;
 }
@@ -15,10 +16,19 @@ export const create = async (
   dados: DadosSensor
 ): Promise<Sensor> => {
   const result = await pool.query<Sensor>(
-    `INSERT INTO sensores (estacao_id, tipo, unidade_medida, fator, ganho, codigo, nome)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO sensores (estacao_id, tipo, unidade_medida, unidade_leitura, fator, ganho, codigo, nome)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING *`,
-    [estacaoId, dados.tipo, dados.unidadeMedida, dados.fator, dados.ganho, dados.codigo ?? null, dados.nome ?? null]
+    [
+      estacaoId,
+      dados.tipo,
+      dados.unidadeMedida,
+      dados.unidadeLeitura,
+      dados.fator,
+      dados.ganho,
+      dados.codigo ?? null,
+      dados.nome ?? null,
+    ]
   );
 
   return result.rows[0];
@@ -64,10 +74,10 @@ export const update = async (
 ): Promise<Sensor | null> => {
   const result = await pool.query<Sensor>(
     `UPDATE sensores
-     SET tipo = $1, unidade_medida = $2, fator = $3, ganho = $4
-     WHERE id = $5
+     SET tipo = $1, unidade_medida = $2, unidade_leitura = $3, fator = $4, ganho = $5
+     WHERE id = $6
      RETURNING *`,
-    [dados.tipo, dados.unidadeMedida, dados.fator, dados.ganho, id]
+    [dados.tipo, dados.unidadeMedida, dados.unidadeLeitura, dados.fator, dados.ganho, id]
   );
 
   return result.rows[0] ?? null;

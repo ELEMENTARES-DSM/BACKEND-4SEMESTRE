@@ -5,6 +5,13 @@ export const createSensorSchema = z.object({
   nome: z.string().trim().min(1).max(100).optional(),
   // Nome de uma grandeza do catálogo; quem confere se existe é o service.
   tipo: z.string().trim().min(1).max(100),
+  // Opcional. Vazio ou ausente significa "a placa já envia na unidade da grandeza".
+  unidade_leitura: z
+    .string()
+    .trim()
+    .max(20)
+    .nullish()
+    .transform((valor) => (valor ? valor : null)),
   fator: z.number().optional(),
   ganho: z.number().optional(),
 });

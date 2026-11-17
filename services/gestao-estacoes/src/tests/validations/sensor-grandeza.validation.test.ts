@@ -54,7 +54,7 @@ describe("sensor.validation: grandeza vinda do catálogo (US-39)", () => {
       const resultado = updateSensorSchema.safeParse(entrada);
 
       // Então
-      expect(resultado.data).toEqual({ tipo: "Pressão Atmosférica" });
+      expect(resultado.data).toEqual({ tipo: "Pressão Atmosférica", unidade_leitura: null });
     });
   });
 });
