@@ -1,95 +1,71 @@
 import { describe, it, expect, beforeEach } from "@jest/globals";
-import {
-  RejectionMetricsService,
-  rejectionMetricsService,
-} from "../../services/rejection-metrics.service";
+import { RejectionMetricsService } from "../../services/rejection-metrics.service";
 
-
+// Unitário de RejectionMetricsService: contagem em memória, sem recurso externo.
 describe("RejectionMetricsService", () => {
   let service: RejectionMetricsService;
 
   beforeEach(() => {
     service = new RejectionMetricsService();
-    rejectionMetricsService.reset();
   });
 
-  it("deve devolver {} quando não há registros", () => {
-    expect(service.obterMetricas()).toEqual({});
-    expect(rejectionMetricsService.obterMetricas()).toEqual({});
+  describe("obterMetricas", () => {
+    it("deve devolver {} quando não há rejeições", () => {
+      // Dado (Arrange)
+      // Quando (Act)
+      const metricas = service.obterMetricas();
+
+      // Então (Assert)
+      expect(metricas).toEqual({});
+    });
+
+    it("deve devolver uma cópia quando quem chamou altera o objeto devolvido", () => {
+      // Dado (Arrange)
+      service.incrementarRejeicao("LEITURA_INCOMPLETA");
+      const copia = service.obterMetricas();
+      copia.LEITURA_INCOMPLETA = 999;
+      copia.NOVO_CAMPO = 50;
+
+      // Quando (Act)
+      const metricas = service.obterMetricas();
+
+      // Então (Assert)
+      expect(metricas).toEqual({ LEITURA_INCOMPLETA: 1 });
+    });
   });
 
-  it("deve disparar pelo menos 1000 chamadas concorrentes distribuídas em 3 motivos e manter a contagem exata", async () => {
-    const motivoA = "PAYLOAD_MALFORMADO";
-    const motivoB = "TIMESTAMP_INVALIDO";
-    const motivoC = "ESTACAO_DESCONHECIDA";
+  describe("incrementarRejeicao", () => {
+    it("deve manter a contagem exata por motivo quando há 1050 chamadas concorrentes em 3 motivos", async () => {
+      // Dado (Arrange)
+      const chamadas = [
+        ...Array.from({ length: 400 }, () => "PAYLOAD_MALFORMADO"),
+        ...Array.from({ length: 350 }, () => "TIMESTAMP_INVALIDO"),
+        ...Array.from({ length: 300 }, () => "ESTACAO_DESCONHECIDA"),
+      ];
 
-    const totalA = 400;
-    const totalB = 350;
-    const totalC = 300;
-    const totalChamadas = totalA + totalB + totalC; // 1050 chamadas (> 1000)
+      // Quando (Act)
+      await Promise.all(chamadas.map(async (motivo) => service.incrementarRejeicao(motivo)));
 
-    const chamadas: Promise<void>[] = [];
-
-    for (let i = 0; i < totalA; i++) {
-      chamadas.push(
-        (async () => {
-          service.incrementarRejeicao(motivoA);
-        })(),
-      );
-    }
-
-    for (let i = 0; i < totalB; i++) {
-      chamadas.push(
-        (async () => {
-          service.incrementarRejeicao(motivoB);
-        })(),
-      );
-    }
-
-    for (let i = 0; i < totalC; i++) {
-      chamadas.push(
-        (async () => {
-          service.incrementarRejeicao(motivoC);
-        })(),
-      );
-    }
-
-    expect(chamadas.length).toBe(totalChamadas);
-    expect(chamadas.length).toBeGreaterThanOrEqual(1000);
-
-    await Promise.all(chamadas);
-
-    const metricas = service.obterMetricas();
-    expect(metricas[motivoA]).toBe(totalA);
-    expect(metricas[motivoB]).toBe(totalB);
-    expect(metricas[motivoC]).toBe(totalC);
-    expect(Object.keys(metricas)).toHaveLength(3);
+      // Então (Assert)
+      expect(service.obterMetricas()).toEqual({
+        PAYLOAD_MALFORMADO: 400,
+        TIMESTAMP_INVALIDO: 350,
+        ESTACAO_DESCONHECIDA: 300,
+      });
+    });
   });
 
-  it("deve garantir que obterMetricas devolve uma cópia e alterações no objeto não mudam o estado interno", () => {
-    const motivo = "LEITURA_INCOMPLETA";
-    service.incrementarRejeicao(motivo);
+  describe("reset", () => {
+    it("deve zerar todas as contagens quando há motivos contados", () => {
+      // Dado (Arrange)
+      service.incrementarRejeicao("MOTIVO_1");
+      service.incrementarRejeicao("MOTIVO_2");
 
-    const copia1 = service.obterMetricas();
-    expect(copia1[motivo]).toBe(1);
+      // Quando (Act)
+      service.reset();
 
-    // Modificando a cópia retornada
-    copia1[motivo] = 999;
-    copia1["NOVO_CAMPO"] = 50;
-
-    const copia2 = service.obterMetricas();
-    expect(copia2[motivo]).toBe(1);
-    expect(copia2["NOVO_CAMPO"]).toBeUndefined();
-  });
-
-  it("deve zerar todas as contagens ao executar reset()", () => {
-    service.incrementarRejeicao("MOTIVO_1");
-    service.incrementarRejeicao("MOTIVO_2");
-
-    expect(Object.keys(service.obterMetricas())).toHaveLength(2);
-
-    service.reset();
-
-    expect(service.obterMetricas()).toEqual({});
+      // Então (Assert)
+      expect(service.obterMetricas()).toEqual({});
+    });
   });
 });
