@@ -37,7 +37,7 @@ No Windows, use o Git Bash. O script precisa de Docker e Node 24 na máquina.
 ## O que o script faz
 
 1. Cadastra 10 estações de teste (TF-01 a TF-10, município "Teste Fluxo") com os 5 sensores do simulador, fator_conversao 1 e offset 0 (`semente-estacoes.sql`). Pode rodar mais de uma vez.
-2. Roda o simulador em modo lote (`node dist/lote.js`), com horários únicos por estação. O lote tem uma mensagem de cada caso: duplicata, estação desconhecida, umidade 120,0 e sensor inexistente.
+2. Roda o simulador em modo lote (`node dist/lote.js`), com horários únicos por estação. O simulador lê os sensores de cada estação no `gestao-estacoes` (rota interna, com o `INTERNAL_TOKEN`), não de uma lista fixa: cada mensagem tem uma leitura por sensor ativo da estação, com o valor bruto da calibração invertida. Com `--queda-banco`, o script lê os sensores antes de parar o PostgreSQL e os entrega ao simulador em `LOTE_SENSORES_JSON`. O lote tem uma mensagem de cada caso: duplicata, estação desconhecida, umidade 120,0 e sensor inexistente.
 3. Copia o manifesto do lote para `tests/fluxo-ingestao/saida/`.
 4. Confere o balanço (`npm run balanco`), lendo `staging_telemetria`, `medidas` e a `validacao.dlq` sem consumir os eventos da fila. Espera até o lote fechar, com limite de 120 s (`--tempo-limite`).
 5. No modo contínuo, o lote seguinte começa depois do último horário do anterior.

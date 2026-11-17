@@ -381,9 +381,14 @@ services:
       SIM_TIPOS_ERRO: ${SIM_TIPOS_ERRO:-}
       SIM_SEED: ${SIM_SEED:-}
       SIM_ESTACAO_INATIVA_ID: ${SIM_ESTACAO_INATIVA_ID:-}
+      # Os sensores de cada estação vêm do catálogo, pela rota interna do gestao-estacoes.
+      SIM_API_URL: ${SIM_API_URL:-http://gestao-estacoes:3000}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
     depends_on:
       mosquitto:
         condition: service_healthy
+      gestao-estacoes:
+        condition: service_started
     restart: unless-stopped
     networks:
       - app-network
