@@ -1,22 +1,24 @@
 import { randomUUID } from "node:crypto";
-import path from "node:path";
 import { Pool } from "pg";
 import request from "supertest";
-import { abrirBancoDeTeste, exigir, tokenDe } from "../../../tests/integration/ambiente";
+import { abrirBancoDeTeste, abrirValkeyDeTeste, exigir, tokenDe } from "../../../tests/integration/ambiente";
 
 const api = request(exigir("TEST_API_URL"));
 const pool: Pool = abrirBancoDeTeste();
 const token = tokenDe("ADMINISTRADOR");
 
 const sufixo = randomUUID().replace(/-/g, "").slice(0, 16);
-const codigosEstacoes = [`IT-DET-A-${sufixo}`, `IT-DET-B-${sufixo}`];
+const codigosEstacoes = [`IT-DET-A-${sufixo}`, `IT-DET-B-${sufixo}`, `IT-DET-C-${sufixo}`];
 let estacaoA = "";
 let estacaoB = "";
-// O staging é da ingestão-dados: o banco de teste do gestao-estacoes só tem as tabelas deste serviço.
-let criouStaging = false;
+let estacaoSemMensagens = "";
+let valkey: Awaited<ReturnType<typeof abrirValkeyDeTeste>>;
+// Chaves criadas por este arquivo: o Valkey de teste é o mesmo que a API lê.
+const chavesCriadas: string[] = [];
 
-const agora = Math.floor(Date.now() / 1000);
-const minutosAtras = (minutos: number) => agora - minutos * 60;
+const inicio = Date.now();
+const minutosAtras = (minutos: number) => new Date(inicio - minutos * 60 * 1000);
+const diasAtras = (dias: number) => new Date(inicio - dias * 24 * 60 * 60 * 1000);
 
 const criarEstacao = async (codigo: string): Promise<string> => {
   const res = await api
@@ -41,56 +43,48 @@ const detectados = (estacaoId: string, jwt = token) =>
     .auth(jwt, { type: "bearer" })
     .timeout(5000);
 
-/** Grava uma mensagem no staging como a ingestão grava (payload já validado). */
-const mensagem = (
-  estacaoId: string,
-  unixtime: number,
+const codigosDe = (res: { body: { codigo: string }[] }) => res.body.map((d) => d.codigo);
+
+/**
+ * Grava uma mensagem no staging do Valkey como a ingestão grava: um hash
+ * staging:msg:{id} com topico, conteudo (o payload como chegou), recebidoEm e status.
+ */
+const mensagem = async (
+  estacaoUuid: string,
+  quando: Date,
   leituras: unknown,
-  status: "publicada" | "rejeitada" = "publicada",
-) =>
-  pool.query(
-    `INSERT INTO staging_telemetria
-       (id, estacao_uuid, unixtime, payload_bruto, payload, status, motivo_rejeicao, criado_em)
-     VALUES (gen_random_uuid(), $1, $2, $3, $4::jsonb, $5, $6, now())`,
-    [
-      estacaoId,
-      unixtime,
-      JSON.stringify({ leituras }),
-      JSON.stringify({ leituras }),
-      status,
-      status === "rejeitada" ? "Estação inativa" : null,
-    ],
-  );
+  status = "encaminhada",
+  topico = `pulso/estacoes/${estacaoUuid}/telemetria`,
+) => {
+  const chave = `staging:msg:${randomUUID()}`;
+  chavesCriadas.push(chave);
+  await valkey.hSet(chave, {
+    topico,
+    conteudo: JSON.stringify({ timestamp: quando.toISOString(), leituras }),
+    recebidoEm: quando.toISOString(),
+    status,
+  });
+};
 
 beforeAll(async () => {
-  const existe = await pool.query("SELECT to_regclass('public.staging_telemetria') AS tabela");
-  if (existe.rows[0].tabela === null) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const migration = require(
-      path.resolve(__dirname, "../../../../ingestao-dados/src/db/migrations/1791986171448_create-staging-telemetria.cjs"),
-    ) as { up: (pgm: { sql: (texto: string) => void }) => void };
-    const comandos: string[] = [];
-    migration.up({ sql: (texto) => comandos.push(texto) });
-    for (const comando of comandos) await pool.query(comando);
-    criouStaging = true;
-  }
-
+  valkey = await abrirValkeyDeTeste();
   estacaoA = await criarEstacao(codigosEstacoes[0]);
   estacaoB = await criarEstacao(codigosEstacoes[1]);
+  estacaoSemMensagens = await criarEstacao(codigosEstacoes[2]);
 });
 
 afterAll(async () => {
   try {
-    await pool.query("DELETE FROM staging_telemetria WHERE estacao_uuid = ANY($1)", [[estacaoA, estacaoB]]);
-    await pool.query("DELETE FROM sensores WHERE estacao_id = ANY($1)", [[estacaoA, estacaoB]]);
+    if (chavesCriadas.length > 0) await valkey.del(chavesCriadas);
+    await pool.query("DELETE FROM sensores WHERE estacao_id = ANY($1)", [[estacaoA, estacaoB, estacaoSemMensagens]]);
     await pool.query("DELETE FROM estacoes WHERE codigo = ANY($1)", [codigosEstacoes]);
-    if (criouStaging) await pool.query("DROP TABLE IF EXISTS staging_telemetria");
   } finally {
+    await valkey.quit();
     await pool.end();
   }
 });
 
-describe("GET /estacoes/estacoes/:id/sensores/detectados contra o PostgreSQL (US-39)", () => {
+describe("GET /estacoes/estacoes/:id/sensores/detectados contra o Valkey e o PostgreSQL (US-39)", () => {
   it("deve listar só os códigos que a estação mandou e ainda não têm sensor nela", async () => {
     // Dado: PM25 (ativo) e PM10 (inativo) já cadastrados na estação A
     await cadastrar(estacaoA, { codigo: "PM25", tipo: "PM2.5" }).expect(201);
@@ -119,10 +113,9 @@ describe("GET /estacoes/estacoes/:id/sensores/detectados contra o PostgreSQL (US
     // Quando
     const res = await detectados(estacaoA);
 
-    // Então
+    // Então: PM25 (ativo) e PM10 (inativo) não aparecem; DIR-01 aparece apesar de existir na estação B
     expect(res.status).toBe(200);
-    expect(res.body.map((d: { codigo: string }) => d.codigo)).toEqual(["DIR-01", "pm25", "CHUVA-01"]);
-    // PM25 (ativo) e PM10 (inativo) não aparecem; DIR-01 aparece apesar de existir na estação B
+    expect(codigosDe(res)).toEqual(["DIR-01", "pm25", "CHUVA-01"]);
   });
 
   it("deve trazer o total, o valor da leitura mais recente e o horário dela", async () => {
@@ -135,14 +128,21 @@ describe("GET /estacoes/estacoes/:id/sensores/detectados contra o PostgreSQL (US
       codigo: "DIR-01",
       total: 2,
       ultimo_valor: 270,
-      ultima_leitura_em: new Date(minutosAtras(10) * 1000).toISOString(),
+      ultima_leitura_em: minutosAtras(10).toISOString(),
     });
   });
 
-  it("deve ignorar mensagem rejeitada, leitura fora da janela de 7 dias, código com espaço, código longo e payload fora do padrão", async () => {
-    // Dado
-    await mensagem(estacaoA, minutosAtras(5), [{ sensor: "REJEITADA-01", valor: 1 }], "rejeitada");
-    await mensagem(estacaoA, agora - 8 * 86400, [{ sensor: "ANTIGO-01", valor: 1 }]);
+  it("deve ignorar mensagem não verificada, de outra estação e fora da janela, e o código ou o payload fora do padrão", async () => {
+    // Dado: só "pendente" e "encaminhada" passaram na verificação da ingestão
+    await mensagem(estacaoA, minutosAtras(5), [{ sensor: "RECUSADA-01", valor: 1 }], "recusada");
+    await mensagem(estacaoA, minutosAtras(5), [{ sensor: "RECEBIDA-01", valor: 1 }], "recebida");
+    await mensagem(estacaoA, minutosAtras(5), [{ sensor: "DUPLICADA-01", valor: 1 }], "duplicada");
+    // outra estação, e outro tópico que não é o de telemetria
+    await mensagem(estacaoB, minutosAtras(5), [{ sensor: "DA-OUTRA-01", valor: 1 }]);
+    await mensagem(estacaoA, minutosAtras(5), [{ sensor: "OUTRO-TOPICO-01", valor: 1 }], "encaminhada", `pulso/estacoes/${estacaoA}/status`);
+    // fora da janela de 7 dias
+    await mensagem(estacaoA, diasAtras(8), [{ sensor: "ANTIGO-01", valor: 1 }]);
+    // códigos e itens que não dá para cadastrar
     await mensagem(estacaoA, minutosAtras(4), [
       { sensor: " ESPACO", valor: 1 },
       { sensor: "A".repeat(31), valor: 1 },
@@ -151,14 +151,35 @@ describe("GET /estacoes/estacoes/:id/sensores/detectados contra o PostgreSQL (US
       "texto solto",
       null,
     ]);
+    // payload fora do padrão: leituras não é lista, e conteúdo que nem é JSON
     await mensagem(estacaoA, minutosAtras(3), "isto não é uma lista");
+    const chaveQuebrada = `staging:msg:${randomUUID()}`;
+    chavesCriadas.push(chaveQuebrada);
+    await valkey.hSet(chaveQuebrada, {
+      topico: `pulso/estacoes/${estacaoA}/telemetria`,
+      conteudo: "{quebrado",
+      recebidoEm: minutosAtras(3).toISOString(),
+      status: "encaminhada",
+    });
 
     // Quando
     const res = await detectados(estacaoA);
 
     // Então: a lista continua só com os três de antes
     expect(res.status).toBe(200);
-    expect(res.body.map((d: { codigo: string }) => d.codigo)).toEqual(["DIR-01", "pm25", "CHUVA-01"]);
+    expect(codigosDe(res)).toEqual(["DIR-01", "pm25", "CHUVA-01"]);
+  });
+
+  it("deve contar a mensagem pendente e a de tópico com o UUID em maiúsculas", async () => {
+    // Dado
+    await mensagem(estacaoA, minutosAtras(2), [{ sensor: "PENDENTE-01", valor: 5 }], "pendente");
+    await mensagem(estacaoA, minutosAtras(1), [{ sensor: "MAIUSCULAS-01", valor: 6 }], "encaminhada", `pulso/estacoes/${estacaoA.toUpperCase()}/telemetria`);
+
+    // Quando
+    const res = await detectados(estacaoA);
+
+    // Então
+    expect(codigosDe(res)).toEqual(["MAIUSCULAS-01", "PENDENTE-01", "DIR-01", "pm25", "CHUVA-01"]);
   });
 
   it("deve tirar o código da lista assim que o sensor é cadastrado", async () => {
@@ -167,11 +188,11 @@ describe("GET /estacoes/estacoes/:id/sensores/detectados contra o PostgreSQL (US
     const res = await detectados(estacaoA);
 
     // Então
-    expect(res.body.map((d: { codigo: string }) => d.codigo)).toEqual(["pm25", "CHUVA-01"]);
+    expect(codigosDe(res)).toEqual(["MAIUSCULAS-01", "PENDENTE-01", "pm25", "CHUVA-01"]);
   });
 
   it("deve devolver lista vazia para a estação que não mandou nada e 404 para estação que não existe", async () => {
-    expect((await detectados(estacaoB)).body).toEqual([]);
+    expect((await detectados(estacaoSemMensagens)).body).toEqual([]);
     expect((await detectados(randomUUID())).status).toBe(404);
   });
 

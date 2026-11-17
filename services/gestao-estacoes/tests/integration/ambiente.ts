@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { Pool } from "pg";
+import { createClient } from "redis";
 
 /**
  * Apoio dos testes de integração. As variáveis TEST_* vêm do
@@ -27,4 +28,15 @@ export function tokenDe(papel: string): string {
     exigir("TEST_JWT_SECRET"),
     { expiresIn: "5m" },
   );
+}
+
+/**
+ * Cliente do Valkey de teste (TEST_VALKEY_URL), o mesmo que a API do teste lê.
+ * Quem abre fecha com `await cliente.quit()`.
+ */
+export async function abrirValkeyDeTeste(): Promise<ReturnType<typeof createClient>> {
+  const cliente = createClient({ url: exigir("TEST_VALKEY_URL") });
+  cliente.on("error", () => undefined);
+  await cliente.connect();
+  return cliente;
 }

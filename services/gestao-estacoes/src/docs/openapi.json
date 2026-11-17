@@ -540,7 +540,7 @@
         "tags": ["Sensores"],
         "operationId": "listSensoresDetectados",
         "summary": "Listar os códigos que a estação enviou e ainda não têm sensor",
-        "description": "Ajuda do cadastro de sensor: devolve os códigos de sensor que a estação mandou nos últimos 7 dias e que ainda não têm sensor cadastrado nela, para o Administrador escolher o código em vez de digitá-lo (o código cadastrado é cópia do que a placa envia). Não cria nenhum sensor. Só aparecem códigos que dá para cadastrar (1 a 30 caracteres, sem espaço nas pontas). A comparação com os sensores da estação é exata (diferencia maiúsculas de minúsculas) e vale para sensor ativo e inativo; sensores de outras estações não entram. Ordenado da leitura mais recente para a mais antiga, no máximo 50 códigos. Perfis GESTOR_PUBLICO (só estações do próprio município) e ADMINISTRADOR. Atenção: o caminho completo é `/estacoes/estacoes/{estacaoId}/sensores/detectados`.",
+        "description": "Ajuda do cadastro de sensor: devolve os códigos de sensor que a estação mandou nos últimos 7 dias e que ainda não têm sensor cadastrado nela, para o Administrador escolher o código em vez de digitá-lo (o código cadastrado é cópia do que a placa envia). Não cria nenhum sensor. Os códigos são lidos do staging da ingestão no Valkey (só leitura), a partir das mensagens que já passaram na verificação da ingestão; os sensores já cadastrados vêm do PostgreSQL. Só aparecem códigos que dá para cadastrar (1 a 30 caracteres, sem espaço nas pontas). A comparação com os sensores da estação é exata (diferencia maiúsculas de minúsculas) e vale para sensor ativo e inativo; sensores de outras estações não entram. Ordenado da leitura mais recente para a mais antiga, no máximo 50 códigos. Perfis GESTOR_PUBLICO (só estações do próprio município) e ADMINISTRADOR. Atenção: o caminho completo é `/estacoes/estacoes/{estacaoId}/sensores/detectados`.",
         "parameters": [
           {
             "$ref": "#/components/parameters/SensorEstacaoIdParam"
@@ -585,6 +585,19 @@
           },
           "404": {
             "$ref": "#/components/responses/404NotFound"
+          },
+          "503": {
+            "description": "O Valkey, onde fica o staging da ingestão, não respondeu. A lista é só uma ajuda: tente de novo em instantes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "message": "Não foi possível consultar os códigos recebidos agora. Tente novamente em instantes."
+                }
+              }
+            }
           }
         }
       }

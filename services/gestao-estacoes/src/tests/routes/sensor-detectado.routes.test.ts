@@ -3,27 +3,34 @@ import jwt from "jsonwebtoken";
 import request from "supertest";
 import * as sensorRepository from "../../repositories/sensor.repository";
 import * as estacaoRepository from "../../repositories/estacao.repository";
-import { SensorDetectado } from "../../models/sensor.model";
+import * as stagingValkey from "../../repositories/staging-valkey.repository";
 
 jest.mock("../../repositories/sensor.repository", () => ({
-  findDetectados: jest.fn(),
+  findCodigosDaEstacao: jest.fn(),
   findParaSimulador: jest.fn(),
 }));
 jest.mock("../../repositories/estacao.repository", () => ({
   findById: jest.fn(),
+}));
+jest.mock("../../repositories/staging-valkey.repository", () => ({
+  listarMensagensVerificadas: jest.fn(),
 }));
 
 const SEGREDO = "segredo-teste-sensores-detectados";
 const ESTACAO_ID = "11111111-1111-4111-8111-111111111111";
 const sensores = jest.mocked(sensorRepository);
 const estacoes = jest.mocked(estacaoRepository);
+const staging = jest.mocked(stagingValkey);
 
 const tokenDe = (papel: string, municipio = "São José dos Campos") =>
   jwt.sign({ id: "u1", papel, municipio }, SEGREDO);
 
-const detectados: SensorDetectado[] = [
-  { codigo: "PM25", total: 12, ultimo_valor: 12, ultima_leitura_em: "2026-11-17T17:20:00.000Z" },
-];
+// A rota usa o relógio real, então a mensagem é de dez minutos atrás.
+const recebidoEm = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+const mensagemDaEstacao = {
+  payloadBruto: JSON.stringify({ timestamp: recebidoEm, leituras: [{ sensor: "PM25", valor: 12 }] }),
+  recebidoEm,
+};
 
 let app: express.Express;
 
@@ -44,7 +51,8 @@ beforeEach(() => {
   estacoes.findById.mockResolvedValue({
     id: ESTACAO_ID, codigo: "EST-001", nome: "Estação", municipio: "São José dos Campos",
   });
-  sensores.findDetectados.mockResolvedValue(detectados);
+  staging.listarMensagensVerificadas.mockResolvedValue([mensagemDaEstacao]);
+  sensores.findCodigosDaEstacao.mockResolvedValue([]);
 });
 
 describe("GET /estacoes/estacoes/:estacaoId/sensores/detectados (US-39)", () => {
@@ -60,7 +68,7 @@ describe("GET /estacoes/estacoes/:estacaoId/sensores/detectados (US-39)", () => 
 
     // Então
     expect(res.status).toBe(401);
-    expect(sensores.findDetectados).not.toHaveBeenCalled();
+    expect(staging.listarMensagensVerificadas).not.toHaveBeenCalled();
   });
 
   it("deve responder 403 para PESQUISADOR, que não cadastra sensor", async () => {
@@ -69,7 +77,7 @@ describe("GET /estacoes/estacoes/:estacaoId/sensores/detectados (US-39)", () => 
 
     // Então
     expect(res.status).toBe(403);
-    expect(sensores.findDetectados).not.toHaveBeenCalled();
+    expect(staging.listarMensagensVerificadas).not.toHaveBeenCalled();
   });
 
   it.each(["GESTOR_PUBLICO", "ADMINISTRADOR"])("deve responder 200 com os códigos detectados para %s", async (papel) => {
@@ -78,8 +86,22 @@ describe("GET /estacoes/estacoes/:estacaoId/sensores/detectados (US-39)", () => 
 
     // Então
     expect(res.status).toBe(200);
-    expect(res.body).toEqual(detectados);
-    expect(sensores.findDetectados).toHaveBeenCalledWith(ESTACAO_ID, 7, 50);
+    expect(res.body).toEqual([
+      { codigo: "PM25", total: 1, ultimo_valor: 12, ultima_leitura_em: recebidoEm },
+    ]);
+    expect(staging.listarMensagensVerificadas).toHaveBeenCalledWith(ESTACAO_ID);
+  });
+
+  it("deve tirar da resposta o código que a estação já tem cadastrado", async () => {
+    // Dado
+    sensores.findCodigosDaEstacao.mockResolvedValue(["PM25"]);
+
+    // Quando
+    const res = await listar("ADMINISTRADOR");
+
+    // Então
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
   });
 
   it("deve responder 403 quando o gestor é de outro município", async () => {
@@ -88,7 +110,7 @@ describe("GET /estacoes/estacoes/:estacaoId/sensores/detectados (US-39)", () => 
 
     // Então
     expect(res.status).toBe(403);
-    expect(sensores.findDetectados).not.toHaveBeenCalled();
+    expect(staging.listarMensagensVerificadas).not.toHaveBeenCalled();
   });
 
   it("deve responder 404 quando a estação não existe", async () => {
@@ -108,6 +130,19 @@ describe("GET /estacoes/estacoes/:estacaoId/sensores/detectados (US-39)", () => 
 
     // Então
     expect(res.status).toBe(400);
-    expect(sensores.findDetectados).not.toHaveBeenCalled();
+    expect(staging.listarMensagensVerificadas).not.toHaveBeenCalled();
+  });
+
+  it("deve responder 503 quando o Valkey está fora", async () => {
+    // Dado
+    jest.spyOn(console, "error").mockImplementation(() => undefined);
+    staging.listarMensagensVerificadas.mockRejectedValue(new Error("The client is closed"));
+
+    // Quando
+    const res = await listar("ADMINISTRADOR");
+
+    // Então
+    expect(res.status).toBe(503);
+    expect(res.body.message).toContain("códigos recebidos");
   });
 });

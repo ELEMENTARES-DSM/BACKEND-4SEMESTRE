@@ -271,6 +271,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
       INTERNAL_TOKEN: ${INTERNAL_TOKEN}
+      REDIS_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
     volumes:
       - ./services/gestao-estacoes/src:/app/src
       - ./services/gestao-estacoes/tsconfig.json:/app/tsconfig.json
@@ -279,6 +280,8 @@ services:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      valkey:
         condition: service_healthy
     networks:
       - app-network

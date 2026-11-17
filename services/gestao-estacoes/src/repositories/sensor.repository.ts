@@ -2,7 +2,6 @@ import { pool } from "../config/db";
 import { AppError } from "../middlewares/error-handler";
 import {
   Sensor,
-  SensorDetectado,
   SensorParaSimulador,
   StatusSensor,
   TipoSensor,
@@ -112,81 +111,21 @@ export const findParaSimulador = async (
 };
 
 /**
- * Códigos de sensor que a estação enviou nos últimos `dias` dias e que não têm
- * sensor cadastrado nela, lidos do staging da ingestão (staging_telemetria.payload).
- *
- * - Só compara com os sensores DA PRÓPRIA estação: o mesmo código pode existir em
- *   outra (a unicidade é por estação).
- * - Conta sensor ativo e inativo: a leitura de sensor inativo é ignorada, não vai
- *   para a DLQ, e o código não pode voltar à lista como se fosse novo.
- * - A comparação é exata, igual à busca da validação: `pm25` não casa com `PM25`,
- *   então o descompasso aparece em vez de ficar escondido.
- * - Só entram códigos que dá para cadastrar (1 a 30 caracteres, sem espaço nas
- *   pontas): o cadastro apara o código, e um código com espaço nunca casaria.
- *
- * Se a tabela do staging não existe (ingestao-dados ainda não migrou), a lista
- * fica vazia: é uma ajuda ao cadastro, não pode derrubar a tela.
+ * Códigos que a estação já tem cadastrados, de sensor ativo ou inativo. A lista
+ * de códigos recebidos usa para tirar o que já está em uso: a leitura de sensor
+ * inativo é ignorada (não vai para a DLQ), então o código dele não pode voltar
+ * à lista como se fosse novo. A comparação é exata (maiúsculas e minúsculas),
+ * igual à busca da validação.
  */
-export const findDetectados = async (
-  estacaoId: string,
-  dias: number,
-  limite: number
-): Promise<SensorDetectado[]> => {
-  interface Linha {
-    codigo: string;
-    total: number;
-    ultimo_unixtime: string;
-    ultimo_valor: string | null;
-  }
+export const findCodigosDaEstacao = async (
+  estacaoId: string
+): Promise<string[]> => {
+  const result = await pool.query<{ codigo: string }>(
+    `SELECT codigo FROM sensores WHERE estacao_id = $1 AND codigo IS NOT NULL`,
+    [estacaoId]
+  );
 
-  try {
-    const result = await pool.query<Linha>(
-      `SELECT l.codigo,
-              count(*)::int AS total,
-              max(l.unixtime) AS ultimo_unixtime,
-              (array_agg(l.valor ORDER BY l.unixtime DESC))[1] AS ultimo_valor
-       FROM (
-         SELECT e.item->>'sensor' AS codigo,
-                CASE WHEN jsonb_typeof(e.item->'valor') = 'number'
-                     THEN (e.item->>'valor')::numeric END AS valor,
-                st.unixtime
-         FROM staging_telemetria st
-         CROSS JOIN LATERAL jsonb_array_elements(
-           CASE WHEN jsonb_typeof(st.payload->'leituras') = 'array'
-                THEN st.payload->'leituras' ELSE '[]'::jsonb END
-         ) AS e(item)
-         WHERE st.estacao_uuid = $1
-           AND st.status <> 'rejeitada'
-           AND st.unixtime >= extract(epoch FROM now())::bigint - $2::int * 86400
-           AND jsonb_typeof(e.item) = 'object'
-           AND jsonb_typeof(e.item->'sensor') = 'string'
-       ) l
-       WHERE l.codigo IS NOT NULL
-         AND l.codigo = btrim(l.codigo)
-         AND char_length(l.codigo) BETWEEN 1 AND 30
-         AND NOT EXISTS (
-           SELECT 1 FROM sensores s
-           WHERE s.estacao_id = $1 AND s.codigo = l.codigo
-         )
-       GROUP BY l.codigo
-       ORDER BY max(l.unixtime) DESC, l.codigo
-       LIMIT $3`,
-      [estacaoId, dias, limite]
-    );
-
-    return result.rows.map((linha) => ({
-      codigo: linha.codigo,
-      total: linha.total,
-      ultimo_valor: linha.ultimo_valor === null ? null : Number(linha.ultimo_valor),
-      ultima_leitura_em: new Date(Number(linha.ultimo_unixtime) * 1000).toISOString(),
-    }));
-  } catch (err) {
-    // 42P01 = undefined_table.
-    if ((err as { code?: string }).code === "42P01") {
-      return [];
-    }
-    throw err;
-  }
+  return result.rows.map((linha) => linha.codigo);
 };
 
 export const findById = async (id: string): Promise<Sensor | null> => {

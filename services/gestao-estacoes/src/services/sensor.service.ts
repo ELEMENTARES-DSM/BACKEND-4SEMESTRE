@@ -1,6 +1,8 @@
 import * as sensorRepository from "../repositories/sensor.repository";
 import * as estacaoRepository from "../repositories/estacao.repository";
+import * as stagingValkey from "../repositories/staging-valkey.repository";
 import * as tipoSensorService from "./tipo-sensor.service";
+import { agruparCodigosDetectados } from "./codigos-detectados";
 import { CreateSensorDTO } from "../dto/create-sensor.dto";
 import { UpdateSensorDTO } from "../dto/update-sensor.dto";
 import { UserContext } from "../dto/user-context.dto";
@@ -124,22 +126,48 @@ export const listByEstacao = async (
 export const DIAS_DETECCAO = 7;
 export const LIMITE_DETECTADOS = 50;
 
+const DIA_EM_MS = 24 * 60 * 60 * 1000;
+
 /**
  * Códigos que a estação enviou e que ainda não têm sensor nela, para o
  * Administrador escolher no cadastro em vez de digitar. Não cria nada: o sensor
  * só nasce quando a pessoa confirma o cadastro.
+ *
+ * As mensagens vêm do staging da ingestão no Valkey (só leitura) e os códigos
+ * já cadastrados, do PostgreSQL: a subtração é feita aqui, porque os dois
+ * ficam em bancos diferentes. Com o Valkey fora, responde 503 e a tela mostra
+ * o aviso; um erro do PostgreSQL segue o caminho normal.
  */
 export const listarDetectados = async (
   estacaoId: string,
-  usuario: UserContext
+  usuario: UserContext,
+  agora: () => Date = () => new Date()
 ) => {
   await garantirPosseDaEstacao(estacaoId, usuario);
 
-  return sensorRepository.findDetectados(
-    estacaoId,
-    DIAS_DETECCAO,
+  const [mensagens, registrados] = await Promise.all([
+    lerMensagensDoStaging(estacaoId),
+    sensorRepository.findCodigosDaEstacao(estacaoId),
+  ]);
+
+  return agruparCodigosDetectados(
+    mensagens,
+    registrados,
+    new Date(agora().getTime() - DIAS_DETECCAO * DIA_EM_MS),
     LIMITE_DETECTADOS
   );
+};
+
+const lerMensagensDoStaging = async (estacaoId: string) => {
+  try {
+    return await stagingValkey.listarMensagensVerificadas(estacaoId);
+  } catch (erro) {
+    console.error("Falha ao ler o staging no Valkey", erro);
+    throw new AppError(
+      "Não foi possível consultar os códigos recebidos agora. Tente novamente em instantes.",
+      503
+    );
+  }
 };
 
 /**
