@@ -60,8 +60,8 @@ const sensorSalvo = (tipo: string, unidade: string): Sensor => ({
   tipo,
   unidade_medida: unidade,
   unidade_leitura: null,
-  fator: "1.000000",
-  ganho: "0.000000",
+  fator_conversao: "1.000000",
+  offset: "0.000000",
   status: "Ativo",
   criado_em: "2026-11-17T12:00:00.000Z",
 });
@@ -91,8 +91,8 @@ describe("sensor.service: grandeza vinda do catálogo (US-39)", () => {
           codigo: "DIR-01",
           tipo: "Direção do Vento",
           unidadeMedida: "°",
-          fator: 1,
-          ganho: 0,
+          fatorConversao: 1,
+          offset: 0,
         })
       );
     });
@@ -168,12 +168,12 @@ describe("sensor.service: grandeza vinda do catálogo (US-39)", () => {
       sensores.update.mockResolvedValue(sensorSalvo("Direção do Vento", "°"));
 
       // Quando
-      await sensorService.update(SENSOR_ID, admin, { tipo: "Direção do Vento", fator: 2 });
+      await sensorService.update(SENSOR_ID, admin, { tipo: "Direção do Vento", fator_conversao: 2 });
 
       // Então
       expect(sensores.update).toHaveBeenCalledWith(
         SENSOR_ID,
-        expect.objectContaining({ tipo: "Direção do Vento", unidadeMedida: "°", fator: 2, ganho: 0 })
+        expect.objectContaining({ tipo: "Direção do Vento", unidadeMedida: "°", fatorConversao: 2, offset: 0 })
       );
     });
 

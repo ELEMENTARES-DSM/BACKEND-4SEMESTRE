@@ -36,12 +36,38 @@ describe("sensor.validation: grandeza vinda do catálogo (US-39)", () => {
       expect(createSensorSchema.safeParse({ tipo: "a".repeat(101) }).success).toBe(false);
     });
 
-    it("deve manter fator e ganho opcionais, com os nomes atuais", () => {
+    it("deve aceitar offset negativo e zero (ex.: -273,15 para Kelvin)", () => {
+      expect(
+        createSensorSchema.safeParse({ tipo: "Temperatura", offset: -273.15 }).data?.offset
+      ).toBe(-273.15);
+      expect(createSensorSchema.safeParse({ tipo: "Temperatura", offset: 0 }).data?.offset).toBe(0);
+    });
+
+    it("deve rejeitar fator_conversao e offset que não são número", () => {
+      expect(
+        createSensorSchema.safeParse({ tipo: "Temperatura", fator_conversao: "2" }).success
+      ).toBe(false);
+      expect(createSensorSchema.safeParse({ tipo: "Temperatura", offset: "0" }).success).toBe(false);
+    });
+
+    it("deve descartar os nomes antigos fator e ganho (o front precisa ir junto no mesmo release)", () => {
       // Quando
       const resultado = createSensorSchema.safeParse({ tipo: "Temperatura", fator: 2, ganho: -1 });
 
+      // Então: sem erro, mas os valores não são lidos; o service grava fator 1 e offset 0
+      expect(resultado.success).toBe(true);
+      expect(resultado.data).not.toHaveProperty("fator");
+      expect(resultado.data).not.toHaveProperty("ganho");
+      expect(resultado.data?.fator_conversao).toBeUndefined();
+      expect(resultado.data?.offset).toBeUndefined();
+    });
+
+    it("deve aceitar fator_conversao e offset opcionais", () => {
+      // Quando
+      const resultado = createSensorSchema.safeParse({ tipo: "Temperatura", fator_conversao: 2, offset: -1 });
+
       // Então
-      expect(resultado.data).toMatchObject({ fator: 2, ganho: -1 });
+      expect(resultado.data).toMatchObject({ fator_conversao: 2, offset: -1 });
     });
   });
 

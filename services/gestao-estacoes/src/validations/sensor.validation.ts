@@ -12,8 +12,9 @@ export const createSensorSchema = z.object({
     .max(20)
     .nullish()
     .transform((valor) => (valor ? valor : null)),
-  fator: z.number().optional(),
-  ganho: z.number().optional(),
+  // valor = bruto x fator_conversao + offset (padrão: fator 1 e offset 0).
+  fator_conversao: z.number().optional(),
+  offset: z.number().optional(),
 });
 
 export const updateSensorSchema = createSensorSchema.omit({ codigo: true, nome: true });

@@ -13,8 +13,8 @@ const dados = {
   tipo: "Temperatura",
   unidadeMedida: "°C",
   unidadeLeitura: "K" as string | null,
-  fator: 1,
-  ganho: -273.15,
+  fatorConversao: 1,
+  offset: -273.15,
 };
 
 describe("sensor.repository (US-39)", () => {
@@ -42,6 +42,42 @@ describe("sensor.repository (US-39)", () => {
       // Então
       expect(query.mock.calls[0][1][3]).toBeNull();
     });
+  });
+
+  describe("renomeio fator/ganho (colunas fator_conversao e offset_calibracao)", () => {
+    const ALIAS = 'offset_calibracao AS "offset"';
+
+    it("deve gravar nas colunas fator_conversao e offset_calibracao (e não nas antigas) ao criar", async () => {
+      // Quando
+      await sensorRepository.create("estacao-1", dados);
+
+      // Então
+      const [sql] = query.mock.calls[0];
+      expect(sql).toContain("fator_conversao, offset_calibracao");
+      expect(sql).not.toMatch(/\bganho\b/);
+      expect(sql).not.toMatch(/\bfator\b/);
+    });
+
+    it.each([
+      ["create", () => sensorRepository.create("estacao-1", dados)],
+      ["update", () => sensorRepository.update("sensor-1", dados)],
+      ["updateStatus", () => sensorRepository.updateStatus("sensor-1", "Inativo")],
+      ["findById", () => sensorRepository.findById("sensor-1")],
+      ["findByEstacaoId", () => sensorRepository.findByEstacaoId("estacao-1")],
+      ["findByEstacaoIdETipo", () => sensorRepository.findByEstacaoIdETipo("estacao-1", "Temperatura")],
+    ])(
+      "deve devolver o offset com o alias entre aspas e sem SELECT * em %s",
+      async (_nome, chamar) => {
+        // Quando
+        await chamar();
+
+        // Então: sem o alias a resposta traria offset_calibracao; sem as aspas o PostgreSQL recusa OFFSET
+        const [sql] = query.mock.calls[0];
+        expect(sql).toContain(ALIAS);
+        expect(sql).toContain("fator_conversao");
+        expect(sql).not.toContain("*");
+      }
+    );
   });
 
   describe("update", () => {

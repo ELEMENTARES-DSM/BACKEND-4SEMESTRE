@@ -52,8 +52,8 @@ const sensorSalvo: Sensor = {
   tipo: "Direção do Vento",
   unidade_medida: "°",
   unidade_leitura: null,
-  fator: "1.000000",
-  ganho: "0.000000",
+  fator_conversao: "1.000000",
+  offset: "0.000000",
   status: "Ativo",
   criado_em: "2026-11-17T12:00:00.000Z",
 };

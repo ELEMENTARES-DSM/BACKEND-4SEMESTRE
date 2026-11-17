@@ -22,8 +22,8 @@ export async function prepararSchemaValidacao(pool: Pool, schema: string): Promi
       estacao_id UUID NOT NULL REFERENCES estacoes(id),
       tipo VARCHAR(50) NOT NULL DEFAULT 'Temperatura',
       codigo VARCHAR(30),
-      fator NUMERIC(12,6) NOT NULL DEFAULT 1.0,
-      ganho NUMERIC(12,6) NOT NULL DEFAULT 0.0,
+      fator_conversao NUMERIC(12,6) NOT NULL DEFAULT 1.0,
+      offset_calibracao NUMERIC(12,6) NOT NULL DEFAULT 0.0,
       status VARCHAR(20) NOT NULL DEFAULT 'Ativo'
     )
   `);
@@ -81,7 +81,7 @@ export async function cadastrarSensor(
   sensor: NovoSensor,
 ): Promise<string> {
   const { rows } = await pool.query<{ id: string }>(
-    `INSERT INTO sensores (estacao_id, codigo, tipo, status, fator, ganho)
+    `INSERT INTO sensores (estacao_id, codigo, tipo, status, fator_conversao, offset_calibracao)
      VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING id`,
     [

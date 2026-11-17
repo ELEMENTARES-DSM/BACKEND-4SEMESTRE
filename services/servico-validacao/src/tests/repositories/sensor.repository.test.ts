@@ -33,6 +33,21 @@ describe("sensor.repository", () => {
     expect(mapa.get("TEMP-01")?.municipio).toBe("São José dos Campos");
   });
 
+  it("lê as colunas renomeadas fator_conversao e offset_calibracao com os alias fator e ganho (US-39)", async () => {
+    // Dado
+    const queryMock = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ rows: [] });
+
+    // Quando
+    await buscarSensoresPorEvento("estacao-uuid-1", ["TEMP-01"], { query: queryMock as never });
+
+    // Então: o DTO e o cálculo ainda usam fator e ganho até a ELEM-265
+    const sql = String(queryMock.mock.calls[0][0]);
+    expect(sql).toContain("s.fator_conversao AS fator");
+    expect(sql).toContain("s.offset_calibracao AS ganho");
+    expect(sql).not.toContain("s.fator,");
+    expect(sql).not.toContain("s.ganho,");
+  });
+
   it("retorna mapa vazio sem consultar o banco quando a lista de códigos está vazia", async () => {
     const queryMock = jest.fn();
     const mapa = await buscarSensoresPorEvento("estacao-uuid-1", [], {

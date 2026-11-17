@@ -64,8 +64,8 @@ export const create = async (
     tipo: grandeza.nome,
     unidadeMedida: grandeza.unidade,
     unidadeLeitura: data.unidade_leitura ?? null,
-    fator: data.fator ?? 1.0,
-    ganho: data.ganho ?? 0.0,
+    fatorConversao: data.fator_conversao ?? 1.0,
+    offset: data.offset ?? 0.0,
   });
 };
 
@@ -97,8 +97,8 @@ export const update = async (
     tipo: grandeza.nome,
     unidadeMedida: grandeza.unidade,
     unidadeLeitura: data.unidade_leitura ?? null,
-    fator: data.fator ?? 1.0,
-    ganho: data.ganho ?? 0.0,
+    fatorConversao: data.fator_conversao ?? 1.0,
+    offset: data.offset ?? 0.0,
   });
 
   return atualizado!;

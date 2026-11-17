@@ -103,18 +103,28 @@ describe("cadastro de sensor com grandeza do catálogo contra o PostgreSQL (US-3
       codigo: "TEMP-K",
       tipo: "Temperatura",
       unidade_leitura: "K",
-      fator: 1,
-      ganho: -273.15,
+      fator_conversao: 1,
+      offset: -273.15,
     });
 
     // Então
     expect(res.status).toBe(201);
-    expect(res.body).toMatchObject({ unidade_leitura: "K", unidade_medida: "°C" });
+    expect(res.body).toMatchObject({
+      unidade_leitura: "K",
+      unidade_medida: "°C",
+      fator_conversao: "1.000000",
+      offset: "-273.150000",
+    });
+    expect(res.body).not.toHaveProperty("offset_calibracao");
     const gravado = await pool.query(
-      "SELECT unidade_leitura, unidade_medida FROM sensores WHERE id = $1",
+      `SELECT unidade_leitura, unidade_medida, fator_conversao::text AS fator,
+              offset_calibracao::text AS offset
+       FROM sensores WHERE id = $1`,
       [res.body.id],
     );
-    expect(gravado.rows).toEqual([{ unidade_leitura: "K", unidade_medida: "°C" }]);
+    expect(gravado.rows).toEqual([
+      { unidade_leitura: "K", unidade_medida: "°C", fator: "1.000000", offset: "-273.150000" },
+    ]);
 
     const lista = await api
       .get(`/estacoes/estacoes/${estacaoId}/sensores`)
@@ -132,6 +142,7 @@ describe("cadastro de sensor com grandeza do catálogo contra o PostgreSQL (US-3
     // Então
     expect(res.status).toBe(201);
     expect(res.body.unidade_leitura).toBeNull();
+    expect(res.body).toMatchObject({ fator_conversao: "1.000000", offset: "0.000000" });
   });
 
   it("deve responder 400 quando a unidade de leitura passa de 20 caracteres", async () => {

@@ -5,6 +5,6 @@ export interface CreateSensorDTO {
   nome?: string;
   tipo: TipoSensor;
   unidade_leitura?: string | null;
-  fator?: number;
-  ganho?: number;
+  fator_conversao?: number;
+  offset?: number;
 }

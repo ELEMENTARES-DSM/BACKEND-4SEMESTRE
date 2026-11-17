@@ -10,6 +10,10 @@ export type DbQueryable = Pick<Pool | PoolClient, "query">;
  * herdado da estação (sensores -> estacoes.municipio), o tipo (grandeza), usado
  * para conferir a faixa física (US-19), e o status da estação, que decide se a
  * medida é avaliada pelas regras de alerta (US-22).
+ *
+ * As colunas fator_conversao e offset_calibracao (renomeadas na US-39) saem com
+ * os alias fator e ganho, que o DTO e o cálculo ainda usam. A ELEM-265 conclui o
+ * renomeio dentro deste serviço e tira os alias.
  */
 export const buscarSensoresPorEvento = async (
   estacaoUuid: string,
@@ -28,8 +32,8 @@ export const buscarSensoresPorEvento = async (
        s.id,
        s.estacao_id,
        s.codigo,
-       s.fator,
-       s.ganho,
+       s.fator_conversao AS fator,
+       s.offset_calibracao AS ganho,
        s.status,
        s.tipo,
        e.municipio,

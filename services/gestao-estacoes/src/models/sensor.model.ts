@@ -13,10 +13,11 @@ export interface Sensor {
   nome: string | null;
   tipo: TipoSensor;
   unidade_medida: string;
-  /** Unidade em que a placa envia (ex.: K). Só informa; a conversão é do fator e do offset. */
+  /** Unidade em que a placa envia (ex.: K). Só informa; a conversão é do fator_conversao e do offset. */
   unidade_leitura: string | null;
-  fator: string;
-  ganho: string;
+  fator_conversao: string;
+  /** Na tabela a coluna é offset_calibracao (OFFSET é palavra reservada do PostgreSQL). */
+  offset: string;
   status: StatusSensor;
   criado_em: string;
 }

@@ -52,21 +52,21 @@ const baseDoSensor: Sensor = {
   tipo: "Temperatura",
   unidade_medida: "°C",
   unidade_leitura: null,
-  fator: "1.000000",
-  ganho: "0.000000",
+  fator_conversao: "1.000000",
+  offset: "0.000000",
   status: "Ativo",
   criado_em: "2026-11-17T12:00:00.000Z",
 };
 
 // O mock devolve o que o service mandou gravar: assim a resposta da rota
 // prova o que foi para o banco, em vez de repetir um valor fixo.
-const ecoDoRepository = (_id: string, d: { tipo: string; unidadeMedida: string; unidadeLeitura: string | null; fator: number; ganho: number }): Sensor => ({
+const ecoDoRepository = (_id: string, d: { tipo: string; unidadeMedida: string; unidadeLeitura: string | null; fatorConversao: number; offset: number }): Sensor => ({
   ...baseDoSensor,
   tipo: d.tipo,
   unidade_medida: d.unidadeMedida,
   unidade_leitura: d.unidadeLeitura,
-  fator: String(d.fator),
-  ganho: String(d.ganho),
+  fator_conversao: String(d.fatorConversao),
+  offset: String(d.offset),
 });
 
 let app: express.Express;
@@ -111,7 +111,7 @@ describe("sensor.routes: unidade_leitura (US-39)", () => {
 
   it("deve devolver a unidade em que a placa envia e a unidade da grandeza quando o sensor é em Kelvin (Cenário 5)", async () => {
     // Dado: sensor em Kelvin, convertido para °C por offset -273,15
-    const corpo = { codigo: "TEMP-K", tipo: "Temperatura", unidade_leitura: "K", fator: 1, ganho: -273.15 };
+    const corpo = { codigo: "TEMP-K", tipo: "Temperatura", unidade_leitura: "K", fator_conversao: 1, offset: -273.15 };
 
     // Quando
     const res = await cadastrar(corpo);
@@ -121,8 +121,8 @@ describe("sensor.routes: unidade_leitura (US-39)", () => {
     expect(res.body).toMatchObject({
       unidade_leitura: "K",
       unidade_medida: "°C",
-      fator: "1",
-      ganho: "-273.15",
+      fator_conversao: "1",
+      offset: "-273.15",
     });
     expect(sensores.create).toHaveBeenCalledWith(
       ESTACAO_ID,
@@ -154,7 +154,7 @@ describe("sensor.routes: unidade_leitura (US-39)", () => {
 
   it("deve gravar a nova unidade de leitura quando o PUT a informa", async () => {
     // Quando
-    const res = await editar({ tipo: "Temperatura", unidade_leitura: "K", ganho: -273.15 });
+    const res = await editar({ tipo: "Temperatura", unidade_leitura: "K", offset: -273.15 });
 
     // Então
     expect(res.status).toBe(200);
