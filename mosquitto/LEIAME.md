@@ -51,7 +51,10 @@ Os clientes MQTT rodam na imagem do broker (só precisa do Docker). Cenários:
 | 3 | Cenário 2: o mesmo com um MAC aleatório nunca usado |
 | 4 | Cenário 4: assinante `-i teste-ingestao -c -q 1` sai, 3 publicações QoS 1, ao reconectar recebe as 3 |
 | 5 | Cenário 5: igual ao 4, com `docker compose restart mosquitto` antes de reconectar |
-| 6 | ACL pelo MAC: só roda se houver `acl_file`; hoje é pulado |
+| 6 | ACL pelo MAC (critério [verificar], não é cenário): só roda se houver `acl_file`; hoje é pulado |
+
+O Cenário 3 (tópico fora do padrão) é provado na ingestão (US da estação pelo
+MAC) e o Cenário 6 (fora da rede) é manual, na 29.05; o script só avisa.
 
 Resultado esperado (leva cerca de 50 s):
 

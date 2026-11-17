@@ -112,13 +112,16 @@ N="$(sessao_persistente reiniciar)"
 if [ "$N" = "3" ]; then ok "recebeu 3 de 3 depois do restart"; else erro "recebeu $N de 3 depois do restart"; fi
 echo ""
 
-echo "[6] ACL pelo MAC: estação não publica no tópico de outra"
+echo "[6] ACL pelo MAC (critério [verificar], não é cenário)"
 if grep -q '^acl_file' mosquitto/mosquitto.conf; then
   N="$(publicar_e_receber "$MAC" "pulso/estacoes/$NOVO/telemetria")"
   if [ "$N" = "0" ]; then ok "mensagem no tópico de $NOVO não foi entregue"; else erro "mensagem no tópico de $NOVO FOI entregue"; fi
 else
   pulou "broker sem acl_file (ver mosquitto/LEIAME.md, 'Por que não há ACL')"
 fi
+echo ""
+
+echo "Cenário 3 (tópico fora do padrão) é provado na ingestão (US da estação pelo MAC); Cenário 6 (fora da rede) é manual, na 29.05."
 echo ""
 
 echo "Resultado: $PASS passou(aram), $FAIL falhou(aram), $PULO pulado(s)"
