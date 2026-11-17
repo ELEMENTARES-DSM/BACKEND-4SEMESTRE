@@ -1,5 +1,5 @@
 import jwt from "jsonwebtoken";
-import { Request, Response, NextFunction } from "express";
+import { Request, Response } from "express";
 import app from "../../app";
 import { authOpcional } from "../../middlewares/auth.middleware";
 import { verificarPeriodo } from "../../middlewares/periodo.middleware";
