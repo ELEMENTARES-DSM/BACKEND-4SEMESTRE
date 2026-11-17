@@ -2,14 +2,24 @@ import { Router } from "express";
 import * as userController from "../controllers/user.controller";
 import { validate } from "../middlewares/validate";
 import { authenticate, authorize } from "../middlewares/auth";
+import { cadastroRateLimiter } from "../middlewares/rate-limit";
 import {
   createUserSchema,
   updateUserSchema,
   updateStatusSchema,
   userIdParamSchema,
+  cadastroMunicipeSchema,
 } from "../validations/user.validation";
 
 const router = Router();
+
+// Rota pública de cadastro do munícipe (sem JWT) com rate limit de 5 cadastros/hora por IP
+router.post(
+  "/cadastro",
+  cadastroRateLimiter,
+  validate(cadastroMunicipeSchema),
+  userController.cadastrarMunicipe
+);
 
 router.use(authenticate, authorize("ADMINISTRADOR"));
 
