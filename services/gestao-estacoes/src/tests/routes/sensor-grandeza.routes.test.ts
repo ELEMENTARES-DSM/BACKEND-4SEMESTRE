@@ -12,6 +12,7 @@ jest.mock("../../repositories/sensor.repository", () => ({
   findByEstacaoId: jest.fn(),
   findById: jest.fn(),
   findByEstacaoIdETipo: jest.fn(),
+  findByEstacaoIdECodigo: jest.fn(),
   update: jest.fn(),
   updateStatus: jest.fn(),
 }));
@@ -79,6 +80,7 @@ beforeEach(() => {
   });
   catalogo.findByNome.mockImplementation(async (nome) => (nome === "Direção do Vento" ? direcaoDoVento : null));
   sensores.findByEstacaoIdETipo.mockResolvedValue(null);
+  sensores.findByEstacaoIdECodigo.mockResolvedValue(null);
   sensores.create.mockResolvedValue(sensorSalvo);
   sensores.findById.mockResolvedValue(sensorSalvo);
   sensores.update.mockResolvedValue(sensorSalvo);

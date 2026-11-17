@@ -1,7 +1,10 @@
 import { z } from "zod";
 
+// É o código que a placa envia no payload MQTT; único por estação.
+const codigoDoSensor = z.string().trim().min(1).max(30);
+
 export const createSensorSchema = z.object({
-  codigo: z.string().trim().min(1).max(30).optional(),
+  codigo: codigoDoSensor,
   nome: z.string().trim().min(1).max(100).optional(),
   // Nome de uma grandeza do catálogo; quem confere se existe é o service.
   tipo: z.string().trim().min(1).max(100),
@@ -17,7 +20,11 @@ export const createSensorSchema = z.object({
   offset: z.number().optional(),
 });
 
-export const updateSensorSchema = createSensorSchema.omit({ codigo: true, nome: true });
+// No PUT o código é opcional: só é aceito para definir o de um sensor antigo que
+// ainda não tem código, ou repetindo o atual (o service recusa a troca).
+export const updateSensorSchema = createSensorSchema
+  .omit({ codigo: true, nome: true })
+  .extend({ codigo: codigoDoSensor.optional() });
 
 export const updateSensorStatusSchema = z.object({
   status: z.enum(["Ativo", "Inativo"]),

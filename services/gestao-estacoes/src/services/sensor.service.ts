@@ -49,6 +49,46 @@ const garantirTipoDisponivel = async (
   }
 };
 
+const garantirCodigoDisponivel = async (
+  estacaoId: string,
+  codigo: string,
+  ignorarSensorId?: string
+) => {
+  const existente = await sensorRepository.findByEstacaoIdECodigo(
+    estacaoId,
+    codigo,
+    ignorarSensorId
+  );
+
+  if (existente) {
+    throw new AppError(
+      `Já existe um sensor com o código "${codigo}" nesta estação.`,
+      409
+    );
+  }
+};
+
+/**
+ * O código é o que a placa envia no payload: mudar um código já definido
+ * quebraria a configuração da placa, então ele fica fixo. O PUT só aceita
+ * código para um sensor antigo que ainda não tem um, ou repetindo o atual.
+ */
+const garantirCodigoPodeSerDefinido = (
+  sensor: { codigo: string | null },
+  novoCodigo: string | undefined
+) => {
+  if (novoCodigo === undefined || sensor.codigo === null) {
+    return;
+  }
+
+  if (novoCodigo !== sensor.codigo) {
+    throw new AppError(
+      "O código do sensor não pode ser alterado depois de definido.",
+      409
+    );
+  }
+};
+
 export const create = async (
   estacaoId: string,
   usuario: UserContext,
@@ -57,6 +97,7 @@ export const create = async (
   await garantirPosseDaEstacao(estacaoId, usuario);
   const grandeza = await tipoSensorService.obterPorNome(data.tipo);
   await garantirTipoDisponivel(estacaoId, grandeza.nome);
+  await garantirCodigoDisponivel(estacaoId, data.codigo);
 
   return sensorRepository.create(estacaoId, {
     codigo: data.codigo,
@@ -92,8 +133,15 @@ export const update = async (
   await garantirPosseDaEstacao(sensor.estacao_id, usuario);
   const grandeza = await tipoSensorService.obterPorNome(data.tipo);
   await garantirTipoDisponivel(sensor.estacao_id, grandeza.nome, sensorId);
+  garantirCodigoPodeSerDefinido(sensor, data.codigo);
+
+  // Só um sensor sem código precisa da checagem: os outros repetem o próprio código.
+  if (sensor.codigo === null && data.codigo !== undefined) {
+    await garantirCodigoDisponivel(sensor.estacao_id, data.codigo, sensorId);
+  }
 
   const atualizado = await sensorRepository.update(sensorId, {
+    codigo: data.codigo,
     tipo: grandeza.nome,
     unidadeMedida: grandeza.unidade,
     unidadeLeitura: data.unidade_leitura ?? null,

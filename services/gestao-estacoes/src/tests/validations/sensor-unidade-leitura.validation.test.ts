@@ -7,7 +7,7 @@ describe("sensor.validation: unidade_leitura (US-39)", () => {
   describe("createSensorSchema", () => {
     it("deve aceitar a unidade de leitura e remover os espaços das pontas", () => {
       // Dado
-      const entrada = { tipo: "Temperatura", unidade_leitura: " K " };
+      const entrada = { codigo: "TEMP-01", tipo: "Temperatura", unidade_leitura: " K " };
 
       // Quando
       const resultado = createSensorSchema.safeParse(entrada);
@@ -18,36 +18,36 @@ describe("sensor.validation: unidade_leitura (US-39)", () => {
     });
 
     it("deve virar null quando o campo está ausente, nulo, vazio ou só com espaços", () => {
-      expect(createSensorSchema.safeParse({ tipo: "Temperatura" }).data?.unidade_leitura).toBeNull();
+      expect(createSensorSchema.safeParse({ codigo: "TEMP-01", tipo: "Temperatura" }).data?.unidade_leitura).toBeNull();
       expect(
-        createSensorSchema.safeParse({ tipo: "Temperatura", unidade_leitura: null }).data?.unidade_leitura
+        createSensorSchema.safeParse({ codigo: "TEMP-01", tipo: "Temperatura", unidade_leitura: null }).data?.unidade_leitura
       ).toBeNull();
       expect(
-        createSensorSchema.safeParse({ tipo: "Temperatura", unidade_leitura: "" }).data?.unidade_leitura
+        createSensorSchema.safeParse({ codigo: "TEMP-01", tipo: "Temperatura", unidade_leitura: "" }).data?.unidade_leitura
       ).toBeNull();
       expect(
-        createSensorSchema.safeParse({ tipo: "Temperatura", unidade_leitura: "   " }).data?.unidade_leitura
+        createSensorSchema.safeParse({ codigo: "TEMP-01", tipo: "Temperatura", unidade_leitura: "   " }).data?.unidade_leitura
       ).toBeNull();
     });
 
     it("deve aceitar 20 caracteres e rejeitar 21", () => {
       expect(
-        createSensorSchema.safeParse({ tipo: "Temperatura", unidade_leitura: "u".repeat(20) }).success
+        createSensorSchema.safeParse({ codigo: "TEMP-01", tipo: "Temperatura", unidade_leitura: "u".repeat(20) }).success
       ).toBe(true);
       expect(
-        createSensorSchema.safeParse({ tipo: "Temperatura", unidade_leitura: "u".repeat(21) }).success
+        createSensorSchema.safeParse({ codigo: "TEMP-01", tipo: "Temperatura", unidade_leitura: "u".repeat(21) }).success
       ).toBe(false);
     });
 
     it("deve rejeitar quando a unidade de leitura não é texto", () => {
       expect(
-        createSensorSchema.safeParse({ tipo: "Temperatura", unidade_leitura: 5 }).success
+        createSensorSchema.safeParse({ codigo: "TEMP-01", tipo: "Temperatura", unidade_leitura: 5 }).success
       ).toBe(false);
     });
 
     it("deve ignorar o nome em camelCase (o JSON é snake_case)", () => {
       // Quando
-      const resultado = createSensorSchema.safeParse({ tipo: "Temperatura", unidadeLeitura: "K" });
+      const resultado = createSensorSchema.safeParse({ codigo: "TEMP-01", tipo: "Temperatura", unidadeLeitura: "K" });
 
       // Então
       expect(resultado.data?.unidade_leitura).toBeNull();

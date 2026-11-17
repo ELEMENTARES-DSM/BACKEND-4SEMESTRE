@@ -11,6 +11,7 @@ jest.mock("../../repositories/sensor.repository", () => ({
   findByEstacaoId: jest.fn(),
   findById: jest.fn(),
   findByEstacaoIdETipo: jest.fn(),
+  findByEstacaoIdECodigo: jest.fn(),
   update: jest.fn(),
   updateStatus: jest.fn(),
 }));
@@ -71,6 +72,7 @@ describe("sensor.service: grandeza vinda do catálogo (US-39)", () => {
     jest.clearAllMocks();
     estacoes.findById.mockResolvedValue(estacao);
     sensores.findByEstacaoIdETipo.mockResolvedValue(null);
+  sensores.findByEstacaoIdECodigo.mockResolvedValue(null);
     catalogo.findByNome.mockImplementation(async (nome) =>
       [direcaoDoVento, precipitacao].find((g) => g.nome === nome) ?? null
     );
@@ -100,7 +102,7 @@ describe("sensor.service: grandeza vinda do catálogo (US-39)", () => {
     it("deve ignorar a unidade e usar a do catálogo quando o cliente tenta mandar outra", async () => {
       // Dado
       sensores.create.mockResolvedValue(sensorSalvo("Precipitação", "mm"));
-      const entrada = { tipo: "Precipitação", unidade_medida: "polegadas" } as never;
+      const entrada = { codigo: "PRE-01", tipo: "Precipitação", unidade_medida: "polegadas" } as never;
 
       // Quando
       await sensorService.create(ESTACAO_ID, admin, entrada);
@@ -114,7 +116,7 @@ describe("sensor.service: grandeza vinda do catálogo (US-39)", () => {
 
     it("deve responder 400 e não gravar quando a grandeza não existe no catálogo", async () => {
       // Quando
-      const promessa = sensorService.create(ESTACAO_ID, admin, { tipo: "Radiação Solar" });
+      const promessa = sensorService.create(ESTACAO_ID, admin, { codigo: "RAD-01", tipo: "Radiação Solar" });
 
       // Então
       await expect(promessa).rejects.toMatchObject({
@@ -129,7 +131,7 @@ describe("sensor.service: grandeza vinda do catálogo (US-39)", () => {
       sensores.findByEstacaoIdETipo.mockResolvedValue(sensorSalvo("Precipitação", "mm"));
 
       // Quando
-      const promessa = sensorService.create(ESTACAO_ID, admin, { tipo: "Precipitação" });
+      const promessa = sensorService.create(ESTACAO_ID, admin, { codigo: "PRE-01", tipo: "Precipitação" });
 
       // Então
       await expect(promessa).rejects.toMatchObject({ statusCode: 409 });
@@ -141,7 +143,7 @@ describe("sensor.service: grandeza vinda do catálogo (US-39)", () => {
       estacoes.findById.mockResolvedValue(null);
 
       // Quando
-      const promessa = sensorService.create(ESTACAO_ID, admin, { tipo: "Precipitação" });
+      const promessa = sensorService.create(ESTACAO_ID, admin, { codigo: "PRE-01", tipo: "Precipitação" });
 
       // Então
       await expect(promessa).rejects.toMatchObject({ statusCode: 404 });
@@ -150,7 +152,7 @@ describe("sensor.service: grandeza vinda do catálogo (US-39)", () => {
 
     it("deve responder 403 quando a estação é de outro município", async () => {
       // Quando
-      const promessa = sensorService.create(ESTACAO_ID, gestorDeOutroMunicipio, { tipo: "Precipitação" });
+      const promessa = sensorService.create(ESTACAO_ID, gestorDeOutroMunicipio, { codigo: "PRE-01", tipo: "Precipitação" });
 
       // Então
       await expect(promessa).rejects.toMatchObject({ statusCode: 403 });

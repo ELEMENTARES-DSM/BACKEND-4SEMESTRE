@@ -80,6 +80,84 @@ describe("sensor.repository (US-39)", () => {
     );
   });
 
+  describe("código único por estação", () => {
+    const violacao = (constraint: string) =>
+      Object.assign(new Error("duplicate key"), { code: "23505", constraint });
+
+    it("deve responder 409 com a mensagem do código quando o banco acusa o índice do código ao criar", async () => {
+      // Dado
+      query.mockRejectedValue(violacao("uq_sensores_estacao_codigo"));
+
+      // Quando
+      const promessa = sensorRepository.create("estacao-1", dados);
+
+      // Então
+      await expect(promessa).rejects.toMatchObject({
+        statusCode: 409,
+        message: 'Já existe um sensor com o código "TEMP-K" nesta estação.',
+      });
+    });
+
+    it("deve responder 409 com a mensagem do tipo quando o banco acusa um sensor por tipo ao criar", async () => {
+      // Dado
+      query.mockRejectedValue(violacao("uq_sensor_por_estacao"));
+
+      // Quando
+      const promessa = sensorRepository.create("estacao-1", dados);
+
+      // Então
+      await expect(promessa).rejects.toMatchObject({
+        statusCode: 409,
+        message: "Esta estação já possui um sensor de Temperatura cadastrado",
+      });
+    });
+
+    it("deve traduzir a violação do índice do código também ao atualizar", async () => {
+      // Dado
+      query.mockRejectedValue(violacao("uq_sensores_estacao_codigo"));
+
+      // Quando
+      const promessa = sensorRepository.update("sensor-1", dados);
+
+      // Então
+      await expect(promessa).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it("deve repassar o erro original quando a violação é de outra constraint", async () => {
+      // Dado
+      const erro = violacao("outra_constraint");
+      query.mockRejectedValue(erro);
+
+      // Quando
+      const promessa = sensorRepository.create("estacao-1", dados);
+
+      // Então
+      await expect(promessa).rejects.toBe(erro);
+    });
+
+    it("deve buscar o código na estação com placeholders e ignorando o próprio sensor", async () => {
+      // Dado
+      query.mockResolvedValue({ rows: [] });
+
+      // Quando
+      const resultado = await sensorRepository.findByEstacaoIdECodigo("estacao-1", "TEMP-K", "sensor-1");
+
+      // Então
+      const [sql, valores] = query.mock.calls[0];
+      expect(sql).toContain("estacao_id = $1 AND codigo = $2 AND id IS DISTINCT FROM $3");
+      expect(valores).toEqual(["estacao-1", "TEMP-K", "sensor-1"]);
+      expect(resultado).toBeNull();
+    });
+
+    it("deve gravar o código no UPDATE só quando o sensor ainda não tem um (COALESCE)", async () => {
+      // Quando
+      await sensorRepository.update("sensor-1", dados);
+
+      // Então
+      expect(query.mock.calls[0][0]).toContain("codigo = COALESCE(codigo, $6)");
+    });
+  });
+
   describe("update", () => {
     it("deve atualizar unidade_leitura junto com a grandeza, na ordem dos placeholders", async () => {
       // Quando
@@ -88,7 +166,7 @@ describe("sensor.repository (US-39)", () => {
       // Então
       const [sql, valores] = query.mock.calls[0];
       expect(sql).toContain("unidade_leitura = $3");
-      expect(valores).toEqual(["Temperatura", "°C", "K", 1, -273.15, "sensor-1"]);
+      expect(valores).toEqual(["Temperatura", "°C", "K", 1, -273.15, "TEMP-K", "sensor-1"]);
     });
 
     it("deve limpar a unidade de leitura quando o valor é null", async () => {

@@ -12,6 +12,7 @@ jest.mock("../../repositories/sensor.repository", () => ({
   findByEstacaoId: jest.fn(),
   findById: jest.fn(),
   findByEstacaoIdETipo: jest.fn(),
+  findByEstacaoIdECodigo: jest.fn(),
   update: jest.fn(),
   updateStatus: jest.fn(),
 }));
@@ -90,6 +91,7 @@ beforeEach(() => {
   });
   catalogo.findByNome.mockResolvedValue(temperatura);
   sensores.findByEstacaoIdETipo.mockResolvedValue(null);
+  sensores.findByEstacaoIdECodigo.mockResolvedValue(null);
   sensores.findById.mockResolvedValue(baseDoSensor);
   sensores.create.mockImplementation(async (id, d) => ecoDoRepository(id, d));
   sensores.update.mockImplementation(async (id, d) => ecoDoRepository(id, d));
@@ -142,8 +144,8 @@ describe("sensor.routes: unidade_leitura (US-39)", () => {
 
   it("deve aceitar 20 caracteres e responder 400 com 21", async () => {
     // Quando
-    const aceita = await cadastrar({ tipo: "Temperatura", unidade_leitura: "u".repeat(20) });
-    const recusada = await cadastrar({ tipo: "Temperatura", unidade_leitura: "u".repeat(21) });
+    const aceita = await cadastrar({ codigo: "TEMP-01", tipo: "Temperatura", unidade_leitura: "u".repeat(20) });
+    const recusada = await cadastrar({ codigo: "TEMP-01", tipo: "Temperatura", unidade_leitura: "u".repeat(21) });
 
     // Então
     expect(aceita.status).toBe(201);
