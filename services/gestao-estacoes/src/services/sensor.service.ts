@@ -119,6 +119,21 @@ export const listByEstacao = async (
   return sensorRepository.findByEstacaoId(estacaoId);
 };
 
+/**
+ * Rota interna (X-Internal-Token), sem usuário: lista os sensores da estação
+ * com a grandeza, a faixa física e a calibração. O simulador usa para gerar
+ * leituras de qualquer grandeza do catálogo, no lugar de uma lista fixa.
+ */
+export const listarParaSimulador = async (estacaoUuid: string) => {
+  const estacao = await estacaoRepository.findById(estacaoUuid);
+
+  if (!estacao) {
+    throw new AppError("Estação não encontrada.", 404);
+  }
+
+  return sensorRepository.findParaSimulador(estacaoUuid);
+};
+
 export const update = async (
   sensorId: string,
   usuario: UserContext,

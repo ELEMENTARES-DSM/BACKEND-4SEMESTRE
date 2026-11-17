@@ -33,6 +33,21 @@ export const listByEstacao = async (
   }
 };
 
+export const listarInterno = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { uuid } = req.params as { uuid: string };
+
+    const sensores = await sensorService.listarParaSimulador(uuid);
+    res.json(sensores);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const update = async (
   req: Request,
   res: Response,

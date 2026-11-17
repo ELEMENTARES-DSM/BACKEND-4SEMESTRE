@@ -6,6 +6,22 @@ export type StatusSensor = "Ativo" | "Inativo";
  */
 export type TipoSensor = string;
 
+/**
+ * Sensor como o simulador precisa dele: o código que a placa envia, a grandeza
+ * com a faixa física do catálogo e a calibração (valor = bruto x fator_conversao
+ * + offset). NUMERIC chega como texto.
+ */
+export interface SensorParaSimulador {
+  codigo: string;
+  tipo: TipoSensor;
+  unidade: string;
+  faixa_min: string;
+  faixa_max: string;
+  fator_conversao: string;
+  offset: string;
+  status: StatusSensor;
+}
+
 export interface Sensor {
   id: string;
   estacao_id: string;

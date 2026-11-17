@@ -80,6 +80,26 @@ describe("sensor.repository (US-39)", () => {
     );
   });
 
+  describe("findParaSimulador", () => {
+    it("deve juntar o catálogo, ler o offset com alias entre aspas e deixar de fora o sensor sem código", async () => {
+      // Dado
+      query.mockResolvedValue({ rows: [{ codigo: "CHUVA-01" }] });
+
+      // Quando
+      const sensores = await sensorRepository.findParaSimulador("estacao-1");
+
+      // Então
+      const [sql, valores] = query.mock.calls[0];
+      expect(sql).toContain("JOIN tipos_sensor t ON t.nome = s.tipo");
+      expect(sql).toContain("t.faixa_min, t.faixa_max");
+      expect(sql).toContain('s.offset_calibracao AS "offset"');
+      expect(sql).toContain("s.codigo IS NOT NULL");
+      expect(sql).toContain("s.estacao_id = $1");
+      expect(valores).toEqual(["estacao-1"]);
+      expect(sensores).toEqual([{ codigo: "CHUVA-01" }]);
+    });
+  });
+
   describe("código único por estação", () => {
     const violacao = (constraint: string) =>
       Object.assign(new Error("duplicate key"), { code: "23505", constraint });

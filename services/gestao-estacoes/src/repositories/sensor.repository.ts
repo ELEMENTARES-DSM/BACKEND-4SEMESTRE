@@ -1,6 +1,11 @@
 import { pool } from "../config/db";
 import { AppError } from "../middlewares/error-handler";
-import { Sensor, StatusSensor, TipoSensor } from "../models/sensor.model";
+import {
+  Sensor,
+  SensorParaSimulador,
+  StatusSensor,
+  TipoSensor,
+} from "../models/sensor.model";
 
 interface DadosSensor {
   codigo?: string;
@@ -79,6 +84,26 @@ export const findByEstacaoId = async (
 ): Promise<Sensor[]> => {
   const result = await pool.query<Sensor>(
     `SELECT ${COLUNAS_SENSOR} FROM sensores WHERE estacao_id = $1 ORDER BY tipo`,
+    [estacaoId]
+  );
+
+  return result.rows;
+};
+
+/**
+ * Sensores da estação com a faixa física da grandeza e a calibração, para o
+ * simulador. Sensor sem código fica de fora: não há o que a placa enviar.
+ */
+export const findParaSimulador = async (
+  estacaoId: string
+): Promise<SensorParaSimulador[]> => {
+  const result = await pool.query<SensorParaSimulador>(
+    `SELECT s.codigo, s.tipo, t.unidade, t.faixa_min, t.faixa_max,
+            s.fator_conversao, s.offset_calibracao AS "offset", s.status
+     FROM sensores s
+     JOIN tipos_sensor t ON t.nome = s.tipo
+     WHERE s.estacao_id = $1 AND s.codigo IS NOT NULL
+     ORDER BY s.codigo`,
     [estacaoId]
   );
 

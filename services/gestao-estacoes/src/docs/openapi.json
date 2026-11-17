@@ -1004,6 +1004,71 @@
         }
       }
     },
+    "/api/v1/internal/estacoes/{uuid}/sensores": {
+      "get": {
+        "tags": ["Interno"],
+        "x-internal": true,
+        "operationId": "listarSensoresInterno",
+        "summary": "Listar os sensores da estação para o simulador (uso interno)",
+        "description": "Rota privada protegida por token interno (X-Internal-Token). Devolve os sensores da estação com a grandeza, a faixa física do catálogo e a calibração (valor = bruto × fator_conversao + offset), para o simulador gerar leituras de qualquer grandeza em vez de uma lista fixa. Sensor sem código fica de fora, porque não há o que a placa enviar. Também montada em `/estacoes/api/v1/internal/estacoes/{uuid}/sensores`.",
+        "security": [
+          {
+            "internalToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EstacaoUuidParam"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sensores da estação, ordenados pelo código.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SensorParaSimulador"
+                  }
+                },
+                "example": [
+                  {
+                    "codigo": "CHUVA-01",
+                    "tipo": "Precipitação",
+                    "unidade": "mm",
+                    "faixa_min": "0.00",
+                    "faixa_max": "500.00",
+                    "fator_conversao": "1.000000",
+                    "offset": "0.000000",
+                    "status": "Ativo"
+                  },
+                  {
+                    "codigo": "TEMP-K",
+                    "tipo": "Temperatura",
+                    "unidade": "°C",
+                    "faixa_min": "-50.00",
+                    "faixa_max": "60.00",
+                    "fator_conversao": "1.000000",
+                    "offset": "-273.150000",
+                    "status": "Ativo"
+                  }
+                ]
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/404NotFound"
+          }
+        }
+      }
+    },
     "/api/v1/internal/estacoes/{uuid}/inativar": {
       "patch": {
         "tags": ["Interno"],
@@ -1305,6 +1370,23 @@
             "enum": ["media", "soma", "media_circular"],
             "default": "media"
           }
+        }
+      },
+      "SensorParaSimulador": {
+        "type": "object",
+        "required": [
+          "codigo", "tipo", "unidade", "faixa_min", "faixa_max",
+          "fator_conversao", "offset", "status"
+        ],
+        "properties": {
+          "codigo": { "type": "string", "example": "CHUVA-01" },
+          "tipo": { "type": "string", "example": "Precipitação" },
+          "unidade": { "type": "string", "example": "mm" },
+          "faixa_min": { "type": "string", "example": "0.00", "description": "Faixa física mínima da grandeza (NUMERIC, texto)." },
+          "faixa_max": { "type": "string", "example": "500.00", "description": "Faixa física máxima da grandeza (NUMERIC, texto)." },
+          "fator_conversao": { "type": "string", "example": "1.000000" },
+          "offset": { "type": "string", "example": "0.000000", "description": "Offset da calibração: valor = bruto × fator_conversao + offset." },
+          "status": { "type": "string", "enum": ["Ativo", "Inativo"] }
         }
       },
       "Sensor": {
