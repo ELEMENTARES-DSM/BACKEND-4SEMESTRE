@@ -119,6 +119,29 @@ export const listByEstacao = async (
   return sensorRepository.findByEstacaoId(estacaoId);
 };
 
+// Janela e tamanho da lista de códigos detectados: só o que a estação mandou há
+// pouco, para não oferecer código antigo de teste.
+export const DIAS_DETECCAO = 7;
+export const LIMITE_DETECTADOS = 50;
+
+/**
+ * Códigos que a estação enviou e que ainda não têm sensor nela, para o
+ * Administrador escolher no cadastro em vez de digitar. Não cria nada: o sensor
+ * só nasce quando a pessoa confirma o cadastro.
+ */
+export const listarDetectados = async (
+  estacaoId: string,
+  usuario: UserContext
+) => {
+  await garantirPosseDaEstacao(estacaoId, usuario);
+
+  return sensorRepository.findDetectados(
+    estacaoId,
+    DIAS_DETECCAO,
+    LIMITE_DETECTADOS
+  );
+};
+
 /**
  * Rota interna (X-Internal-Token), sem usuário: lista os sensores da estação
  * com a grandeza, a faixa física e a calibração. O simulador usa para gerar

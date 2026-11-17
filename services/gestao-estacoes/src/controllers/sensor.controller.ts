@@ -33,6 +33,22 @@ export const listByEstacao = async (
   }
 };
 
+export const listarDetectados = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { estacaoId } = req.params as { estacaoId: string };
+    const usuario = req.usuario!;
+
+    const detectados = await sensorService.listarDetectados(estacaoId, usuario);
+    res.json(detectados);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const listarInterno = async (
   req: Request,
   res: Response,

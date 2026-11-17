@@ -535,6 +535,60 @@
         }
       }
     },
+    "/estacoes/{estacaoId}/sensores/detectados": {
+      "get": {
+        "tags": ["Sensores"],
+        "operationId": "listSensoresDetectados",
+        "summary": "Listar os códigos que a estação enviou e ainda não têm sensor",
+        "description": "Ajuda do cadastro de sensor: devolve os códigos de sensor que a estação mandou nos últimos 7 dias e que ainda não têm sensor cadastrado nela, para o Administrador escolher o código em vez de digitá-lo (o código cadastrado é cópia do que a placa envia). Não cria nenhum sensor. Só aparecem códigos que dá para cadastrar (1 a 30 caracteres, sem espaço nas pontas). A comparação com os sensores da estação é exata (diferencia maiúsculas de minúsculas) e vale para sensor ativo e inativo; sensores de outras estações não entram. Ordenado da leitura mais recente para a mais antiga, no máximo 50 códigos. Perfis GESTOR_PUBLICO (só estações do próprio município) e ADMINISTRADOR. Atenção: o caminho completo é `/estacoes/estacoes/{estacaoId}/sensores/detectados`.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SensorEstacaoIdParam"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Códigos recebidos sem sensor cadastrado (lista vazia quando não há nenhum).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SensorDetectado"
+                  }
+                },
+                "example": [
+                  {
+                    "codigo": "PM25",
+                    "total": 12,
+                    "ultimo_valor": 12,
+                    "ultima_leitura_em": "2026-11-17T17:20:00.000Z"
+                  },
+                  {
+                    "codigo": "PM10",
+                    "total": 12,
+                    "ultimo_valor": 20,
+                    "ultima_leitura_em": "2026-11-17T17:20:00.000Z"
+                  }
+                ]
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/404NotFound"
+          }
+        }
+      }
+    },
     "/sensores/{id}": {
       "put": {
         "tags": ["Sensores"],
@@ -1369,6 +1423,34 @@
             "type": "string",
             "enum": ["media", "soma", "media_circular"],
             "default": "media"
+          }
+        }
+      },
+      "SensorDetectado": {
+        "type": "object",
+        "required": ["codigo", "total", "ultimo_valor", "ultima_leitura_em"],
+        "properties": {
+          "codigo": {
+            "type": "string",
+            "maxLength": 30,
+            "example": "PM25",
+            "description": "Código exatamente como a estação o enviou."
+          },
+          "total": {
+            "type": "integer",
+            "example": 12,
+            "description": "Quantas leituras desse código chegaram nos últimos 7 dias."
+          },
+          "ultimo_valor": {
+            "type": "number",
+            "nullable": true,
+            "example": 12,
+            "description": "Valor bruto da leitura mais recente: ajuda a escolher a grandeza."
+          },
+          "ultima_leitura_em": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Horário da leitura mais recente, segundo a estação."
           }
         }
       },

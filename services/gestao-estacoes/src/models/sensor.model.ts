@@ -22,6 +22,20 @@ export interface SensorParaSimulador {
   status: StatusSensor;
 }
 
+/**
+ * Código que a estação enviou e que ainda não tem sensor cadastrado nela. A
+ * tela de cadastro oferece esses códigos para o Administrador escolher em vez de
+ * digitar: o código cadastrado é cópia do que a placa manda.
+ */
+export interface SensorDetectado {
+  codigo: string;
+  /** Quantas leituras desse código chegaram na janela. */
+  total: number;
+  ultimo_valor: number | null;
+  /** Horário da última leitura, em ISO 8601 (UTC). */
+  ultima_leitura_em: string;
+}
+
 export interface Sensor {
   id: string;
   estacao_id: string;

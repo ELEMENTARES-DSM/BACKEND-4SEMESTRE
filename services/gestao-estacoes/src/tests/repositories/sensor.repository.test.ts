@@ -100,6 +100,80 @@ describe("sensor.repository (US-39)", () => {
     });
   });
 
+  describe("findDetectados (códigos recebidos sem sensor)", () => {
+    it("deve ler o staging da estação, tirar os códigos que já têm sensor nela e usar só placeholders", async () => {
+      // Dado
+      query.mockResolvedValue({ rows: [] });
+
+      // Quando
+      await sensorRepository.findDetectados("estacao-1", 7, 50);
+
+      // Então
+      const [sql, valores] = query.mock.calls[0];
+      expect(sql).toContain("FROM staging_telemetria st");
+      expect(sql).toContain("st.estacao_uuid = $1");
+      expect(sql).toContain("st.status <> 'rejeitada'");
+      // Só os sensores DA estação, de qualquer status, e comparação exata do código.
+      expect(sql).toContain("NOT EXISTS");
+      expect(sql).toContain("s.estacao_id = $1 AND s.codigo = l.codigo");
+      expect(sql).not.toMatch(/s\.status/);
+      expect(sql).not.toMatch(/lower\(|upper\(|ilike/i);
+      expect(sql).toContain("LIMIT $3");
+      expect(valores).toEqual(["estacao-1", 7, 50]);
+    });
+
+    it("deve oferecer só código que dá para cadastrar (1 a 30 caracteres, sem espaço nas pontas)", async () => {
+      // Dado
+      query.mockResolvedValue({ rows: [] });
+
+      // Quando
+      await sensorRepository.findDetectados("estacao-1", 7, 50);
+
+      // Então
+      const sql: string = query.mock.calls[0][0];
+      expect(sql).toContain("l.codigo = btrim(l.codigo)");
+      expect(sql).toContain("char_length(l.codigo) BETWEEN 1 AND 30");
+      // Número no lugar do código (42) não vira o código "42": o JSON precisa trazer texto.
+      expect(sql).toContain("jsonb_typeof(e.item->'sensor') = 'string'");
+    });
+
+    it("deve devolver o código, o total, o último valor como número e o horário em ISO", async () => {
+      // Dado
+      query.mockResolvedValue({
+        rows: [
+          { codigo: "PM25", total: 12, ultimo_unixtime: "1763400000", ultimo_valor: "12.5000" },
+          { codigo: "DIR-01", total: 1, ultimo_unixtime: "1763399000", ultimo_valor: null },
+        ],
+      });
+
+      // Quando
+      const detectados = await sensorRepository.findDetectados("estacao-1", 7, 50);
+
+      // Então
+      expect(detectados).toEqual([
+        { codigo: "PM25", total: 12, ultimo_valor: 12.5, ultima_leitura_em: "2025-11-17T17:20:00.000Z" },
+        { codigo: "DIR-01", total: 1, ultimo_valor: null, ultima_leitura_em: "2025-11-17T17:03:20.000Z" },
+      ]);
+    });
+
+    it("deve devolver lista vazia quando a tabela do staging ainda não existe (42P01)", async () => {
+      // Dado
+      query.mockRejectedValue(Object.assign(new Error("relation does not exist"), { code: "42P01" }));
+
+      // Quando / Então
+      await expect(sensorRepository.findDetectados("estacao-1", 7, 50)).resolves.toEqual([]);
+    });
+
+    it("deve repassar qualquer outro erro do banco", async () => {
+      // Dado
+      const erro = Object.assign(new Error("conexão perdida"), { code: "08006" });
+      query.mockRejectedValue(erro);
+
+      // Quando / Então
+      await expect(sensorRepository.findDetectados("estacao-1", 7, 50)).rejects.toBe(erro);
+    });
+  });
+
   describe("código único por estação", () => {
     const violacao = (constraint: string) =>
       Object.assign(new Error("duplicate key"), { code: "23505", constraint });
