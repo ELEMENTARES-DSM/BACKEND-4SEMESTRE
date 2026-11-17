@@ -29,7 +29,7 @@
         ],
         "operationId": "getEstacaoSeries",
         "summary": "Obter séries históricas da estação",
-        "description": "Retorna as séries históricas da grandeza solicitada, agrupando os dados em intervalos de 5 minutos para 24h, 1 hora para 7d e 1 dia para 30d. Suporta requisições com ou sem autenticação: usuários sem login podem consultar até 7 dias; MUNICIPE pode consultar até 30 dias; GESTOR_PUBLICO e ADMINISTRADOR não possuem limite de período. Períodos maiores que o permitido para o perfil respondem 400 com o limite máximo na mensagem.",
+        "description": "Retorna as séries históricas da grandeza solicitada, agrupando os dados em intervalos de 5 minutos para 24h, 1 hora para 7d e 1 dia para 30d. Suporta requisições com ou sem autenticação: usuários sem login podem consultar até 7 dias; MUNICIPE pode consultar até 30 dias com cota de 2.000 requisições/semana e 6.000 requisições/mês (retornando cabeçalhos X-Cota-Semana-Restante e X-Cota-Mes-Restante, ou 429 se esgotada); GESTOR_PUBLICO e ADMINISTRADOR não possuem limite de período nem cota. Períodos maiores que o permitido para o perfil respondem 400 com o limite máximo na mensagem.",
         "security": [
           {
             "BearerAuth": []
@@ -82,6 +82,9 @@
           "404": {
             "$ref": "#/components/responses/EstacaoNotFound"
           },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
           "500": {
             "$ref": "#/components/responses/InternalError"
           }
@@ -121,6 +124,9 @@
           },
           "404": {
             "$ref": "#/components/responses/EstacaoNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
@@ -206,6 +212,9 @@
           "404": {
             "$ref": "#/components/responses/EstacaoNotFound"
           },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
           "500": {
             "$ref": "#/components/responses/InternalError"
           }
@@ -235,6 +244,9 @@
           },
           "404": {
             "$ref": "#/components/responses/EstacaoNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
@@ -474,6 +486,38 @@
           }
         }
       },
+      "TooManyRequests": {
+        "description": "Limite de cota de requisições excedido para o perfil (semanal ou mensal). Retorna a data em que a cota será renovada.",
+        "headers": {
+          "X-Cota-Semana-Restante": {
+            "description": "Saldo restante de requisições na semana atual",
+            "schema": {
+              "type": "string",
+              "example": "0"
+            }
+          },
+          "X-Cota-Mes-Restante": {
+            "description": "Saldo restante de requisições no mês atual",
+            "schema": {
+              "type": "string",
+              "example": "120"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/QuotaExceededResponse"
+            },
+            "example": {
+              "erro": "Limite de cota semanal de requisições excedido para o seu perfil.",
+              "renovaEm": "2026-11-23T00:00:00.000Z",
+              "semanaRestante": 0,
+              "mesRestante": 120
+            }
+          }
+        }
+      },
       "InternalError": {
         "description": "Erro interno durante o processamento da requisição.",
         "content": {
@@ -504,6 +548,32 @@
           "message": {
             "type": "string",
             "example": "Erro na requisição."
+          }
+        }
+      },
+      "QuotaExceededResponse": {
+        "type": "object",
+        "required": [
+          "erro",
+          "renovaEm"
+        ],
+        "properties": {
+          "erro": {
+            "type": "string",
+            "example": "Limite de cota semanal de requisições excedido para o seu perfil."
+          },
+          "renovaEm": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-11-23T00:00:00.000Z"
+          },
+          "semanaRestante": {
+            "type": "integer",
+            "example": 0
+          },
+          "mesRestante": {
+            "type": "integer",
+            "example": 120
           }
         }
       },

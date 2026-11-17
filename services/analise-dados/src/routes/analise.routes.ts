@@ -2,13 +2,15 @@ import { Router, Request, Response } from "express";
 import { authOpcional } from "../middlewares/auth.middleware";
 import { verificarPeriodo } from "../middlewares/periodo.middleware";
 import { verificarMunicipio } from "../middlewares/municipio.middleware";
+import { aplicarCotaEAuditar } from "../middlewares/cota.middleware";
 
 const router = Router();
 
-// Aplica autenticação opcional, validação de limites de período e isolamento de município
+// Aplica autenticação opcional, validação de limites de período, isolamento de município e cota/auditoria
 router.use(authOpcional);
 router.use(verificarPeriodo);
 router.use(verificarMunicipio);
+router.use(aplicarCotaEAuditar);
 
 // GET /analise/estacoes/:id/series e GET /public/analise/estacoes/:id/series
 router.get("/estacoes/:id/series", (req: Request, res: Response) => {
