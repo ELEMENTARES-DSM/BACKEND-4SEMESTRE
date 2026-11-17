@@ -22,3 +22,22 @@ export const createTipoSensorSchema = z.object({
   faixa_max: limiteDeFaixa,
   agregacao: z.enum(AGREGACOES_TIPO_SENSOR).default("media"),
 });
+
+export const tipoSensorIdParamSchema = z.object({
+  id: z.string().uuid(),
+});
+
+// Corpo estrito do PUT: só unidade, faixa e agregação mudam. O nome é a chave
+// que o CSV, os filtros e os painéis usam; renomear quebraria todos eles.
+export const updateTipoSensorSchema = z
+  .strictObject({
+    nome: z.never({ error: "O nome da grandeza não pode ser alterado." }).optional(),
+    unidade: z.string().trim().min(1).max(20).optional(),
+    faixa_min: limiteDeFaixa.optional(),
+    faixa_max: limiteDeFaixa.optional(),
+    agregacao: z.enum(AGREGACOES_TIPO_SENSOR).optional(),
+  })
+  .refine((corpo) => Object.values(corpo).some((valor) => valor !== undefined), {
+    message: "Informe ao menos um campo para alterar.",
+    path: ["corpo"],
+  });

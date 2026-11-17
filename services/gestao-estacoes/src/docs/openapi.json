@@ -21,6 +21,10 @@
       "description": "Gerenciamento e monitoramento das estações meteorológicas"
     },
     {
+      "name": "Sensores",
+      "description": "Sensores de cada estação: cadastro, calibração e status. As grandezas que eles usam vêm do catálogo (`/tipos-sensor`, tag Estações)."
+    },
+    {
       "name": "Público",
       "description": "Operações públicas de consulta de municípios e status sem necessidade de autenticação"
     },
@@ -366,6 +370,321 @@
         }
       }
     },
+    "/estacoes/{estacaoId}/sensores": {
+      "post": {
+        "tags": ["Sensores"],
+        "operationId": "createSensor",
+        "summary": "Cadastrar sensor na estação",
+        "description": "Cadastra um sensor de uma grandeza do catálogo (`GET /tipos-sensor`). O `codigo` é obrigatório, único por estação e deve ser o mesmo que a placa envia no payload MQTT. A `unidade_medida` vem da grandeza. Cada estação tem no máximo um sensor por grandeza. A conversão da leitura é `valor = bruto × fator_conversao + offset` (padrão: fator 1 e offset 0). Perfis GESTOR_PUBLICO (só estações do próprio município) e ADMINISTRADOR. Atenção: o caminho completo é `/estacoes/estacoes/{estacaoId}/sensores`.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SensorEstacaoIdParam"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSensorInput"
+              },
+              "examples": {
+                "direcaoDoVento": {
+                  "summary": "Grandeza nova do catálogo",
+                  "value": {
+                    "codigo": "DIR-01",
+                    "tipo": "Direção do Vento"
+                  }
+                },
+                "temperaturaEmKelvin": {
+                  "summary": "Placa que envia em Kelvin (Cenário 5)",
+                  "value": {
+                    "codigo": "TEMP-K",
+                    "tipo": "Temperatura",
+                    "unidade_leitura": "K",
+                    "fator_conversao": 1,
+                    "offset": -273.15
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Sensor cadastrado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Sensor"
+                },
+                "example": {
+                  "id": "2c5a7a04-6d52-4f4b-9b0a-1f0b3a8c9e21",
+                  "estacao_id": "11111111-1111-4111-8111-111111111111",
+                  "codigo": "TEMP-K",
+                  "nome": null,
+                  "tipo": "Temperatura",
+                  "unidade_medida": "°C",
+                  "unidade_leitura": "K",
+                  "fator_conversao": "1.000000",
+                  "offset": "-273.150000",
+                  "status": "Ativo",
+                  "criado_em": "2026-11-17T12:00:00.000Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dados inválidos (código ausente, campo fora do limite) ou grandeza que não existe no catálogo.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "codigoAusente": {
+                    "summary": "Código obrigatório",
+                    "value": {
+                      "message": "Dados inválidos",
+                      "errors": {
+                        "codigo": ["Invalid input: expected string, received undefined"]
+                      }
+                    }
+                  },
+                  "grandezaInexistente": {
+                    "summary": "Grandeza fora do catálogo",
+                    "value": {
+                      "message": "Tipo de sensor \"Radiação Solar\" não existe no catálogo de grandezas."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/404NotFound"
+          },
+          "409": {
+            "description": "A estação já tem sensor dessa grandeza ou com esse código.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "codigoRepetido": {
+                    "summary": "Código repetido na estação",
+                    "value": {
+                      "message": "Já existe um sensor com o código \"DIR-01\" nesta estação."
+                    }
+                  },
+                  "grandezaRepetida": {
+                    "summary": "Um sensor por grandeza na estação",
+                    "value": {
+                      "message": "Esta estação já possui um sensor de Temperatura cadastrado"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": ["Sensores"],
+        "operationId": "listSensoresDaEstacao",
+        "summary": "Listar os sensores da estação",
+        "description": "Lista os sensores da estação, ordenados pela grandeza. GESTOR_PUBLICO só acessa estações do próprio município. Atenção: o caminho completo é `/estacoes/estacoes/{estacaoId}/sensores`.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SensorEstacaoIdParam"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sensores da estação.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Sensor"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/404NotFound"
+          }
+        }
+      }
+    },
+    "/sensores/{id}": {
+      "put": {
+        "tags": ["Sensores"],
+        "operationId": "updateSensor",
+        "summary": "Alterar sensor",
+        "description": "Troca a grandeza e a calibração do sensor (a `unidade_medida` acompanha a grandeza). Campos omitidos voltam ao padrão: `fator_conversao` 1, `offset` 0 e `unidade_leitura` vazia. O `codigo` só é aceito para definir o de um sensor antigo que ainda não tem código, ou repetindo o atual: depois de definido ele fica fixo (409 na troca), porque mudar o código quebraria a configuração da placa. Trocar a grandeza reinterpreta o histórico do sensor: use só para corrigir cadastro errado.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SensorIdParam"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSensorInput"
+              },
+              "example": {
+                "tipo": "Temperatura",
+                "unidade_leitura": "K",
+                "fator_conversao": 1,
+                "offset": -273.15
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sensor alterado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Sensor"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dados inválidos ou grandeza que não existe no catálogo.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403Forbidden"
+          },
+          "404": {
+            "description": "Sensor não encontrado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "message": "Sensor não encontrado."
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A estação já tem sensor da nova grandeza, o código já é de outro sensor da estação ou se tentou trocar um código já definido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "message": "O código do sensor não pode ser alterado depois de definido."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sensores/{id}/status": {
+      "patch": {
+        "tags": ["Sensores"],
+        "operationId": "updateSensorStatus",
+        "summary": "Ativar ou inativar sensor",
+        "description": "Sensor não é removido: para parar de usá-lo, inative-o. Sensor inativo é ignorado na ingestão. Perfis GESTOR_PUBLICO (só estações do próprio município) e ADMINISTRADOR.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SensorIdParam"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["status"],
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": ["Ativo", "Inativo"]
+                  }
+                }
+              },
+              "example": {
+                "status": "Inativo"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Status alterado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Sensor"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403Forbidden"
+          },
+          "404": {
+            "description": "Sensor não encontrado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "message": "Sensor não encontrado."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/tipos-sensor": {
       "get": {
         "tags": ["Estações"],
@@ -509,6 +828,182 @@
         }
       }
     },
+    "/tipos-sensor/{id}": {
+      "put": {
+        "tags": ["Estações"],
+        "operationId": "updateTipoSensor",
+        "summary": "Alterar grandeza do catálogo",
+        "description": "Altera faixa física e agregação sempre (valem só para as leituras futuras: as medidas já gravadas não mudam) e a unidade somente quando nenhum sensor usa a grandeza. O nome é fixo (enviar `nome` responde 400). Informe ao menos um campo. Restrito ao perfil ADMINISTRADOR.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TipoSensorIdParam"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTipoSensorInput"
+              },
+              "example": {
+                "faixa_max": 70
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Grandeza alterada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TipoSensor"
+                },
+                "example": {
+                  "id": "5549e54b-346e-4a87-8f7d-d2604c878530",
+                  "nome": "Temperatura",
+                  "unidade": "°C",
+                  "faixa_min": "-50.00",
+                  "faixa_max": "70.00",
+                  "agregacao": "media"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dados inválidos: corpo vazio, `nome` enviado, id que não é UUID ou `faixa_min` maior ou igual a `faixa_max` (considerando também o valor já gravado).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "nomeFixo": {
+                    "summary": "Tentativa de renomear",
+                    "value": {
+                      "message": "Dados inválidos",
+                      "errors": {
+                        "nome": ["O nome da grandeza não pode ser alterado."]
+                      }
+                    }
+                  },
+                  "faixaInvertida": {
+                    "summary": "Faixa mínima maior ou igual à máxima",
+                    "value": {
+                      "message": "faixa_min deve ser menor que faixa_max."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "403": {
+            "description": "Perfil sem permissão (somente ADMINISTRADOR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "erro": "Acesso negado. Perfil insuficiente para esta ação."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Grandeza não encontrada no catálogo.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "message": "Grandeza não encontrada no catálogo."
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A unidade não pode ser alterada porque algum sensor usa a grandeza. Faixa e agregação não têm essa restrição.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "message": "A unidade não pode ser alterada: esta grandeza é usada por 2 sensores. Faixa e agregação podem ser alteradas a qualquer momento."
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Estações"],
+        "operationId": "deleteTipoSensor",
+        "summary": "Excluir grandeza do catálogo",
+        "description": "Exclui uma grandeza que nenhum sensor usa (por exemplo, uma grandeza criada por engano). Se algum sensor usa a grandeza, responde 409: sensores com medidas não podem ser removidos, então uma grandeza que já teve sensor com medida não sai mais do catálogo. Para parar de usá-la, inative os sensores. Restrito ao perfil ADMINISTRADOR.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TipoSensorIdParam"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Grandeza excluída."
+          },
+          "400": {
+            "$ref": "#/components/responses/400BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/401Unauthorized"
+          },
+          "403": {
+            "description": "Perfil sem permissão (somente ADMINISTRADOR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "erro": "Acesso negado. Perfil insuficiente para esta ação."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Grandeza não encontrada no catálogo.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "message": "Grandeza não encontrada no catálogo."
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Algum sensor usa a grandeza, então ela não pode ser excluída.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "message": "Esta grandeza é usada por 3 sensores e não pode ser excluída. Sensores com medidas não podem ser removidos; para parar de usá-la, inative os sensores."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/internal/estacoes/{uuid}/inativar": {
       "patch": {
         "tags": ["Interno"],
@@ -566,6 +1061,36 @@
       }
     },
     "parameters": {
+      "SensorEstacaoIdParam": {
+        "name": "estacaoId",
+        "in": "path",
+        "required": true,
+        "description": "UUID da estação",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "SensorIdParam": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "description": "UUID do sensor",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "TipoSensorIdParam": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "description": "UUID da grandeza no catálogo",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
       "EstacaoIdParam": {
         "name": "id",
         "in": "path",
@@ -779,6 +1304,134 @@
             "type": "string",
             "enum": ["media", "soma", "media_circular"],
             "default": "media"
+          }
+        }
+      },
+      "Sensor": {
+        "type": "object",
+        "required": [
+          "id", "estacao_id", "codigo", "nome", "tipo", "unidade_medida",
+          "unidade_leitura", "fator_conversao", "offset", "status", "criado_em"
+        ],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "estacao_id": { "type": "string", "format": "uuid" },
+          "codigo": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 30,
+            "description": "Código que a placa envia no payload. Obrigatório no cadastro e único por estação; pode ser nulo em sensores antigos que ainda não têm código."
+          },
+          "nome": { "type": "string", "nullable": true, "maxLength": 100 },
+          "tipo": {
+            "type": "string",
+            "description": "Nome de uma grandeza do catálogo (`GET /tipos-sensor`).",
+            "example": "Temperatura"
+          },
+          "unidade_medida": {
+            "type": "string",
+            "description": "Unidade da grandeza, copiada do catálogo ao cadastrar o sensor.",
+            "example": "°C"
+          },
+          "unidade_leitura": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 20,
+            "description": "Unidade em que a placa envia a leitura (ex.: K). Só informa; quem converte são o `fator_conversao` e o `offset`. Nulo quando a placa já envia na unidade da grandeza.",
+            "example": "K"
+          },
+          "fator_conversao": {
+            "type": "string",
+            "description": "Fator da calibração (NUMERIC, devolvido como texto). valor = bruto × fator_conversao + offset.",
+            "example": "1.000000"
+          },
+          "offset": {
+            "type": "string",
+            "description": "Offset da calibração: valor = bruto × fator_conversao + offset (NUMERIC, devolvido como texto). Na tabela a coluna é offset_calibracao, porque OFFSET é palavra reservada do PostgreSQL.",
+            "example": "-273.150000"
+          },
+          "status": { "type": "string", "enum": ["Ativo", "Inativo"] },
+          "criado_em": { "type": "string", "format": "date-time" }
+        }
+      },
+      "CreateSensorInput": {
+        "type": "object",
+        "required": ["codigo", "tipo"],
+        "properties": {
+          "codigo": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 30,
+            "example": "DIR-01",
+            "description": "Mesmo código que a placa envia no payload MQTT. Único por estação."
+          },
+          "nome": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "tipo": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "example": "Direção do Vento",
+            "description": "Nome exato de uma grandeza do catálogo."
+          },
+          "unidade_leitura": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 20,
+            "example": "K",
+            "description": "Opcional. Vazio ou ausente significa que a placa já envia na unidade da grandeza."
+          },
+          "fator_conversao": { "type": "number", "default": 1, "example": 1 },
+          "offset": {
+            "type": "number",
+            "default": 0,
+            "example": -273.15,
+            "description": "Offset da calibração: valor = bruto × fator_conversao + offset."
+          }
+        }
+      },
+      "UpdateSensorInput": {
+        "type": "object",
+        "required": ["tipo"],
+        "description": "Campos omitidos voltam ao padrão (fator_conversao 1, offset 0, unidade_leitura vazia).",
+        "properties": {
+          "codigo": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 30,
+            "description": "Só vale para definir o código de um sensor antigo que ainda não tem; depois de definido fica fixo (409 na troca)."
+          },
+          "tipo": { "type": "string", "minLength": 1, "maxLength": 100, "example": "Temperatura" },
+          "unidade_leitura": { "type": "string", "nullable": true, "maxLength": 20 },
+          "fator_conversao": { "type": "number", "default": 1 },
+          "offset": { "type": "number", "default": 0 }
+        }
+      },
+      "UpdateTipoSensorInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "description": "Informe ao menos um campo. O nome da grandeza não pode ser alterado.",
+        "properties": {
+          "unidade": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20,
+            "example": "°C",
+            "description": "Só pode mudar enquanto nenhum sensor usa a grandeza (senão 409)."
+          },
+          "faixa_min": {
+            "type": "number",
+            "example": -50,
+            "description": "Até 2 casas decimais; deve ficar menor que a faixa máxima. Vale só para leituras futuras."
+          },
+          "faixa_max": {
+            "type": "number",
+            "example": 70,
+            "description": "Até 2 casas decimais; deve ficar maior que a faixa mínima. Vale só para leituras futuras."
+          },
+          "agregacao": {
+            "type": "string",
+            "enum": ["media", "soma", "media_circular"]
           }
         }
       },

@@ -2,7 +2,11 @@ import { Router } from "express";
 import * as tipoSensorController from "../controllers/tipo-sensor.controller";
 import { validate } from "../middlewares/validate";
 import { authMiddleware, checkRole } from "../middlewares/middleware";
-import { createTipoSensorSchema } from "../validations/tipo-sensor.validation";
+import {
+  createTipoSensorSchema,
+  tipoSensorIdParamSchema,
+  updateTipoSensorSchema,
+} from "../validations/tipo-sensor.validation";
 
 const router = Router();
 
@@ -16,6 +20,23 @@ router.post(
   checkRole(["ADMINISTRADOR"]),
   validate(createTipoSensorSchema),
   tipoSensorController.criar
+);
+
+router.put(
+  "/tipos-sensor/:id",
+  authMiddleware,
+  checkRole(["ADMINISTRADOR"]),
+  validate(tipoSensorIdParamSchema, "params"),
+  validate(updateTipoSensorSchema),
+  tipoSensorController.atualizar
+);
+
+router.delete(
+  "/tipos-sensor/:id",
+  authMiddleware,
+  checkRole(["ADMINISTRADOR"]),
+  validate(tipoSensorIdParamSchema, "params"),
+  tipoSensorController.excluir
 );
 
 export default router;

@@ -14,6 +14,34 @@ export const listar = async (
   }
 };
 
+export const atualizar = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { id } = req.params as { id: string };
+    const tipo = await tipoSensorService.atualizar(id, req.body);
+    res.json(tipo);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const excluir = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { id } = req.params as { id: string };
+    await tipoSensorService.excluir(id);
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const criar = async (
   req: Request,
   res: Response,
