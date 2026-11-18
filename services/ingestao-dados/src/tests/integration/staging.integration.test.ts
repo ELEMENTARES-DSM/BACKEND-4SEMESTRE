@@ -1,11 +1,26 @@
 import { randomUUID } from "node:crypto";
+import amqp, { Channel, ChannelModel } from "amqplib";
 import { pool } from "../../config/db";
+import {
+  EXCHANGE_TELEMETRIA_BRUTA,
+  RabbitMqTelemetriaPublisher,
+} from "../../events/publishers/rabbitmq-telemetria.publisher";
 import { processarMensagem } from "../../services/processar-mensagem.service";
 import { logger } from "../../utils/logger";
 import { cadastrarEstacao, criarTabelaEstacoes } from "./helpers/estacoes";
 
 // Execute somente contra um banco de teste; cada execução usa um schema isolado.
 const integration = process.env.STAGING_TEST_DATABASE_URL ? describe : describe.skip;
+const integrationComRabbit = process.env.RABBITMQ_TEST_URL ? it : it.skip;
+
+async function aguardar(condicao: () => Promise<boolean>, descricao: string): Promise<void> {
+  const limite = Date.now() + 10000;
+  while (Date.now() < limite) {
+    if (await condicao()) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Tempo esgotado aguardando ${descricao}`);
+}
 
 integration("staging PostgreSQL", () => {
   const schema = `staging_test_${randomUUID().replaceAll("-", "")}`;
@@ -80,6 +95,88 @@ integration("staging PostgreSQL", () => {
     });
     expect(rows[0].criado_em.toISOString()).toBe(recebidoEm);
   });
+
+  integrationComRabbit(
+    "publica no RabbitMQ a leitura atrasada gravada na staging com o mesmo staging_id e recebidoEm",
+    async () => {
+      const rabbitUrl = process.env.RABBITMQ_TEST_URL as string;
+      const lidoEm = "2026-10-14T10:00:00.000Z";
+      const recebidoEm = "2026-10-14T12:00:00.000Z";
+      const leituraAtrasada = {
+        ...mensagem,
+        recebidoEm,
+        payloadBruto: `{"timestamp":"${lidoEm}","leituras":[{"sensor":"temperatura","valor":25}]}`,
+      };
+      const publisher = new RabbitMqTelemetriaPublisher({ url: rabbitUrl });
+      let conexaoLeitura: ChannelModel | undefined;
+      let canalLeitura: Channel | undefined;
+
+      try {
+        conexaoLeitura = await amqp.connect(rabbitUrl);
+        canalLeitura = await conexaoLeitura.createChannel();
+        await canalLeitura.assertExchange(EXCHANGE_TELEMETRIA_BRUTA, "fanout", { durable: true });
+        const fila = await canalLeitura.assertQueue("", {
+          exclusive: true,
+          autoDelete: true,
+        });
+        await canalLeitura.bindQueue(fila.queue, EXCHANGE_TELEMETRIA_BRUTA, "");
+
+        const eventoRecebido = new Promise<Record<string, unknown>>((resolve, reject) => {
+          const timer = setTimeout(
+            () => reject(new Error("Tempo esgotado aguardando o evento telemetria.bruta")),
+            10000,
+          );
+          void canalLeitura!.consume(
+            fila.queue,
+            (mensagemRabbit) => {
+              if (!mensagemRabbit) return;
+              clearTimeout(timer);
+              resolve(JSON.parse(mensagemRabbit.content.toString()) as Record<string, unknown>);
+            },
+            { noAck: true },
+          ).catch((erro: unknown) => {
+            clearTimeout(timer);
+            reject(erro);
+          });
+        });
+
+        await expect(processarMensagem(leituraAtrasada)).resolves.toBe("recebida");
+        await publisher.iniciar();
+        const evento = await eventoRecebido;
+
+        const { rows } = await pool.query<{
+          id: string;
+          status: string;
+          criado_em: Date;
+        }>("SELECT id, status, criado_em FROM staging_telemetria");
+        expect(rows).toHaveLength(1);
+        await aguardar(async () => {
+          const resultado = await pool.query<{ status: string }>(
+            "SELECT status FROM staging_telemetria WHERE id = $1",
+            [rows[0].id],
+          );
+          return resultado.rows[0]?.status === "publicada";
+        }, "a confirmação de publicação no staging");
+        const { rows: publicados } = await pool.query<{
+          status: string;
+          criado_em: Date;
+        }>("SELECT status, criado_em FROM staging_telemetria WHERE id = $1", [rows[0].id]);
+        expect(evento).toMatchObject({
+          staging_id: rows[0].id,
+          estacao_uuid: mensagem.estacaoId,
+          unixtime: Date.parse(lidoEm) / 1000,
+          recebidoEm,
+          leituras: [{ sensor: "temperatura", valor: 25 }],
+        });
+        expect(publicados[0].criado_em.toISOString()).toBe(recebidoEm);
+        expect(publicados[0].status).toBe("publicada");
+      } finally {
+        await publisher.encerrar();
+        await canalLeitura?.close().catch(() => undefined);
+        await conexaoLeitura?.close().catch(() => undefined);
+      }
+    },
+  );
 
   it("grava rejeitada não JSON exatamente como recebida", async () => {
     const payloadBruto = "  inválido\n";
