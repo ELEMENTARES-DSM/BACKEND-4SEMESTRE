@@ -1,12 +1,12 @@
 import amqp, { ChannelModel, ConfirmChannel, Message } from "amqplib";
 import {
-  marcarPendente,
-  marcarPublicada,
-  marcarRecebidasPendentes,
-  liberarReservasAbandonadas,
-  reservarProximaPendente,
-  tentarBloquearPublicador,
-} from "../../repositories/staging.repository";
+  descartarPendente,
+  lerMensagem,
+  marcarEncaminhada,
+  MensagemStaging,
+  proximaPendente,
+} from "../../repositories/staging-valkey.repository";
+import { extrairEstacaoId } from "../../utils/topico-estacao";
 
 export const EXCHANGE_TELEMETRIA_BRUTA = "telemetria.bruta";
 export const FILA_VALIDACAO_TELEMETRIA = "validacao.telemetria";
@@ -19,6 +19,31 @@ export interface RabbitMqPublisherOptions {
   reconectarMs?: number;
   intervaloRecuperacaoMs?: number;
   confirmTimeoutMs?: number;
+  // Relógio da expiração de 7 dias; injetado nos testes.
+  agora?: () => Date;
+}
+
+export interface EventoTelemetriaBruta {
+  staging_id: string;
+  estacao_uuid: string;
+  unixtime: number;
+  recebidoEm: string;
+  leituras: Array<{ sensor: string; valor: number }>;
+}
+
+/** Evento de telemetria.bruta a partir da mensagem do Valkey, já verificada (US-12/US-28). */
+export function montarEvento(mensagem: MensagemStaging): EventoTelemetriaBruta {
+  const payload = JSON.parse(mensagem.payloadBruto) as {
+    timestamp: string;
+    leituras: Array<{ sensor: string; valor: number }>;
+  };
+  return {
+    staging_id: mensagem.id,
+    estacao_uuid: extrairEstacaoId(mensagem.topico) as string,
+    unixtime: Math.floor(Date.parse(payload.timestamp) / 1000),
+    recebidoEm: new Date(mensagem.recebidoEm).toISOString(),
+    leituras: payload.leituras.map(({ sensor, valor }) => ({ sensor, valor })),
+  };
 }
 
 export class RabbitMqTelemetriaPublisher {
@@ -27,6 +52,7 @@ export class RabbitMqTelemetriaPublisher {
   private reconectarTimer?: NodeJS.Timeout;
   private recuperacaoTimer?: NodeJS.Timeout;
   private processando = false;
+  private deNovo = false;
   private encerrando = false;
 
   constructor(private readonly options: RabbitMqPublisherOptions) {}
@@ -53,6 +79,14 @@ export class RabbitMqTelemetriaPublisher {
     return Boolean(this.channel && this.connection);
   }
 
+  /** Publica uma leitura atrasada persistida no PostgreSQL sem passar pela fila do Valkey. */
+  async publicarDiretamente(evento: EventoTelemetriaBruta): Promise<void> {
+    const channel = this.channel;
+    if (!channel) throw new Error("RabbitMQ indisponível para publicar leitura atrasada");
+    await this.declararTopologia(channel);
+    await this.publicarConfirmado(channel, evento);
+  }
+
   private async conectar(): Promise<void> {
     if (this.encerrando) return;
     try {
@@ -66,7 +100,6 @@ export class RabbitMqTelemetriaPublisher {
         if (this.connection === connection) {
           this.channel = undefined;
           this.connection = undefined;
-          void this.marcarRecebidasSemRabbit("Conexão com RabbitMQ encerrada");
           this.agendarReconexao();
         }
       });
@@ -90,8 +123,8 @@ export class RabbitMqTelemetriaPublisher {
       this.connection = undefined;
       await channel?.close().catch(() => undefined);
       await connection?.close().catch(() => undefined);
+      // As pendentes continuam em staging:pendentes e saem na ordem quando ele voltar.
       console.error(`[rabbitmq] indisponível: ${this.motivo(erro)}`);
-      await this.marcarRecebidasSemRabbit(`RabbitMQ indisponível: ${this.motivo(erro)}`);
       this.agendarReconexao();
     }
   }
@@ -120,64 +153,57 @@ export class RabbitMqTelemetriaPublisher {
     }, this.options.reconectarMs ?? 5000);
   }
 
+  /**
+   * Publica staging:pendentes na ordem da lista (US-40). Uma única rodada por
+   * vez dentro do processo; um pedido durante a rodada gera outra logo depois.
+   * A instância é uma só: o clientId MQTT fixo não deixa duas consumirem juntas.
+   */
   async processarPendentes(): Promise<void> {
-    if (this.processando || this.encerrando) return;
-    if (!this.channel) {
-      await this.marcarRecebidasSemRabbit("RabbitMQ indisponível: sem conexão ativa");
+    if (this.encerrando) return;
+    if (this.processando) {
+      this.deNovo = true;
       return;
     }
     this.processando = true;
-    let bloqueio: Awaited<ReturnType<typeof tentarBloquearPublicador>> = null;
     try {
-      bloqueio = await tentarBloquearPublicador();
-      if (!bloqueio) return;
-
-      const channel = this.channel;
-      if (!channel) return;
-      await this.declararTopologia(channel);
-      // Com exclusividade obtida, qualquer reserva restante pertence a um processo que caiu.
-      await liberarReservasAbandonadas();
-
-      while (this.channel === channel && !this.encerrando) {
-        const registro = await reservarProximaPendente();
-        if (!registro) break;
-        try {
-          if (!Array.isArray(registro.payload?.leituras) || registro.payload.leituras.length < 1) {
-            throw new Error("Payload do staging não contém leituras válidas");
-          }
-          const evento = {
-            staging_id: registro.id,
-            estacao_uuid: registro.estacao_uuid,
-            unixtime: Number(registro.unixtime),
-            recebidoEm:
-              registro.criado_em instanceof Date
-                ? registro.criado_em.toISOString()
-                : new Date(registro.criado_em).toISOString(),
-            leituras: registro.payload.leituras.map(({ sensor, valor }) => ({ sensor, valor })),
-          };
-          await this.publicarConfirmado(channel, evento);
-          await marcarPublicada(registro.id);
-        } catch (erro) {
-          await marcarPendente(registro.id, this.motivo(erro));
-          // A próxima tentativa ocorre no scanner periódico ou após reconexão.
-          break;
-        }
-      }
+      do {
+        this.deNovo = false;
+        const channel = this.channel;
+        if (!channel) return;
+        await this.declararTopologia(channel);
+        await this.publicarLista(channel);
+      } while (this.deNovo && !this.encerrando);
     } catch (erro) {
-      console.error(`[rabbitmq] falha ao buscar mensagens pendentes: ${this.motivo(erro)}`);
+      // Valkey ou RabbitMQ fora: as pendentes continuam na lista para a próxima rodada.
+      console.error(`[rabbitmq] rodada de publicação interrompida: ${this.motivo(erro)}`);
     } finally {
-      await bloqueio?.liberar().catch((erro: unknown) => {
-        console.error(`[rabbitmq] falha ao liberar bloqueio do publicador: ${this.motivo(erro)}`);
-      });
       this.processando = false;
     }
   }
 
-  private async marcarRecebidasSemRabbit(motivo: string): Promise<void> {
-    try {
-      await marcarRecebidasPendentes(motivo);
-    } catch (erro) {
-      console.error(`[rabbitmq] falha ao marcar mensagens pendentes: ${this.motivo(erro)}`);
+  private async publicarLista(channel: ConfirmChannel): Promise<void> {
+    const agora = this.options.agora ?? (() => new Date());
+
+    while (this.channel === channel && !this.encerrando) {
+      const id = await proximaPendente();
+      if (!id) return;
+
+      const mensagem = await lerMensagem(id);
+      if (!mensagem) {
+        console.warn(`[rabbitmq] pendente ${id} sem mensagem no Valkey, retirada da lista`);
+        await descartarPendente(id);
+        continue;
+      }
+
+      try {
+        await this.publicarConfirmado(channel, montarEvento(mensagem));
+      } catch (erro) {
+        // Para a rodada: a mensagem continua na frente da lista e é publicada de
+        // novo na reconexão ou na rodada periódica, mantendo a ordem.
+        console.error(`[rabbitmq] falha ao publicar ${id}: ${this.motivo(erro)}`);
+        return;
+      }
+      await marcarEncaminhada(id, agora());
     }
   }
 

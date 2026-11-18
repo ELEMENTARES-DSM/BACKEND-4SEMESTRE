@@ -1,8 +1,12 @@
-export interface MensagemIngestaoInput {
-  estacaoId: string;
+/** Mensagem como chegou do broker, antes de qualquer verificação (US-40). */
+export interface MensagemBruta {
   topico: string;
   payloadBruto: string;
   recebidoEm: string;
+}
+
+export interface MensagemIngestaoInput extends MensagemBruta {
+  estacaoId: string;
 }
 
 export interface LeituraItem {

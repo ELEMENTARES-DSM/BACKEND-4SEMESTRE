@@ -1,112 +1,84 @@
 import { randomUUID } from "node:crypto";
 import amqp, { Channel, ConfirmChannel } from "amqplib";
-import { pool } from "../../../config/db";
+import { encerrarValkey, valkey } from "../../../config/valkey";
 import {
   EXCHANGE_TELEMETRIA_BRUTA,
   FILA_VALIDACAO_DLQ,
   FILA_VALIDACAO_TELEMETRIA,
   RabbitMqTelemetriaPublisher,
 } from "../../../events/publishers/rabbitmq-telemetria.publisher";
+import {
+  chaveMensagem,
+  gravarBruta,
+  LISTA_PENDENTES,
+  marcarPendente,
+  RETENCAO_MS,
+} from "../../../repositories/staging-valkey.repository";
+import { ProxyTcp } from "../../integration/helpers/proxy-tcp";
+import { esperar, usarValkeyDeTeste } from "../../integration/helpers/valkey";
 
-const databaseUrl = process.env.STAGING_TEST_DATABASE_URL;
+// US-40 · publicação a partir do Valkey com RabbitMQ e Valkey de teste em container.
 const rabbitUrl = process.env.RABBITMQ_TEST_URL;
-const integration = databaseUrl && rabbitUrl ? describe : describe.skip;
+const integration = rabbitUrl && process.env.VALKEY_TEST_URL ? describe : describe.skip;
 
-interface StagingRow {
-  id: string;
-  estacao_uuid: string;
-  unixtime: string;
-  payload: { leituras: Array<{ sensor: string; valor: number }> };
-  status: string;
-  processado_em: Date | null;
-  tentativas: number;
-  ultimo_erro: string | null;
-}
+const ESTACAO = "8723c462-e79c-4e58-9751-eef8868a5312";
 
-integration("recuperação do publicador RabbitMQ", () => {
-  const schema = `publisher_test_${randomUUID().replaceAll("-", "")}`;
+integration("US-40 · publicador de telemetria.bruta a partir do Valkey", () => {
   const publicadores: RabbitMqTelemetriaPublisher[] = [];
+  let admin: amqp.ChannelModel;
+  let canal: Channel;
+  // Fila só deste arquivo, ligada ao fanout: recebe cópia de tudo que é publicado.
+  let observada: string;
 
-  const inserirMensagem = async (
-    criadoEm: Date,
-    status: "recebida" | "pendente" = "pendente",
-  ): Promise<string> => {
-    const id = randomUUID();
-    await pool.query(
-      `INSERT INTO staging_telemetria (
-         id, estacao_uuid, unixtime, payload_bruto, payload, status, criado_em
-       ) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)`,
-      [
-        id,
-        randomUUID(),
-        Math.floor(criadoEm.getTime() / 1000),
-        "payload original",
-        JSON.stringify({ leituras: [{ sensor: "temperatura", valor: 23.5 }] }),
-        status,
-        criadoEm,
-      ],
-    );
+  async function novaPendente(segundo: number): Promise<string> {
+    const id = await gravarBruta({
+      topico: `pulso/estacoes/${ESTACAO}/telemetria`,
+      payloadBruto: `{"timestamp":"2026-11-16T10:00:${String(segundo).padStart(2, "0")}Z","leituras":[{"sensor":"TMP","valor":${segundo}}]}`,
+      recebidoEm: new Date().toISOString(),
+    });
+    await marcarPendente(id);
     return id;
-  };
+  }
 
-  const buscarMensagem = async (id: string): Promise<StagingRow> => {
-    const { rows } = await pool.query<StagingRow>(
-      "SELECT * FROM staging_telemetria WHERE id = $1",
-      [id],
-    );
-    return rows[0];
-  };
+  // Lê da fila observada os staging_id dos ids esperados, na ordem em que chegaram.
+  async function chegaram(ids: string[], limiteMs = 15000): Promise<string[]> {
+    const recebidos: string[] = [];
+    await esperar(async () => {
+      const mensagem = await canal.get(observada, { noAck: true });
+      if (mensagem) {
+        const evento = JSON.parse(mensagem.content.toString()) as { staging_id: string };
+        if (ids.includes(evento.staging_id)) recebidos.push(evento.staging_id);
+      }
+      return recebidos.length === ids.length;
+    }, limiteMs);
+    return recebidos;
+  }
 
-  const aguardar = async (
-    predicado: () => Promise<boolean>,
-    descricao: string,
-    timeoutMs = 10000,
-  ): Promise<void> => {
-    const limite = Date.now() + timeoutMs;
-    while (Date.now() < limite) {
-      if (await predicado()) return;
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-    throw new Error(`Timeout aguardando ${descricao}`);
-  };
-
-  const conectarAdmin = async (): Promise<{ connection: amqp.ChannelModel; channel: Channel }> => {
-    const connection = await amqp.connect(rabbitUrl as string);
-    const channel = await connection.createChannel();
-    return { connection, channel };
-  };
+  function criarPublicador(opcoes: Partial<ConstructorParameters<typeof RabbitMqTelemetriaPublisher>[0]> = {}) {
+    const publicador = new RabbitMqTelemetriaPublisher({
+      url: rabbitUrl as string,
+      intervaloRecuperacaoMs: 10000,
+      ...opcoes,
+    });
+    publicadores.push(publicador);
+    return publicador;
+  }
 
   beforeAll(async () => {
-    pool.options.connectionString = databaseUrl;
-    pool.options.options = `-c search_path=${schema}`;
-    await pool.query(`CREATE SCHEMA ${schema}`);
-    // Usa a migration real para manter o teste alinhado ao schema do serviço.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const migration = require("../../../db/migrations/1791986171448_create-staging-telemetria.cjs");
-    const comandos: string[] = [];
-    migration.up({ sql: (sql: string) => comandos.push(sql) });
-    for (const sql of comandos) await pool.query(sql);
+    await usarValkeyDeTeste(5);
+    admin = await amqp.connect(rabbitUrl as string);
+    canal = await admin.createChannel();
+    await canal.assertExchange(EXCHANGE_TELEMETRIA_BRUTA, "fanout", { durable: true });
+    observada = (await canal.assertQueue("", { exclusive: true })).queue;
+    await canal.bindQueue(observada, EXCHANGE_TELEMETRIA_BRUTA, "");
   });
 
   beforeEach(async () => {
-    await pool.query("TRUNCATE staging_telemetria");
-    const { connection, channel } = await conectarAdmin();
-    await channel.assertExchange(EXCHANGE_TELEMETRIA_BRUTA, "fanout", { durable: true });
-    await channel.assertExchange("validacao.dlx", "fanout", { durable: true });
-    await channel.assertQueue(FILA_VALIDACAO_TELEMETRIA, {
-      durable: true,
-      arguments: {
-        "x-queue-type": "quorum",
-        "x-delivery-limit": 3,
-        "x-dead-letter-exchange": "validacao.dlx",
-      },
-    });
-    await channel.bindQueue(FILA_VALIDACAO_TELEMETRIA, EXCHANGE_TELEMETRIA_BRUTA, "");
-    await channel.assertQueue(FILA_VALIDACAO_DLQ, { durable: true });
-    await channel.bindQueue(FILA_VALIDACAO_DLQ, "validacao.dlx", "");
-    await channel.purgeQueue(FILA_VALIDACAO_TELEMETRIA);
-    await channel.close();
-    await connection.close();
+    jest.spyOn(console, "log").mockImplementation(() => undefined);
+    jest.spyOn(console, "error").mockImplementation(() => undefined);
+    jest.spyOn(console, "warn").mockImplementation(() => undefined);
+    await valkey().flushDb();
+    await canal.purgeQueue(observada);
   });
 
   afterEach(async () => {
@@ -114,156 +86,173 @@ integration("recuperação do publicador RabbitMQ", () => {
   });
 
   afterAll(async () => {
-    try {
-      await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
-    } finally {
-      await pool.end();
-    }
+    await canal.close();
+    await admin.close();
+    await valkey().flushDb();
+    await encerrarValkey();
   });
 
-  it("recupera 50 mensagens na ordem de recebimento, mesmo com duas instâncias", async () => {
-    const inicio = Date.now() - 60000;
-    const idsEsperados: string[] = [];
-    const recebidosEsperados: string[] = [];
-    for (let indice = 0; indice < 50; indice += 1) {
-      const recebidoEm = new Date(inicio + indice * 1000);
-      idsEsperados.push(await inserirMensagem(recebidoEm));
-      recebidosEsperados.push(recebidoEm.toISOString());
-    }
+  it("deve publicar 50 pendentes na ordem da lista, com staging_id igual ao id do Valkey, quando o RabbitMQ está no ar", async () => {
+    // Dado (Arrange)
+    const ids: string[] = [];
+    for (let segundo = 0; segundo < 50; segundo += 1) ids.push(await novaPendente(segundo));
 
-    const primeiraInstancia = new RabbitMqTelemetriaPublisher({
-      url: rabbitUrl as string,
-      intervaloRecuperacaoMs: 10000,
-    });
-    const segundaInstancia = new RabbitMqTelemetriaPublisher({
-      url: rabbitUrl as string,
-      intervaloRecuperacaoMs: 10000,
-    });
-    publicadores.push(primeiraInstancia, segundaInstancia);
-    await Promise.all([primeiraInstancia.iniciar(), segundaInstancia.iniciar()]);
+    // Quando (Act)
+    await criarPublicador().iniciar();
 
-    await aguardar(async () => {
-      const { rows } = await pool.query<{ total: string }>(
-        "SELECT count(*) AS total FROM staging_telemetria WHERE status = 'publicada'",
-      );
-      return Number(rows[0].total) === 50;
-    }, "as 50 mensagens publicadas");
-
-    const reader = await amqp.connect(rabbitUrl as string);
-    const channel = await reader.createChannel();
-    const idsRecebidos: string[] = [];
-    for (let indice = 0; indice < 50; indice += 1) {
-      const mensagem = await channel.get(FILA_VALIDACAO_TELEMETRIA, { noAck: true });
-      expect(mensagem).not.toBe(false);
-      if (!mensagem) throw new Error("Fila sem a mensagem confirmada esperada");
-      expect(mensagem.properties.deliveryMode).toBe(2);
-      const evento = JSON.parse(mensagem.content.toString()) as {
-        staging_id: string;
-        recebidoEm: string;
-      };
-      idsRecebidos.push(evento.staging_id);
-      expect(evento.recebidoEm).toBe(recebidosEsperados[indice]);
-    }
-    expect(idsRecebidos).toEqual(idsEsperados);
-
-    const { rows } = await pool.query<StagingRow>(
-      "SELECT * FROM staging_telemetria ORDER BY criado_em ASC, id ASC",
-    );
-    expect(rows).toHaveLength(50);
-    expect(rows.every((row) => row.status === "publicada" && row.processado_em !== null)).toBe(true);
-    expect(rows.every((row) => row.ultimo_erro === null && row.tentativas === 0)).toBe(true);
-    await channel.close();
-    await reader.close();
+    // Então (Assert)
+    expect(await chegaram(ids)).toEqual(ids);
+    await esperar(async () => (await valkey().lLen(LISTA_PENDENTES)) === 0);
+    for (const id of ids) expect(await valkey().hGet(chaveMensagem(id), "status")).toBe("encaminhada");
   });
 
-  it("recupera mensagens persistidas após falha inicial de conexão e reconexão", async () => {
-    const id = await inserirMensagem(new Date(), "recebida");
-    let falharPrimeiraConexao = true;
-    const conectarComFalhaInicial: (url: string) => Promise<amqp.ChannelModel> = async (url) => {
-      if (falharPrimeiraConexao) {
-        falharPrimeiraConexao = false;
-        throw new Error("indisponibilidade simulada no primeiro connect");
-      }
-      return amqp.connect(url);
-    };
-    const publicador = new RabbitMqTelemetriaPublisher({
-      url: rabbitUrl as string,
-      conectar: conectarComFalhaInicial,
-      reconectarMs: 50,
-      intervaloRecuperacaoMs: 50,
+  describe("US-40 · Cenário 3 · fila fora do ar", () => {
+    it("deve manter 3 pendentes com o RabbitMQ parado e publicá-las na ordem de chegada quando ele volta", async () => {
+      // Dado (Arrange)
+      const destino = new URL(rabbitUrl as string);
+      const proxy = new ProxyTcp(destino.hostname, Number(destino.port || 5672));
+      const viaProxy = new URL(rabbitUrl as string);
+      viaProxy.hostname = "127.0.0.1";
+      viaProxy.port = String(await proxy.ligar());
+      const publicador = criarPublicador({ url: viaProxy.toString(), reconectarMs: 200, intervaloRecuperacaoMs: 200 });
+      await publicador.iniciar();
+      await esperar(async () => publicador.conectado());
+
+      // Quando (Act)
+      await proxy.derrubar();
+      await esperar(async () => !publicador.conectado());
+      const ids = [await novaPendente(1), await novaPendente(2), await novaPendente(3)];
+      publicador.processarPendentes();
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const comRabbitParado = await valkey().lRange(LISTA_PENDENTES, 0, -1);
+      const statusComRabbitParado = await Promise.all(ids.map((id) => valkey().hGet(chaveMensagem(id), "status")));
+      await proxy.ligar();
+
+      // Então (Assert)
+      expect(comRabbitParado).toEqual(ids);
+      expect(statusComRabbitParado).toEqual(["pendente", "pendente", "pendente"]);
+      expect(await chegaram(ids)).toEqual(ids);
+      await esperar(async () => (await valkey().lLen(LISTA_PENDENTES)) === 0);
+      // Encerra antes de cortar o proxy: o close do amqplib espera a resposta do broker.
+      await publicador.encerrar();
+      await proxy.derrubar();
+    }, 30000);
+
+    it("deve publicar a pendente quando a primeira conexão falha e a reconexão funciona", async () => {
+      // Dado (Arrange)
+      const id = await novaPendente(1);
+      let falhar = true;
+      const publicador = criarPublicador({
+        conectar: async (url) => {
+          if (falhar) {
+            falhar = false;
+            throw new Error("indisponibilidade simulada no primeiro connect");
+          }
+          return amqp.connect(url);
+        },
+        reconectarMs: 50,
+        intervaloRecuperacaoMs: 50,
+      });
+
+      // Quando (Act)
+      await publicador.iniciar();
+      const depoisDaFalha = await valkey().hGet(chaveMensagem(id), "status");
+
+      // Então (Assert)
+      expect(depoisDaFalha).toBe("pendente");
+      expect(await chegaram([id])).toEqual([id]);
+      await esperar(async () => (await valkey().hGet(chaveMensagem(id), "status")) === "encaminhada");
     });
-    publicadores.push(publicador);
 
-    await publicador.iniciar();
-    const pendente = await buscarMensagem(id);
-    expect(pendente.status).toBe("pendente");
-    expect(pendente.tentativas).toBe(1);
-    expect(pendente.ultimo_erro).toContain("indisponibilidade simulada");
+    it("deve publicar pela rodada periódica quando a pendente entra sem pedido de publicação", async () => {
+      // Dado (Arrange)
+      const publicador = criarPublicador({ intervaloRecuperacaoMs: 75 });
+      await publicador.iniciar();
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
-    await aguardar(async () => (await buscarMensagem(id)).status === "publicada", "a recuperação após reconexão");
-    const publicada = await buscarMensagem(id);
-    expect(publicada.processado_em).not.toBeNull();
-    expect(publicada.ultimo_erro).toBeNull();
+      // Quando (Act)
+      const id = await novaPendente(1);
+
+      // Então (Assert)
+      expect(await chegaram([id])).toEqual([id]);
+    });
   });
 
-  it("varre o staging periodicamente sem depender de uma notificação em memória", async () => {
-    const publicador = new RabbitMqTelemetriaPublisher({
-      url: rabbitUrl as string,
-      intervaloRecuperacaoMs: 75,
-    });
-    publicadores.push(publicador);
-    await publicador.iniciar();
-    await new Promise((resolve) => setTimeout(resolve, 100));
+  describe("US-40 · Cenário 7 · expiração em 7 dias", () => {
+    it("deve tirar do Valkey a encaminhada há mais de 7 dias e manter a pendente quando o relógio é simulado", async () => {
+      // Dado (Arrange)
+      const encaminhada = await novaPendente(1);
+      const oitoDiasAtras = new Date(Date.now() - RETENCAO_MS - 24 * 60 * 60 * 1000);
+      const publicador = criarPublicador({ agora: () => oitoDiasAtras });
+      await publicador.iniciar();
+      await chegaram([encaminhada]);
+      await publicador.encerrar();
 
-    const id = await inserirMensagem(new Date(), "pendente");
-    await aguardar(async () => (await buscarMensagem(id)).status === "publicada", "o scanner periódico");
-    expect((await buscarMensagem(id)).processado_em).not.toBeNull();
+      // Quando (Act)
+      const pendente = await novaPendente(2);
+
+      // Então (Assert)
+      await esperar(async () => (await valkey().exists(chaveMensagem(encaminhada))) === 0);
+      expect(await valkey().hGet(chaveMensagem(pendente), "status")).toBe("pendente");
+      expect(await valkey().ttl(chaveMensagem(pendente))).toBe(-1);
+    });
+
+    it("deve expirar a encaminhada em 7 dias quando o relógio é o real", async () => {
+      // Dado (Arrange)
+      const id = await novaPendente(1);
+
+      // Quando (Act)
+      await criarPublicador().iniciar();
+      await chegaram([id]);
+      await esperar(async () => (await valkey().hGet(chaveMensagem(id), "status")) === "encaminhada");
+
+      // Então (Assert)
+      const ttl = await valkey().ttl(chaveMensagem(id));
+      expect(ttl).toBeGreaterThan(RETENCAO_MS / 1000 - 60);
+      expect(ttl).toBeLessThanOrEqual(RETENCAO_MS / 1000);
+    });
   });
 
-  it("recria fila e vínculo ausentes antes de recuperar mensagens", async () => {
-    const { connection, channel } = await conectarAdmin();
-    await channel.deleteQueue(FILA_VALIDACAO_TELEMETRIA);
-    await channel.deleteQueue(FILA_VALIDACAO_DLQ);
-    await channel.close();
-    await connection.close();
+  it("deve recriar a fila e o vínculo ausentes antes de publicar quando a topologia foi apagada", async () => {
+    // Dado (Arrange)
+    const temporario = await admin.createChannel();
+    await temporario.deleteQueue(FILA_VALIDACAO_TELEMETRIA);
+    await temporario.deleteQueue(FILA_VALIDACAO_DLQ);
+    await temporario.close();
+    const id = await novaPendente(1);
 
-    const id = await inserirMensagem(new Date(), "pendente");
-    const publicador = new RabbitMqTelemetriaPublisher({
-      url: rabbitUrl as string,
-      intervaloRecuperacaoMs: 10000,
-    });
-    publicadores.push(publicador);
-    await publicador.iniciar();
+    // Quando (Act)
+    await criarPublicador().iniciar();
 
-    await aguardar(async () => (await buscarMensagem(id)).status === "publicada", "a publicação após declarar a topologia");
-    const { connection: adminConnection, channel: adminChannel } = await conectarAdmin();
-    await expect(adminChannel.checkQueue(FILA_VALIDACAO_TELEMETRIA)).resolves.toMatchObject({ queue: FILA_VALIDACAO_TELEMETRIA });
-    await expect(adminChannel.checkQueue(FILA_VALIDACAO_DLQ)).resolves.toMatchObject({ queue: FILA_VALIDACAO_DLQ });
-    await adminChannel.close();
-    await adminConnection.close();
+    // Então (Assert)
+    expect(await chegaram([id])).toEqual([id]);
+    const conferir = await admin.createChannel();
+    await expect(conferir.checkQueue(FILA_VALIDACAO_TELEMETRIA)).resolves.toMatchObject({ queue: FILA_VALIDACAO_TELEMETRIA });
+    await expect(conferir.checkQueue(FILA_VALIDACAO_DLQ)).resolves.toMatchObject({ queue: FILA_VALIDACAO_DLQ });
+    await conferir.close();
   });
 
-  it("rejeita a confirmação positiva quando mandatory devolve mensagem sem rota", async () => {
-    const publicador = new RabbitMqTelemetriaPublisher({
-      url: rabbitUrl as string,
-      intervaloRecuperacaoMs: 10000,
-    });
-    publicadores.push(publicador);
-    await publicador.iniciar();
-
+  it("deve rejeitar a confirmação positiva quando mandatory devolve a mensagem sem rota", async () => {
+    // Dado (Arrange)
+    const publicador = criarPublicador();
     const connection = await amqp.connect(rabbitUrl as string);
     const channel = await connection.createConfirmChannel();
-    await channel.unbindQueue(FILA_VALIDACAO_TELEMETRIA, EXCHANGE_TELEMETRIA_BRUTA, "");
+    const exchangeSemFila = `teste.sem.rota.${randomUUID()}`;
+    await channel.assertExchange(exchangeSemFila, "fanout", { durable: false, autoDelete: true });
+    // publicarConfirmado usa o exchange fixo: aqui o canal publica num exchange sem fila ligada.
+    const publicar = channel.publish.bind(channel);
+    jest.spyOn(channel, "publish").mockImplementation(
+      (_exchange, rota, conteudo, opcoes, callback) => publicar(exchangeSemFila, rota, conteudo, opcoes, callback),
+    );
     const publicarConfirmado = (
-      publicador as unknown as {
-        publicarConfirmado: (confirmChannel: ConfirmChannel, evento: unknown) => Promise<void>;
-      }
+      publicador as unknown as { publicarConfirmado: (c: ConfirmChannel, evento: unknown) => Promise<void> }
     ).publicarConfirmado.bind(publicador);
 
-    await expect(publicarConfirmado(channel, {
-      staging_id: randomUUID(),
-      unixtime: Math.floor(Date.now() / 1000),
-    })).rejects.toThrow("NO_ROUTE");
+    // Quando (Act)
+    const resultado = publicarConfirmado(channel, { staging_id: randomUUID(), unixtime: Math.floor(Date.now() / 1000) });
+
+    // Então (Assert)
+    await expect(resultado).rejects.toThrow("NO_ROUTE");
     await channel.close();
     await connection.close();
   });

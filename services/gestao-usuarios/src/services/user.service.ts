@@ -3,6 +3,7 @@ import * as userRepository from "../repositories/user.repository";
 import * as papelRepository from "../repositories/papel.repository";
 import { CreateUserDTO } from "../dto/create-user.dto";
 import { UpdateUserDTO } from "../dto/update-user.dto";
+import { CadastroMunicipeDTO } from "../dto/cadastro-municipe.dto";
 import { UsuarioPublico } from "../models/user.model";
 import { AppError } from "../middlewares/error-handler";
 
@@ -26,6 +27,32 @@ const validarPapelEMunicipio = async (papel_id: string, municipio?: string) => {
       400
     );
   }
+};
+
+export const cadastrarMunicipe = async (data: CadastroMunicipeDTO): Promise<UsuarioPublico> => {
+  const emailNormalizado = data.email.trim().toLowerCase();
+  const existente = await userRepository.findByEmail(emailNormalizado);
+  if (existente) {
+    throw new AppError("E-mail já cadastrado", 409);
+  }
+
+  const papelMunicipe = await papelRepository.findByNome("MUNICIPE");
+  if (!papelMunicipe) {
+    throw new AppError("Papel MUNICIPE não encontrado no sistema", 500);
+  }
+
+  const senhaHash = await bcrypt.hash(data.senha, SALT_ROUNDS);
+
+  const usuario = await userRepository.create({
+    nome: data.nome.trim(),
+    email: emailNormalizado,
+    senhaHash,
+    papel_id: papelMunicipe.id,
+    municipio: data.municipio?.trim() || undefined,
+    aceite_privacidade_em: new Date(),
+  });
+
+  return toPublic(usuario);
 };
 
 export const create = async (data: CreateUserDTO): Promise<UsuarioPublico> => {

@@ -1,9 +1,9 @@
-import { randomUUID } from "node:crypto";
 import { PoolClient } from "pg";
 import { pool } from "../config/db";
-import { protegerCliente } from "../utils/conexao-pg";
 
 export interface RegistroStaging {
+  /** Mesmo id da mensagem no Valkey (staging:msg:{id}), que vira o staging_id das medidas. */
+  id: string;
   estacaoId: string;
   unixtime: number | null;
   recebidoEm: string;
@@ -13,130 +13,14 @@ export interface RegistroStaging {
   motivoRejeicao: string | null;
 }
 
-export interface MensagemPendente {
+export interface StagingPersistida {
   id: string;
-  estacao_uuid: string;
-  unixtime: string;
-  criado_em: Date | string;
-  payload: { leituras?: Array<{ sensor: string; valor: number }> };
+  payload_bruto: string;
+  status: string;
 }
 
-export interface BloqueioPublicador {
-  liberar(): Promise<void>;
-}
-
-const CHAVE_BLOQUEIO_PUBLICADOR = "ingestao-dados.staging-telemetria.publisher";
-
-/** Coordena o lote inteiro entre instâncias sem manter estado de mensagens em memória. */
-export async function tentarBloquearPublicador(): Promise<BloqueioPublicador | null> {
-  const client = await pool.connect();
-  // O cliente fica preso durante o lote inteiro: precisa sobreviver à queda do banco.
-  const liberarCliente = protegerCliente(client, "bloqueio do publicador");
-  try {
-    const { rows } = await client.query<{ adquirido: boolean }>(
-      "SELECT pg_try_advisory_lock(hashtext($1), 0) AS adquirido",
-      [CHAVE_BLOQUEIO_PUBLICADOR],
-    );
-    if (!rows[0]?.adquirido) {
-      liberarCliente();
-      return null;
-    }
-
-    let liberado = false;
-    return {
-      liberar: async () => {
-        if (liberado) return;
-        liberado = true;
-        try {
-          await client.query(
-            "SELECT pg_advisory_unlock(hashtext($1), 0)",
-            [CHAVE_BLOQUEIO_PUBLICADOR],
-          );
-        } finally {
-          liberarCliente();
-        }
-      },
-    };
-  } catch (erro) {
-    liberarCliente();
-    throw erro;
-  }
-}
-
-/** Reserva uma mensagem por vez para preservar ordem e evitar concorrência entre instâncias. */
-export async function reservarProximaPendente(): Promise<MensagemPendente | null> {
-  const client = await pool.connect();
-  const liberarCliente = protegerCliente(client, "reservar mensagem pendente");
-  try {
-    await client.query("BEGIN");
-    const { rows } = await client.query<MensagemPendente>(`
-      SELECT id, estacao_uuid, unixtime, criado_em, payload
-      FROM staging_telemetria
-      WHERE status IN ('recebida', 'pendente') AND processando = FALSE
-      ORDER BY criado_em ASC, id ASC
-      LIMIT 1
-      FOR UPDATE SKIP LOCKED
-    `);
-    if (!rows[0]) {
-      await client.query("COMMIT");
-      return null;
-    }
-    await client.query(
-      "UPDATE staging_telemetria SET processando = TRUE WHERE id = $1",
-      [rows[0].id],
-    );
-    await client.query("COMMIT");
-    return rows[0];
-  } catch (erro) {
-    await client.query("ROLLBACK").catch(() => undefined);
-    throw erro;
-  } finally {
-    liberarCliente();
-  }
-}
-
-export async function marcarPublicada(id: string): Promise<void> {
-  await pool.query(`
-    UPDATE staging_telemetria
-    SET status = 'publicada', processado_em = NOW(), processando = FALSE,
-        ultimo_erro = NULL
-    WHERE id = $1
-  `, [id]);
-}
-
-export async function marcarPendente(id: string, motivo: string): Promise<void> {
-  await pool.query(`
-    UPDATE staging_telemetria
-    SET status = 'pendente', processando = FALSE, tentativas = tentativas + 1,
-        ultimo_erro = $2
-    WHERE id = $1
-  `, [id, motivo.slice(0, 4000)]);
-}
-
-/** Move mensagens ainda não reservadas para pendente quando o broker está indisponível. */
-export async function marcarRecebidasPendentes(motivo: string): Promise<void> {
-  await pool.query(`
-    UPDATE staging_telemetria
-    SET status = 'pendente', tentativas = tentativas + 1, ultimo_erro = $1
-    WHERE status = 'recebida' AND processando = FALSE
-  `, [motivo.slice(0, 4000)]);
-}
-
-export async function contarPendentes(): Promise<number> {
-  const { rows } = await pool.query<{ total: string }>(`
-    SELECT COUNT(*) AS total FROM staging_telemetria
-    WHERE status IN ('recebida', 'pendente')
-  `);
-  return Number(rows[0]?.total ?? 0);
-}
-
-export async function liberarReservasAbandonadas(): Promise<void> {
-  await pool.query(`
-    UPDATE staging_telemetria SET processando = FALSE
-    WHERE status IN ('recebida', 'pendente') AND processando = TRUE
-  `);
-}
-
+// US-40: a publicação lê do Valkey (staging-valkey.repository). Até a 40.04,
+// a staging_telemetria só recebe a cópia de cada mensagem verificada.
 export async function inserirStaging(
   registro: RegistroStaging,
   client?: PoolClient,
@@ -156,13 +40,11 @@ export async function inserirStaging(
         motivo_rejeicao
       )
       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
-      ON CONFLICT (estacao_uuid, unixtime)
-        WHERE status <> 'rejeitada'
-      DO NOTHING
+      ON CONFLICT DO NOTHING
       RETURNING id
     `,
     [
-      randomUUID(),
+      registro.id,
       registro.estacaoId,
       registro.unixtime,
       registro.recebidoEm,
@@ -173,5 +55,38 @@ export async function inserirStaging(
     ],
   );
 
-  return resultado.rows.length > 0;
+  if (resultado.rows.length > 0) return true;
+
+  // Sem linha nova: ou é duplicata (uq_staging_estacao_unixtime), ou é a mesma
+  // mensagem do Valkey verificada de novo depois de uma falha no meio do caminho.
+  const mesma = await executor.query(
+    "SELECT 1 FROM staging_telemetria WHERE id = $1",
+    [registro.id],
+  );
+  return mesma.rows.length > 0;
+}
+
+/** Recupera a gravação original para republicar uma mensagem atrasada reenviada pelo MQTT. */
+export async function buscarStagingPorEstacaoEUnixtime(
+  estacaoId: string,
+  unixtime: number,
+): Promise<StagingPersistida | null> {
+  const { rows } = await pool.query<StagingPersistida>(
+    `SELECT id, payload_bruto, status
+     FROM staging_telemetria
+     WHERE estacao_uuid = $1 AND unixtime = $2 AND status <> 'rejeitada'
+     LIMIT 1`,
+    [estacaoId, unixtime],
+  );
+  return rows[0] ?? null;
+}
+
+export async function marcarStagingPublicada(id: string): Promise<void> {
+  await pool.query(
+    `UPDATE staging_telemetria
+     SET status = 'publicada', processado_em = NOW(), processando = FALSE,
+         ultimo_erro = NULL
+     WHERE id = $1`,
+    [id],
+  );
 }

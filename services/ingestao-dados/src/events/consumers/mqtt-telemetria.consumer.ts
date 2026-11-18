@@ -1,14 +1,14 @@
 import mqtt, { type DoneCallback, type IPublishPacket, type MqttClient } from "mqtt";
-import { MensagemIngestaoInput } from "../../dto/mensagem-ingestao.dto";
+import { MensagemBruta } from "../../dto/mensagem-ingestao.dto";
 import { ConfigMqtt } from "../../config/mqtt.config";
-import { extrairEstacaoId, TOPICO_ASSINATURA } from "../../utils/topico-estacao";
+import { TOPICO_ASSINATURA } from "../../utils/topico-estacao";
 import {
   receivedMetricsService,
   ReceivedMetricsService,
 } from "../../services/received-metrics.service";
 import { mqttStatusService, MqttStatusService } from "../../services/mqtt-status.service";
 
-export type ProximoPasso = (mensagem: MensagemIngestaoInput) => Promise<void>;
+export type ProximoPasso = (mensagem: MensagemBruta) => Promise<unknown>;
 
 export interface OpcoesConsumidorMqtt {
   config: ConfigMqtt;
@@ -18,10 +18,12 @@ export interface OpcoesConsumidorMqtt {
   metricasRecebidas?: Pick<ReceivedMetricsService, "incrementar">;
   estadoConexao?: Pick<MqttStatusService, "marcarConectado" | "marcarDesconectado">;
   reentregaMs?: number;
+  // Só para os testes de integração que dividem o mesmo broker.
+  clientId?: string;
 }
 
-// Espera entre uma falha de gravação e a reconexão que pede a reentrega.
-export const REENTREGA_PADRAO_MS = 5000;
+// Espera entre a desconexão por falha de gravação e cada tentativa de reconexão (US-40).
+export const REENTREGA_PADRAO_MS = 10000;
 
 // clientId fixo: com clean=false, o broker associa a sessão e as mensagens
 // pendentes a este identificador. Não pode mudar entre reinicializações.
@@ -44,7 +46,7 @@ export class ConsumidorMqttTelemetria {
     const estadoConexao = this.opcoes.estadoConexao ?? mqttStatusService;
 
     this.client = conectar(config.brokerUrl, {
-      clientId: CLIENT_ID,
+      clientId: this.opcoes.clientId ?? CLIENT_ID,
       protocolVersion: PROTOCOLO_MQTT_3_1_1,
       clean: false,
       // A assinatura é refeita manualmente a cada conexão (ver assinar).
@@ -69,9 +71,11 @@ export class ConsumidorMqttTelemetria {
       console.warn("[mqtt] conexão com o broker encerrada");
     });
 
-    // Substitui o tratamento padrão de publicações recebidas. O mqtt.js só
-    // envia o PUBACK quando este callback é chamado, então a confirmação
-    // acontece depois da entrega ao próximo passo.
+    // Confirmação manual: substitui o tratamento padrão de publicações
+    // recebidas. O mqtt.js só envia o PUBACK quando este callback é chamado,
+    // então a confirmação acontece depois de persistir e encaminhar a mensagem
+    // atrasada, ou depois de gravar a mensagem em dia no Valkey. (A opção
+    // customHandleAcks do mqtt.js só vale no MQTT 5; aqui o protocolo é 3.1.1.)
     this.client.handleMessage = (pacote, confirmar) => {
       void this.entregar(pacote, confirmar);
     };
@@ -104,17 +108,9 @@ export class ConsumidorMqttTelemetria {
 
   private async entregar(pacote: IPublishPacket, confirmar: DoneCallback): Promise<void> {
     const topico = pacote.topic;
-    const estacaoId = extrairEstacaoId(topico);
-
-    if (!estacaoId) {
-      console.warn(`[mqtt] tópico inválido descartado: ${topico}`);
-      // Confirma para o broker não reenviar uma mensagem que nunca vai ser aceita.
-      confirmar();
-      return;
-    }
-
-    const mensagem: MensagemIngestaoInput = {
-      estacaoId,
+    // A mensagem segue para persistência/validação síncrona. A decisão entre
+    // PostgreSQL direto e Valkey acontece no serviço de processamento (US-28/40).
+    const mensagem: MensagemBruta = {
       topico,
       payloadBruto: pacote.payload.toString("utf8"),
       recebidoEm: (this.opcoes.agora ?? (() => new Date()))().toISOString(),
@@ -122,35 +118,35 @@ export class ConsumidorMqttTelemetria {
 
     try {
       await this.opcoes.proximoPasso(mensagem);
-      // Conta só depois da entrega: se ela falhar, o broker reenvia e a
-      // mensagem é contada uma única vez, quando for entregue de fato.
+      // Conta só depois da gravação: se ela falhar, o broker reenvia e a
+      // mensagem é contada uma única vez, quando for gravada de fato.
       (this.opcoes.metricasRecebidas ?? receivedMetricsService).incrementar();
       confirmar();
     } catch (erro) {
       // Sem confirmação o broker mantém a mensagem e a reenvia na próxima
       // reconexão da sessão persistente.
-      console.error(`[mqtt] falha ao encaminhar mensagem de ${topico}: ${(erro as Error).message}`);
+      console.error(`[mqtt] falha ao gravar mensagem de ${topico}: ${(erro as Error).message}`);
       confirmar(erro as Error);
       this.agendarReentrega();
     }
   }
 
-  // TASK 14.03: no MQTT 3.1.1 o broker só reenvia a mensagem sem PUBACK quando
-  // a sessão reconecta. Com o staging fora do ar, reconectar depois de uma
-  // espera faz a mensagem voltar sem ser descartada. Várias falhas seguidas
-  // geram uma única reconexão.
+  // US-40: com o Valkey fora, desconecta do broker na hora, para não receber
+  // mensagens que não podem ser gravadas, e tenta reconectar depois da espera.
+  // No MQTT 3.1.1 o broker só reenvia a mensagem sem PUBACK quando a sessão
+  // reconecta; se a gravação falhar de novo, o ciclo se repete. Várias falhas
+  // seguidas geram uma única desconexão.
   private agendarReentrega(): void {
-    if (this.reentregaTimer || this.encerrando) return;
+    const client = this.client;
+    if (this.reentregaTimer || this.encerrando || !client) return;
 
+    console.warn("[mqtt] desconectando do broker até o staging voltar a gravar");
+    client.end(true, {}, () => undefined);
     this.reentregaTimer = setTimeout(() => {
       this.reentregaTimer = undefined;
-      const client = this.client;
-      if (!client || this.encerrando) return;
-
+      if (this.encerrando) return;
       console.warn("[mqtt] reconectando para receber de novo as mensagens não gravadas");
-      client.end(true, {}, () => {
-        if (!this.encerrando) client.reconnect();
-      });
+      client.reconnect();
     }, this.opcoes.reentregaMs ?? REENTREGA_PADRAO_MS);
   }
 }

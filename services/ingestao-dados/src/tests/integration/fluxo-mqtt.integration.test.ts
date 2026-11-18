@@ -3,9 +3,15 @@ import { randomUUID } from "node:crypto";
 import mqtt from "mqtt";
 import { createBroker } from "aedes";
 import { pool } from "../../config/db";
+import { encerrarValkey, valkey } from "../../config/valkey";
 import { ConsumidorMqttTelemetria } from "../../events/consumers/mqtt-telemetria.consumer";
 import { RabbitMqTelemetriaPublisher } from "../../events/publishers/rabbitmq-telemetria.publisher";
-import { encaminharParaIngestao } from "../../services/processar-mensagem.service";
+import { LISTA_PENDENTES, LISTA_RECEBIDAS } from "../../repositories/staging-valkey.repository";
+import {
+  encerrarVerificacao,
+  iniciarVerificacao,
+  receberMensagem,
+} from "../../services/processar-mensagem.service";
 import { configurarPublisherStaging } from "../../services/staging-publisher.service";
 import { ReceivedMetricsService } from "../../services/received-metrics.service";
 import { duplicateMetricsService } from "../../services/duplicate-metrics.service";
@@ -13,25 +19,18 @@ import { rejectionMetricsService } from "../../services/rejection-metrics.servic
 import { gravacaoMetricsService } from "../../services/gravacao-metrics.service";
 import { logger } from "../../utils/logger";
 import { cadastrarEstacao, criarTabelaEstacoes } from "./helpers/estacoes";
+import { esperar, usarValkeyDeTeste } from "./helpers/valkey";
 
 // TASK 11.05: mensagem publicada no MQTT percorre o fluxo inteiro da ingestão
-// (validação, estação, duplicata, staging e último sinal) com PostgreSQL real.
-// O broker é o aedes em memória; a publicação no RabbitMQ é só observada.
-const integration = process.env.STAGING_TEST_DATABASE_URL ? describe : describe.skip;
+// (Valkey, validação, estação, duplicata, staging_telemetria e último sinal)
+// com Valkey e PostgreSQL de teste. O broker é o aedes em memória, isolado por
+// arquivo; a publicação no RabbitMQ é só observada.
+const integration =
+  process.env.STAGING_TEST_DATABASE_URL && process.env.VALKEY_TEST_URL ? describe : describe.skip;
 
 const topicoDe = (uuid: string) => `pulso/estacoes/${uuid}/telemetria`;
 
-async function esperar(condicao: () => Promise<boolean>, limiteMs = 10000): Promise<void> {
-  const inicio = Date.now();
-  while (!(await condicao())) {
-    if (Date.now() - inicio > limiteMs) {
-      throw new Error("tempo esgotado esperando a condição");
-    }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-}
-
-integration("fluxo MQTT -> staging (TASK 11.05)", () => {
+integration("TASK 11.05 · fluxo MQTT → Valkey → verificação", () => {
   const schema = `fluxo_mqtt_test_${randomUUID().replaceAll("-", "")}`;
   const broker = createBroker();
   const servidor = net.createServer(broker.handle);
@@ -52,11 +51,14 @@ integration("fluxo MQTT -> staging (TASK 11.05)", () => {
   };
 
   const sinalEstacao = async (estacaoId: string) => {
-    const { rows } = await pool.query(
-      "SELECT ultimo_ping, nivel_bateria FROM estacoes WHERE id = $1",
-      [estacaoId],
-    );
+    const { rows } = await pool.query("SELECT ultimo_ping, nivel_bateria FROM estacoes WHERE id = $1", [estacaoId]);
     return rows[0];
+  };
+
+  // Gravadas no Valkey e já verificadas (a fila de verificação esvaziou).
+  const esperarVerificadas = async (total: number) => {
+    await esperar(async () => recebidas.obterTotal() === total);
+    await esperar(async () => (await valkey().lLen(LISTA_RECEBIDAS)) === 0);
   };
 
   beforeAll(async () => {
@@ -70,74 +72,69 @@ integration("fluxo MQTT -> staging (TASK 11.05)", () => {
     migration.up({ sql: (sql: string) => comandos.push(sql) });
     for (const sql of comandos) await pool.query(sql);
     await criarTabelaEstacoes(pool);
-
-    jest.spyOn(logger, "warn").mockImplementation(() => undefined);
-    jest.spyOn(logger, "info").mockImplementation(() => undefined);
-    jest.spyOn(console, "log").mockImplementation(() => undefined);
-    jest.spyOn(console, "warn").mockImplementation(() => undefined);
-    jest.spyOn(console, "error").mockImplementation(() => undefined);
+    await usarValkeyDeTeste(3);
 
     configurarPublisherStaging({ processarPendentes } as unknown as RabbitMqTelemetriaPublisher);
+    iniciarVerificacao(300);
 
     await new Promise<void>((resolve) => servidor.listen(0, "127.0.0.1", resolve));
     const { port } = servidor.address() as net.AddressInfo;
-
     const assinou = new Promise<void>((resolve) => {
       broker.on("subscribe", (_subs, cliente) => {
         if (cliente?.id === "ingestao-dados") resolve();
       });
     });
     consumidor = new ConsumidorMqttTelemetria({
-      config: {
-        brokerUrl: `mqtt://127.0.0.1:${port}`,
-        usuario: "ingestao-dados",
-        senha: "teste",
-        qos: 1,
-      },
-      proximoPasso: encaminharParaIngestao,
+      config: { brokerUrl: `mqtt://127.0.0.1:${port}`, usuario: "ingestao-dados", senha: "teste", qos: 1 },
+      proximoPasso: receberMensagem,
       metricasRecebidas: recebidas,
       reentregaMs: 300,
     });
     consumidor.iniciar();
     await assinou;
-
-    estacao = await mqtt.connectAsync(`mqtt://127.0.0.1:${port}`, {
-      clientId: `estacao-${randomUUID()}`,
-    });
+    estacao = await mqtt.connectAsync(`mqtt://127.0.0.1:${port}`, { clientId: `estacao-${randomUUID()}` });
   });
 
   afterAll(async () => {
     try {
+      encerrarVerificacao();
       await consumidor.encerrar();
       await new Promise<void>((resolve) => estacao.end(true, {}, () => resolve()));
       await new Promise<void>((resolve) => broker.close(() => servidor.close(() => resolve())));
+      await valkey().flushDb();
+      await encerrarValkey();
       await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
     } finally {
       await pool.end();
-      jest.restoreAllMocks();
     }
   });
 
   beforeEach(async () => {
+    jest.spyOn(logger, "warn").mockImplementation(() => undefined);
+    jest.spyOn(logger, "info").mockImplementation(() => undefined);
+    jest.spyOn(console, "log").mockImplementation(() => undefined);
+    jest.spyOn(console, "warn").mockImplementation(() => undefined);
+    jest.spyOn(console, "error").mockImplementation(() => undefined);
+    processarPendentes.mockResolvedValue(undefined);
     await pool.query("TRUNCATE staging_telemetria, estacoes");
+    // O publicador é falso aqui: as pendentes de um teste não podem contar no seguinte.
+    await valkey().del(LISTA_PENDENTES);
     recebidas.reset();
     duplicateMetricsService.reset();
     rejectionMetricsService.reset();
     gravacaoMetricsService.reset();
-    processarPendentes.mockClear();
   });
 
-  it("leitura válida fica recebida no staging, atualiza o último sinal e segue para a publicação", async () => {
+  it("deve gravar recebida na staging_telemetria, atualizar o último sinal e pedir a publicação quando a leitura é válida", async () => {
+    // Dado (Arrange)
     const estacaoId = randomUUID();
     await cadastrarEstacao(pool, estacaoId, "Com Falha");
 
-    await estacao.publishAsync(
-      topicoDe(estacaoId),
-      payload("2026-10-20T12:00:00Z", ',"nivel_bateria":87'),
-      { qos: 1 },
-    );
-    await esperar(async () => recebidas.obterTotal() === 1);
+    // Quando (Act)
+    await estacao.publishAsync(topicoDe(estacaoId), payload("2026-10-20T12:00:00Z", ',"nivel_bateria":87'), { qos: 1 });
+    await esperarVerificadas(1);
 
+    // Então (Assert)
     const linhas = await linhasStaging(estacaoId);
     expect(linhas).toHaveLength(1);
     expect(linhas[0]).toMatchObject({
@@ -151,48 +148,53 @@ integration("fluxo MQTT -> staging (TASK 11.05)", () => {
     expect(processarPendentes).toHaveBeenCalledTimes(1);
   });
 
-  it("payload inválido fica rejeitado no staging e soma em leiturasRejeitadas", async () => {
+  it("deve gravar rejeitada e somar em leiturasRejeitadas quando o payload é inválido", async () => {
+    // Dado (Arrange)
     const estacaoId = randomUUID();
     await cadastrarEstacao(pool, estacaoId);
 
+    // Quando (Act)
     await estacao.publishAsync(topicoDe(estacaoId), "texto solto", { qos: 1 });
-    await esperar(async () => recebidas.obterTotal() === 1);
+    await esperarVerificadas(1);
 
+    // Então (Assert)
     const linhas = await linhasStaging(estacaoId);
     expect(linhas).toHaveLength(1);
-    expect(linhas[0]).toMatchObject({
-      status: "rejeitada",
-      motivo_rejeicao: "Payload malformado",
-      payload_bruto: "texto solto",
-    });
+    expect(linhas[0]).toMatchObject({ status: "rejeitada", motivo_rejeicao: "Payload malformado", payload_bruto: "texto solto" });
     expect(rejectionMetricsService.obterMetricas()).toEqual({ "Payload malformado": 1 });
     expect((await sinalEstacao(estacaoId)).ultimo_ping).toBeNull();
     expect(processarPendentes).not.toHaveBeenCalled();
   });
 
-  it("mensagem repetida soma em duplicadasIgnoradas e não grava de novo", async () => {
+  it("deve somar em duplicadasIgnoradas e não gravar de novo quando a mensagem se repete", async () => {
+    // Dado (Arrange)
     const estacaoId = randomUUID();
     await cadastrarEstacao(pool, estacaoId);
     const mensagem = payload("2026-10-20T12:05:00Z");
 
+    // Quando (Act)
     await estacao.publishAsync(topicoDe(estacaoId), mensagem, { qos: 1 });
     await estacao.publishAsync(topicoDe(estacaoId), mensagem, { qos: 1 });
-    await esperar(async () => recebidas.obterTotal() === 2);
+    await esperarVerificadas(2);
 
+    // Então (Assert)
     expect(await linhasStaging(estacaoId)).toHaveLength(1);
     expect(duplicateMetricsService.obterTotal()).toBe(1);
     expect(rejectionMetricsService.obterMetricas()).toEqual({});
   });
 
-  it("estação desconhecida e estação inativa ficam rejeitadas com o motivo da US-12", async () => {
+  it("deve gravar rejeitada com o motivo da US-12 quando a estação é desconhecida ou inativa", async () => {
+    // Dado (Arrange)
     const desconhecida = randomUUID();
     const inativa = randomUUID();
     await cadastrarEstacao(pool, inativa, "Inativa");
 
+    // Quando (Act)
     await estacao.publishAsync(topicoDe(desconhecida), payload("2026-10-20T12:10:00Z"), { qos: 1 });
     await estacao.publishAsync(topicoDe(inativa), payload("2026-10-20T12:10:00Z"), { qos: 1 });
-    await esperar(async () => recebidas.obterTotal() === 2);
+    await esperarVerificadas(2);
 
+    // Então (Assert)
     expect(await linhasStaging(desconhecida)).toEqual([
       expect.objectContaining({ status: "rejeitada", motivo_rejeicao: "Estação desconhecida" }),
     ]);
@@ -200,68 +202,67 @@ integration("fluxo MQTT -> staging (TASK 11.05)", () => {
       expect.objectContaining({ status: "rejeitada", motivo_rejeicao: "Estação inativa" }),
     ]);
     expect((await sinalEstacao(inativa)).ultimo_ping).toBeNull();
-    expect(rejectionMetricsService.obterMetricas()).toEqual({
-      "Estação desconhecida": 1,
-      "Estação inativa": 1,
-    });
+    expect(rejectionMetricsService.obterMetricas()).toEqual({ "Estação desconhecida": 1, "Estação inativa": 1 });
   });
 
-  it("leiturasRecebidas soma 1 por mensagem entregue, aceita, rejeitada ou duplicata", async () => {
+  it("deve somar 1 em leiturasRecebidas por mensagem gravada quando ela é aceita, recusada ou duplicada", async () => {
+    // Dado (Arrange)
     const estacaoId = randomUUID();
     await cadastrarEstacao(pool, estacaoId);
     const valida = payload("2026-10-20T12:15:00Z");
 
+    // Quando (Act)
     await estacao.publishAsync(topicoDe(estacaoId), valida, { qos: 1 });
     await estacao.publishAsync(topicoDe(estacaoId), "{}", { qos: 1 });
     await estacao.publishAsync(topicoDe(estacaoId), valida, { qos: 1 });
-    await esperar(async () => recebidas.obterTotal() === 3);
+    await esperarVerificadas(3);
 
+    // Então (Assert)
     expect(await linhasStaging(estacaoId)).toHaveLength(2);
   });
 
-  it("staging fora do ar: último sinal não muda, erro vai para o log e a mensagem é gravada quando ele volta (TASK 14.03)", async () => {
+  it("deve seguir para a publicação, registrando no log e sem mexer no último sinal, quando a staging_telemetria está fora", async () => {
+    // Dado (Arrange)
     const estacaoId = randomUUID();
     await cadastrarEstacao(pool, estacaoId);
     const erroLog = jest.spyOn(logger, "error").mockImplementation(() => undefined);
-
-    // Tira o staging do ar renomeando a tabela: toda gravação falha no banco.
+    // Tira a staging_telemetria do ar renomeando a tabela: toda gravação nela falha.
     await pool.query("ALTER TABLE staging_telemetria RENAME TO staging_telemetria_fora");
+
+    // Quando (Act)
     try {
       await estacao.publishAsync(topicoDe(estacaoId), payload("2026-10-20T12:20:00Z"), { qos: 1 });
-
-      // Duas falhas: a primeira entrega e a reentrega depois da reconexão.
-      await esperar(async () => erroLog.mock.calls.length >= 2, 15000);
-      const { rows } = await pool.query("SELECT count(*)::int AS total FROM staging_telemetria_fora");
-      expect(rows[0].total).toBe(0);
-      expect((await sinalEstacao(estacaoId)).ultimo_ping).toBeNull();
-      expect(erroLog).toHaveBeenCalledWith(
-        "Falha ao gravar mensagem no staging",
-        expect.objectContaining({ estacaoId, erro: expect.stringContaining("staging_telemetria") }),
-      );
-      expect(recebidas.obterTotal()).toBe(0);
+      await esperarVerificadas(1);
     } finally {
       await pool.query("ALTER TABLE staging_telemetria_fora RENAME TO staging_telemetria");
     }
 
-    await esperar(async () => (await linhasStaging(estacaoId)).length === 1, 15000);
-    expect((await linhasStaging(estacaoId))[0].status).toBe("recebida");
-    expect((await sinalEstacao(estacaoId)).ultimo_ping).not.toBeNull();
+    // Então (Assert)
+    expect(await valkey().lLen(LISTA_PENDENTES)).toBe(1);
+    expect(processarPendentes).toHaveBeenCalledTimes(1);
+    expect(erroLog).toHaveBeenCalledWith(
+      "PostgreSQL indisponível ao gravar a aceita e o último sinal; a leitura segue pelo Valkey",
+      expect.objectContaining({ erro: expect.stringContaining("staging_telemetria") }),
+    );
+    expect(await linhasStaging(estacaoId)).toHaveLength(0);
+    expect((await sinalEstacao(estacaoId)).ultimo_ping).toBeNull();
     expect(gravacaoMetricsService.obterMensagensGravadas()).toBe(1);
-    expect(recebidas.obterTotal()).toBe(1);
-    erroLog.mockRestore();
   }, 30000);
 
-  it("contadores de gravadas e rejeitadas gravadas batem com o staging (TASK 14.03)", async () => {
+  it("deve fazer os contadores de gravadas e rejeitadas gravadas baterem com a staging_telemetria", async () => {
+    // Dado (Arrange)
     const estacaoId = randomUUID();
     await cadastrarEstacao(pool, estacaoId);
     const valida = payload("2026-10-20T12:25:00Z");
 
+    // Quando (Act)
     await estacao.publishAsync(topicoDe(estacaoId), valida, { qos: 1 });
     await estacao.publishAsync(topicoDe(estacaoId), valida, { qos: 1 });
     await estacao.publishAsync(topicoDe(estacaoId), "texto solto", { qos: 1 });
     await estacao.publishAsync(topicoDe(randomUUID()), payload("2026-10-20T12:25:00Z"), { qos: 1 });
-    await esperar(async () => recebidas.obterTotal() === 4);
+    await esperarVerificadas(4);
 
+    // Então (Assert)
     const { rows } = await pool.query(
       "SELECT status, count(*)::int AS total FROM staging_telemetria GROUP BY status ORDER BY status",
     );

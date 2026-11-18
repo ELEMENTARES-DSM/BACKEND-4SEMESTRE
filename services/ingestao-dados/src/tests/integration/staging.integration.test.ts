@@ -1,32 +1,20 @@
 import { randomUUID } from "node:crypto";
-import amqp, { Channel, ChannelModel } from "amqplib";
 import { pool } from "../../config/db";
-import {
-  EXCHANGE_TELEMETRIA_BRUTA,
-  RabbitMqTelemetriaPublisher,
-} from "../../events/publishers/rabbitmq-telemetria.publisher";
-import { processarMensagem } from "../../services/processar-mensagem.service";
+import { encerrarValkey, valkey } from "../../config/valkey";
+import { chaveMensagem } from "../../repositories/staging-valkey.repository";
 import { logger } from "../../utils/logger";
 import { cadastrarEstacao, criarTabelaEstacoes } from "./helpers/estacoes";
+import { gravarEVerificar, usarValkeyDeTeste } from "./helpers/valkey";
 
-// Execute somente contra um banco de teste; cada execução usa um schema isolado.
-const integration = process.env.STAGING_TEST_DATABASE_URL ? describe : describe.skip;
-const integrationComRabbit = process.env.RABBITMQ_TEST_URL ? it : it.skip;
+// Integração com PostgreSQL e Valkey de teste; cada execução usa um schema isolado.
+const integration =
+  process.env.STAGING_TEST_DATABASE_URL && process.env.VALKEY_TEST_URL ? describe : describe.skip;
 
-async function aguardar(condicao: () => Promise<boolean>, descricao: string): Promise<void> {
-  const limite = Date.now() + 10000;
-  while (Date.now() < limite) {
-    if (await condicao()) return;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  throw new Error(`Tempo esgotado aguardando ${descricao}`);
-}
-
-integration("staging PostgreSQL", () => {
+integration("TASK 14.02 · staging_telemetria gravada a partir do Valkey", () => {
   const schema = `staging_test_${randomUUID().replaceAll("-", "")}`;
+  const estacaoId = randomUUID();
   const mensagem = {
-    estacaoId: randomUUID(),
-    topico: "estacoes/leitura",
+    topico: `pulso/estacoes/${estacaoId}/telemetria`,
     recebidoEm: "2026-10-14T12:00:05Z",
     payloadBruto: '{ "timestamp":"2026-10-14T12:00:00Z", "leituras":[{"sensor":"temperatura","valor":25}] }',
   };
@@ -36,14 +24,13 @@ integration("staging PostgreSQL", () => {
     pool.options.connectionString = process.env.STAGING_TEST_DATABASE_URL;
     pool.options.options = `-c search_path=${schema}`;
     await pool.query(`CREATE SCHEMA ${schema}`);
-    // Migration CommonJS gerada pelo node-pg-migrate.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const migration = require("../../db/migrations/1791986171448_create-staging-telemetria.cjs");
     const comandos: string[] = [];
     migration.up({ sql: (sql: string) => comandos.push(sql) });
     for (const sql of comandos) await pool.query(sql);
     await criarTabelaEstacoes(pool);
-    jest.spyOn(logger, "warn").mockImplementation(() => undefined);
+    await usarValkeyDeTeste(1);
   });
 
   afterAll(async () => {
@@ -51,183 +38,119 @@ integration("staging PostgreSQL", () => {
       await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
     } finally {
       await pool.end();
-      jest.restoreAllMocks();
+      await encerrarValkey();
     }
   });
 
   beforeEach(async () => {
+    jest.spyOn(logger, "warn").mockImplementation(() => undefined);
+    jest.spyOn(logger, "info").mockImplementation(() => undefined);
     await pool.query("TRUNCATE staging_telemetria, estacoes");
-    await cadastrarEstacao(pool, mensagem.estacaoId);
+    await cadastrarEstacao(pool, estacaoId);
   });
 
-  it("grava aceita com dados completos", async () => {
-    expect(await processarMensagem(mensagem)).toBe("recebida");
+  it("deve gravar a aceita com dados completos e o mesmo id do Valkey quando a leitura é válida", async () => {
+    // Dado (Arrange)
+    // Quando (Act)
+    const resultado = await gravarEVerificar(mensagem);
+
+    // Então (Assert)
+    expect(resultado).toBe("pendente");
     const { rows } = await pool.query("SELECT * FROM staging_telemetria");
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
-      estacao_uuid: mensagem.estacaoId,
+      estacao_uuid: estacaoId,
       status: "recebida",
       payload_bruto: mensagem.payloadBruto,
       unixtime: String(Date.parse("2026-10-14T12:00:00Z") / 1000),
       motivo_rejeicao: null,
     });
     expect(rows[0].criado_em.toISOString()).toBe("2026-10-14T12:00:05.000Z");
+    expect(await valkey().exists(chaveMensagem(rows[0].id))).toBe(1);
   });
 
-  it("grava leitura atrasada na staging com o unixtime da medição e o recebimento", async () => {
-    const lidoEm = "2026-10-14T10:00:00.000Z";
-    const recebidoEm = "2026-10-14T12:00:00.000Z";
-    const leituraAtrasada = {
-      ...mensagem,
-      recebidoEm,
-      payloadBruto: `{"timestamp":"${lidoEm}","leituras":[{"sensor":"temperatura","valor":25}]}`,
-    };
-
-    await expect(processarMensagem(leituraAtrasada)).resolves.toBe("recebida");
-
-    const { rows } = await pool.query("SELECT * FROM staging_telemetria");
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
-      estacao_uuid: mensagem.estacaoId,
-      status: "recebida",
-      unixtime: String(Date.parse(lidoEm) / 1000),
-      motivo_rejeicao: null,
-    });
-    expect(rows[0].criado_em.toISOString()).toBe(recebidoEm);
-  });
-
-  integrationComRabbit(
-    "publica no RabbitMQ a leitura atrasada gravada na staging com o mesmo staging_id e recebidoEm",
-    async () => {
-      const rabbitUrl = process.env.RABBITMQ_TEST_URL as string;
-      const lidoEm = "2026-10-14T10:00:00.000Z";
-      const recebidoEm = "2026-10-14T12:00:00.000Z";
-      const leituraAtrasada = {
-        ...mensagem,
-        recebidoEm,
-        payloadBruto: `{"timestamp":"${lidoEm}","leituras":[{"sensor":"temperatura","valor":25}]}`,
-      };
-      const publisher = new RabbitMqTelemetriaPublisher({ url: rabbitUrl });
-      let conexaoLeitura: ChannelModel | undefined;
-      let canalLeitura: Channel | undefined;
-
-      try {
-        conexaoLeitura = await amqp.connect(rabbitUrl);
-        canalLeitura = await conexaoLeitura.createChannel();
-        await canalLeitura.assertExchange(EXCHANGE_TELEMETRIA_BRUTA, "fanout", { durable: true });
-        const fila = await canalLeitura.assertQueue("", {
-          exclusive: true,
-          autoDelete: true,
-        });
-        await canalLeitura.bindQueue(fila.queue, EXCHANGE_TELEMETRIA_BRUTA, "");
-
-        const eventoRecebido = new Promise<Record<string, unknown>>((resolve, reject) => {
-          const timer = setTimeout(
-            () => reject(new Error("Tempo esgotado aguardando o evento telemetria.bruta")),
-            10000,
-          );
-          void canalLeitura!.consume(
-            fila.queue,
-            (mensagemRabbit) => {
-              if (!mensagemRabbit) return;
-              clearTimeout(timer);
-              resolve(JSON.parse(mensagemRabbit.content.toString()) as Record<string, unknown>);
-            },
-            { noAck: true },
-          ).catch((erro: unknown) => {
-            clearTimeout(timer);
-            reject(erro);
-          });
-        });
-
-        await expect(processarMensagem(leituraAtrasada)).resolves.toBe("recebida");
-        await publisher.iniciar();
-        const evento = await eventoRecebido;
-
-        const { rows } = await pool.query<{
-          id: string;
-          status: string;
-          criado_em: Date;
-        }>("SELECT id, status, criado_em FROM staging_telemetria");
-        expect(rows).toHaveLength(1);
-        await aguardar(async () => {
-          const resultado = await pool.query<{ status: string }>(
-            "SELECT status FROM staging_telemetria WHERE id = $1",
-            [rows[0].id],
-          );
-          return resultado.rows[0]?.status === "publicada";
-        }, "a confirmação de publicação no staging");
-        const { rows: publicados } = await pool.query<{
-          status: string;
-          criado_em: Date;
-        }>("SELECT status, criado_em FROM staging_telemetria WHERE id = $1", [rows[0].id]);
-        expect(evento).toMatchObject({
-          staging_id: rows[0].id,
-          estacao_uuid: mensagem.estacaoId,
-          unixtime: Date.parse(lidoEm) / 1000,
-          recebidoEm,
-          leituras: [{ sensor: "temperatura", valor: 25 }],
-        });
-        expect(publicados[0].criado_em.toISOString()).toBe(recebidoEm);
-        expect(publicados[0].status).toBe("publicada");
-      } finally {
-        await publisher.encerrar();
-        await canalLeitura?.close().catch(() => undefined);
-        await conexaoLeitura?.close().catch(() => undefined);
-      }
-    },
-  );
-
-  it("grava rejeitada não JSON exatamente como recebida", async () => {
+  it("deve gravar a recusada exatamente como recebida quando o conteúdo não é JSON", async () => {
+    // Dado (Arrange)
     const payloadBruto = "  inválido\n";
-    expect(await processarMensagem({ ...mensagem, payloadBruto })).toBe("rejeitada");
-    const { rows } = await pool.query("SELECT * FROM staging_telemetria");
-    expect(rows[0]).toMatchObject({ status: "rejeitada", payload_bruto: payloadBruto,
-      payload: null, unixtime: null, motivo_rejeicao: "Payload malformado" });
-  });
 
-  it('grava rejeição "Timestamp fora da faixa" com unixtime e motivo', async () => {
-    const payloadBruto = '{ "timestamp":"1970-01-01T00:00:00Z", "leituras":[{"sensor":"temperatura","valor":25}] }';
-    await pool.query("UPDATE estacoes SET ultimo_ping = $1 WHERE id = $2", ["2026-10-13T10:00:00Z", mensagem.estacaoId]);
-    expect(await processarMensagem({ ...mensagem, payloadBruto })).toBe("rejeitada");
+    // Quando (Act)
+    const resultado = await gravarEVerificar({ ...mensagem, payloadBruto });
+
+    // Então (Assert)
+    expect(resultado).toBe("recusada");
     const { rows } = await pool.query("SELECT * FROM staging_telemetria");
     expect(rows[0]).toMatchObject({
-      status: "rejeitada",
-      motivo_rejeicao: "Timestamp fora da faixa",
-      unixtime: "0",
+      status: "rejeitada", payload_bruto: payloadBruto, payload: null, unixtime: null, motivo_rejeicao: "Payload malformado",
     });
-    const estacao = await pool.query("SELECT ultimo_ping FROM estacoes WHERE id = $1", [mensagem.estacaoId]);
+  });
+
+  it("deve gravar \"Timestamp fora da faixa\" com unixtime e não mexer no último sinal quando a leitura é de 1970", async () => {
+    // Dado (Arrange)
+    const payloadBruto = '{ "timestamp":"1970-01-01T00:00:00Z", "leituras":[{"sensor":"temperatura","valor":25}] }';
+    await pool.query("UPDATE estacoes SET ultimo_ping = $1 WHERE id = $2", ["2026-10-13T10:00:00Z", estacaoId]);
+
+    // Quando (Act)
+    const resultado = await gravarEVerificar({ ...mensagem, payloadBruto });
+
+    // Então (Assert)
+    expect(resultado).toBe("recusada");
+    const { rows } = await pool.query("SELECT * FROM staging_telemetria");
+    expect(rows[0]).toMatchObject({ status: "rejeitada", motivo_rejeicao: "Timestamp fora da faixa", unixtime: "0" });
+    const estacao = await pool.query("SELECT ultimo_ping FROM estacoes WHERE id = $1", [estacaoId]);
     expect(estacao.rows[0].ultimo_ping.toISOString()).toBe("2026-10-13T10:00:00.000Z");
   });
 
-  it("aceita rejeição de negócio da US-12 sem exigir estação cadastrada", async () => {
-    await processarMensagem(mensagem, "Estação inativa");
+  it("deve gravar a recusa de negócio da US-12 com o JSON quando a estação está inativa", async () => {
+    // Dado (Arrange)
+    await cadastrarEstacao(pool, estacaoId, "Inativa");
+
+    // Quando (Act)
+    await gravarEVerificar(mensagem);
+
+    // Então (Assert)
     const { rows } = await pool.query("SELECT * FROM staging_telemetria");
-    expect(rows[0]).toMatchObject({ status: "rejeitada", motivo_rejeicao: "Estação inativa",
-      payload: JSON.parse(mensagem.payloadBruto) });
+    expect(rows[0]).toMatchObject({
+      status: "rejeitada", motivo_rejeicao: "Estação inativa", payload: JSON.parse(mensagem.payloadBruto),
+    });
   });
 
-  it("impede duplicatas simultâneas", async () => {
-    const resultados = await Promise.all([
-      processarMensagem(mensagem), processarMensagem(mensagem),
-    ]);
-    expect(resultados.sort()).toEqual(["duplicata", "recebida"]);
+  it("deve gravar só uma quando duas iguais são verificadas ao mesmo tempo", async () => {
+    // Dado (Arrange)
+    // Quando (Act)
+    const resultados = await Promise.all([gravarEVerificar(mensagem), gravarEVerificar(mensagem)]);
+
+    // Então (Assert)
+    expect(resultados.sort()).toEqual(["duplicada", "pendente"]);
     const { rows } = await pool.query("SELECT count(*) FROM staging_telemetria");
     expect(rows[0].count).toBe("1");
   });
 
-  it("rejeitadas não bloqueiam uma aceita da mesma chave", async () => {
-    await processarMensagem(mensagem, "Estação inativa");
-    await processarMensagem(mensagem, "Estação inativa");
-    expect(await processarMensagem(mensagem)).toBe("recebida");
-    expect(await processarMensagem(mensagem)).toBe("duplicata");
+  it("deve aceitar a leitura quando antes houve recusas da mesma estação e horário", async () => {
+    // Dado (Arrange)
+    await cadastrarEstacao(pool, estacaoId, "Inativa");
+    await gravarEVerificar(mensagem);
+    await gravarEVerificar(mensagem);
+    await cadastrarEstacao(pool, estacaoId, "Ativa");
+
+    // Quando (Act)
+    const primeira = await gravarEVerificar(mensagem);
+    const segunda = await gravarEVerificar(mensagem);
+
+    // Então (Assert)
+    expect([primeira, segunda]).toEqual(["pendente", "duplicada"]);
     const { rows } = await pool.query("SELECT count(*) FROM staging_telemetria");
     expect(rows[0].count).toBe("3");
   });
 
-  it("o índice continua impedindo duplicata após mudança de status", async () => {
-    await processarMensagem(mensagem);
+  it("deve continuar acusando duplicata quando o status da original muda", async () => {
+    // Dado (Arrange)
+    await gravarEVerificar(mensagem);
     await pool.query("UPDATE staging_telemetria SET status = 'publicada'");
-    expect(await processarMensagem(mensagem)).toBe("duplicata");
+
+    // Quando (Act)
+    const resultado = await gravarEVerificar(mensagem);
+
+    // Então (Assert)
+    expect(resultado).toBe("duplicada");
   });
 });
