@@ -1,42 +1,51 @@
 import { describe, it, expect, beforeEach } from "@jest/globals";
-import {
-  ReceivedMetricsService,
-  receivedMetricsService,
-} from "../../services/received-metrics.service";
+import { ReceivedMetricsService } from "../../services/received-metrics.service";
 
+// Unitário de ReceivedMetricsService: contador em memória, sem recurso externo.
 describe("ReceivedMetricsService", () => {
   let service: ReceivedMetricsService;
 
   beforeEach(() => {
     service = new ReceivedMetricsService();
-    receivedMetricsService.reset();
   });
 
-  it("deve começar em 0", () => {
-    expect(service.obterTotal()).toBe(0);
-    expect(receivedMetricsService.obterTotal()).toBe(0);
+  describe("obterTotal", () => {
+    it("deve devolver 0 quando a instância é nova, mesmo com outra já incrementada", () => {
+      // Dado (Arrange)
+      service.incrementar();
+
+      // Quando (Act)
+      const total = new ReceivedMetricsService().obterTotal();
+
+      // Então (Assert)
+      expect(total).toBe(0);
+    });
   });
 
-  it("deve incrementar o total", () => {
-    service.incrementar();
-    expect(service.obterTotal()).toBe(1);
+  describe("incrementar", () => {
+    it("deve somar 1 ao total quando é chamado", () => {
+      // Dado (Arrange)
+      service.incrementar();
 
-    service.incrementar();
-    expect(service.obterTotal()).toBe(2);
+      // Quando (Act)
+      service.incrementar();
+
+      // Então (Assert)
+      expect(service.obterTotal()).toBe(2);
+    });
   });
 
-  it("deve voltar a 0 ao executar reset()", () => {
-    service.incrementar();
-    service.incrementar();
+  describe("reset", () => {
+    it("deve voltar o total a 0 quando há leituras contadas", () => {
+      // Dado (Arrange)
+      service.incrementar();
+      service.incrementar();
 
-    service.reset();
+      // Quando (Act)
+      service.reset();
 
-    expect(service.obterTotal()).toBe(0);
-  });
-
-  it("uma instância nova deve começar em 0 mesmo com outra já incrementada", () => {
-    service.incrementar();
-
-    expect(new ReceivedMetricsService().obterTotal()).toBe(0);
+      // Então (Assert)
+      expect(service.obterTotal()).toBe(0);
+    });
   });
 });
