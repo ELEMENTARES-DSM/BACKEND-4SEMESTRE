@@ -13,10 +13,9 @@ import { ValidarPayloadService } from "./validar-payload.service";
 import { conferirEstacao } from "./validar-estacao.service";
 import { registrarRejeicao } from "./registro-rejeicao.service";
 import { registrarDuplicadaIgnorada } from "./registro-duplicada.service";
-import { gravacaoMetricsService } from "./gravacao-metrics.service";
 import { solicitarProcessamentoPendentes } from "./staging-publisher.service";
 import { extrairEstacaoId } from "../utils/topico-estacao";
-import { ESTACAO_DESCONHECIDA } from "../validations/motivos-rejeicao";
+import { ESTACAO_DESCONHECIDA, PAYLOAD_MALFORMADO } from "../validations/motivos-rejeicao";
 import { logger } from "../utils/logger";
 
 export type ResultadoVerificacao = "pendente" | "recusada" | "duplicada";
@@ -129,7 +128,8 @@ export async function verificarMensagem(
 
   const validacao = validador.validar(mensagem);
   if (!validacao.sucesso || !validacao.payloadValidado) {
-    return recusar(staging, validacao.motivoRejeicao ?? "Payload inválido", agora(), mensagem);
+    // Motivo sempre da lista MOTIVOS_REJEICAO: é ela que as métricas leem.
+    return recusar(staging, validacao.motivoRejeicao ?? PAYLOAD_MALFORMADO, agora(), mensagem);
   }
 
   // A conferência da estação vem depois do payload, como na ordem dos critérios.
@@ -152,7 +152,6 @@ export async function verificarMensagem(
   }
 
   await marcarPendente(staging.id);
-  gravacaoMetricsService.incrementarGravada();
   solicitarProcessamentoPendentes();
   // Último sinal (US-14) só depois de a publicação já ter sido pedida. Com o
   // PostgreSQL fora, fica para a próxima leitura aceita.
@@ -171,7 +170,6 @@ async function recusar(
   mensagem?: MensagemIngestaoInput,
 ): Promise<ResultadoVerificacao> {
   await encerrarSemPublicar(staging.id, "recusada", agora, motivoRecusa);
-  gravacaoMetricsService.incrementarRejeitadaGravada();
   registrarRejeicao(motivoRecusa, mensagem?.estacaoId ?? staging.topico);
   return "recusada";
 }

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { valkey } from "../config/valkey";
 import { MensagemBruta } from "../dto/mensagem-ingestao.dto";
+import { MOTIVOS_REJEICAO } from "../validations/motivos-rejeicao";
 
 // Staging no Valkey (US-40). Cada mensagem é um hash staging:msg:{id}; as
 // listas guardam os ids na ordem de chegada.
@@ -8,6 +9,11 @@ export const LISTA_RECEBIDAS = "staging:recebidas";
 export const LISTA_PENDENTES = "staging:pendentes";
 
 export const chaveMensagem = (id: string): string => `staging:msg:${id}`;
+
+// Contadores da US-21 (TASK 40.05): recebidas, recusadas:{motivo}, duplicadas
+// e encaminhadas. Cada um sobe no mesmo MULTI da mudança de estado, então a
+// mensagem conta uma vez só e não zera ao reiniciar o serviço.
+export const chaveContador = (tipo: string): string => `staging:contador:${tipo}`;
 
 // Encaminhada, recusada e duplicada expiram 7 dias depois de decididas.
 // Recebida e pendente nunca expiram: ainda não chegaram ao RabbitMQ.
@@ -38,6 +44,7 @@ export async function gravarBruta(mensagem: MensagemBruta): Promise<string> {
       status: "recebida",
     })
     .rPush(LISTA_RECEBIDAS, id)
+    .incr(chaveContador("recebidas"))
     .exec();
   return id;
 }
@@ -74,6 +81,7 @@ export async function encerrarSemPublicar(
     .hSet(chaveMensagem(id), motivo === undefined ? { status } : { status, motivo })
     .expireAt(chaveMensagem(id), expiraEm(agora))
     .lRem(LISTA_RECEBIDAS, 1, id)
+    .incr(chaveContador(status === "duplicada" ? "duplicadas" : `recusadas:${motivo}`))
     .exec();
 }
 
@@ -126,6 +134,7 @@ export async function marcarEncaminhada(id: string, agora: Date): Promise<void> 
     .hSet(chaveMensagem(id), { status: "encaminhada" })
     .expireAt(chaveMensagem(id), expiraEm(agora))
     .lRem(LISTA_PENDENTES, 1, id)
+    .incr(chaveContador("encaminhadas"))
     .exec();
 }
 
@@ -134,6 +143,41 @@ export async function descartarPendente(id: string): Promise<void> {
   await valkey().lRem(LISTA_PENDENTES, 1, id);
 }
 
-export async function contarPendentes(): Promise<number> {
-  return valkey().lLen(LISTA_PENDENTES);
+export interface MetricasIngestao {
+  leiturasRecebidas: number;
+  leiturasRejeitadas: Record<string, number>;
+  duplicadasIgnoradas: number;
+  mensagensPendentes: number;
+  mensagensEncaminhadas: number;
+  pendenteMaisAntigaEm: string | null;
+}
+
+/**
+ * Métricas de GET /ingestao/metricas, lidas do Valkey num MULTI só (retrato
+ * do mesmo instante). Recusadas só aparecem com o motivo que já teve alguma.
+ */
+export async function lerMetricas(): Promise<MetricasIngestao> {
+  const chaves = ["recebidas", "duplicadas", "encaminhadas", ...MOTIVOS_REJEICAO.map((m) => `recusadas:${m}`)]
+    .map(chaveContador);
+  const [valores, pendentes, maisAntiga] = (await valkey()
+    .multi()
+    .mGet(chaves)
+    .lLen(LISTA_PENDENTES)
+    .lIndex(LISTA_PENDENTES, 0)
+    .exec()) as unknown as [Array<string | null>, number, string | null];
+
+  const [recebidas, duplicadas, encaminhadas, ...recusadas] = valores.map(Number);
+  // Se a da frente for publicada entre as duas leituras, o hGet volta vazio.
+  const recebidoEm = maisAntiga ? await valkey().hGet(chaveMensagem(maisAntiga), "recebidoEm") : undefined;
+
+  return {
+    leiturasRecebidas: recebidas,
+    leiturasRejeitadas: Object.fromEntries(
+      MOTIVOS_REJEICAO.map((motivo, i) => [motivo, recusadas[i]]).filter(([, total]) => Number(total) > 0),
+    ),
+    duplicadasIgnoradas: duplicadas,
+    mensagensPendentes: pendentes,
+    mensagensEncaminhadas: encaminhadas,
+    pendenteMaisAntigaEm: recebidoEm ?? null,
+  };
 }

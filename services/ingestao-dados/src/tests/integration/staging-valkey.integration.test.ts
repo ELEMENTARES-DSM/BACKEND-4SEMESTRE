@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import amqp, { Channel } from "amqplib";
+import jwt from "jsonwebtoken";
 import mqtt from "mqtt";
+import request from "supertest";
+import app from "../../app";
 import { Pool } from "pg";
 import { createClient } from "redis";
 import { pool } from "../../config/db";
@@ -35,6 +38,9 @@ const integration = STAGING_TEST_DATABASE_URL && VALKEY_TEST_URL && MQTT_TEST_UR
   : describe.skip;
 
 const BANCO_VALKEY = 4;
+// O middleware lê o JWT_SECRET na hora de cada requisição.
+const JWT_TESTE = "segredo-so-do-teste-de-metricas";
+process.env.JWT_SECRET = JWT_TESTE;
 const topicoDe = (uuid: string) => `pulso/estacoes/${uuid}/telemetria`;
 const leitura = (timestamp: string, extras = "") =>
   `{"timestamp":"${timestamp}"${extras},"leituras":[{"sensor":"T-01","valor":25.4}]}`;
@@ -350,6 +356,80 @@ integration("US-40 · staging no Valkey com Mosquitto, Valkey e PostgreSQL reais
       await esperar(async () => (await status(gravada.id)) === "encaminhada", 20000);
       const { rows: depois } = await banco.query("SELECT ultimo_ping FROM estacoes WHERE id = $1", [estacaoId]);
       expect(depois[0].ultimo_ping.toISOString()).toBe(gravada.recebidoEm);
+    }, 45000);
+  });
+
+  describe("US-21 · GET /ingestao/metricas lido do Valkey", () => {
+    const metricas = async () => {
+      const resposta = await request(app)
+        .get("/ingestao/metricas")
+        .set("Authorization", `Bearer ${jwt.sign({ id: "adm", papel: "ADMINISTRADOR" }, JWT_TESTE)}`);
+      expect(resposta.status).toBe(200);
+      return resposta.body;
+    };
+
+    it("deve bater com o publicado em telemetria.bruta quando chegam leituras aceitas, recusadas e repetidas", async () => {
+      // Dado (Arrange)
+      const estacaoId = randomUUID();
+      await cadastrarEstacao(banco, estacaoId);
+      const antes = await metricas();
+      const aceitaA = leitura("2026-10-20T13:00:00Z");
+      const aceitaB = leitura("2026-10-20T13:01:00Z");
+      const recusada = leitura("2026-10-20T13:02:00Z", ',"nivel_bateria":150');
+
+      // Quando (Act)
+      await publicarAteGravar(estacaoId, aceitaA);
+      for (const payload of [aceitaA, aceitaB, recusada]) {
+        await estacao.publishAsync(topicoDe(estacaoId), payload, { qos: 1 });
+      }
+      await esperar(async () => {
+        const todas = await hashes(estacaoId);
+        return todas.some((h) => h.conteudo === recusada)
+          && todas.some((h) => h.conteudo === aceitaB)
+          && todas.every((h) => ["encaminhada", "recusada", "duplicada"].includes(h.status));
+      }, 20000);
+      await lerPublicadas();
+      const depois = await metricas();
+
+      // Então (Assert)
+      const todas = await hashes(estacaoId);
+      const publicadasDaEstacao = todas.filter((h) => publicadas.has(h.id));
+      const conta = (status: string) => todas.filter((h) => h.status === status).length;
+      expect(conta("encaminhada")).toBe(2);
+      expect(publicadasDaEstacao.map((h) => h.status)).toEqual(["encaminhada", "encaminhada"]);
+      expect(depois.mensagensEncaminhadas - antes.mensagensEncaminhadas).toBe(publicadasDaEstacao.length);
+      expect(depois.leiturasRecebidas - antes.leiturasRecebidas).toBe(todas.length);
+      expect(depois.duplicadasIgnoradas - antes.duplicadasIgnoradas).toBe(conta("duplicada"));
+      expect(conta("duplicada")).toBeGreaterThanOrEqual(1);
+      const bateria = "Nível de bateria fora de 0 a 100";
+      expect((depois.leiturasRejeitadas[bateria] ?? 0) - (antes.leiturasRejeitadas[bateria] ?? 0)).toBe(1);
+      expect(depois).toMatchObject({ mensagensPendentes: 0, pendenteMaisAntigaEm: null });
+    }, 45000);
+
+    it("deve informar as pendentes e o horário de chegada da mais antiga quando o RabbitMQ não publica", async () => {
+      // Dado (Arrange)
+      const estacaoId = randomUUID();
+      await cadastrarEstacao(banco, estacaoId);
+      await encerrarPublisherStaging();
+      const payloads = [leitura("2026-10-20T13:10:00Z"), leitura("2026-10-20T13:11:00Z")];
+
+      // Quando (Act)
+      try {
+        for (const payload of payloads) await publicarAteGravar(estacaoId, payload);
+        await esperar(async () => (await direto.lLen(LISTA_PENDENTES)) >= 2);
+        const comPendentes = await metricas();
+
+        // Então (Assert)
+        const [primeira] = await direto.lRange(LISTA_PENDENTES, 0, 0);
+        expect(comPendentes.mensagensPendentes).toBe(await direto.lLen(LISTA_PENDENTES));
+        expect(comPendentes.pendenteMaisAntigaEm).toBe(await direto.hGet(chaveMensagem(primeira), "recebidoEm"));
+      } finally {
+        const publicador = new RabbitMqTelemetriaPublisher({ url: RABBITMQ_TEST_URL as string, intervaloRecuperacaoMs: 300 });
+        configurarPublisherStaging(publicador);
+        await publicador.iniciar();
+      }
+      await esperar(async () => (await metricas()).mensagensPendentes === 0, 20000);
+      expect((await metricas()).pendenteMaisAntigaEm).toBeNull();
     }, 45000);
   });
 });

@@ -2,10 +2,6 @@ import mqtt, { type DoneCallback, type IPublishPacket, type MqttClient } from "m
 import { MensagemBruta } from "../../dto/mensagem-ingestao.dto";
 import { ConfigMqtt } from "../../config/mqtt.config";
 import { TOPICO_ASSINATURA } from "../../utils/topico-estacao";
-import {
-  receivedMetricsService,
-  ReceivedMetricsService,
-} from "../../services/received-metrics.service";
 import { mqttStatusService, MqttStatusService } from "../../services/mqtt-status.service";
 
 export type ProximoPasso = (mensagem: MensagemBruta) => Promise<unknown>;
@@ -15,7 +11,6 @@ export interface OpcoesConsumidorMqtt {
   proximoPasso: ProximoPasso;
   agora?: () => Date;
   conectar?: typeof mqtt.connect;
-  metricasRecebidas?: Pick<ReceivedMetricsService, "incrementar">;
   estadoConexao?: Pick<MqttStatusService, "marcarConectado" | "marcarDesconectado">;
   reentregaMs?: number;
   // Só para os testes de integração que dividem o mesmo broker.
@@ -116,10 +111,8 @@ export class ConsumidorMqttTelemetria {
     };
 
     try {
+      // O contador de recebidas sobe na própria gravação no Valkey (TASK 40.05).
       await this.opcoes.proximoPasso(mensagem);
-      // Conta só depois da gravação: se ela falhar, o broker reenvia e a
-      // mensagem é contada uma única vez, quando for gravada de fato.
-      (this.opcoes.metricasRecebidas ?? receivedMetricsService).incrementar();
       confirmar();
     } catch (erro) {
       // Sem confirmação o broker mantém a mensagem e a reenvia na próxima

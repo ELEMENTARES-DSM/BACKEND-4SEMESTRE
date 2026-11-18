@@ -12,7 +12,6 @@ import { atualizarSinalEstacao } from "../../repositories/estacao.repository";
 import { conferirEstacao } from "../../services/validar-estacao.service";
 import { registrarRejeicao } from "../../services/registro-rejeicao.service";
 import { registrarDuplicadaIgnorada } from "../../services/registro-duplicada.service";
-import { gravacaoMetricsService } from "../../services/gravacao-metrics.service";
 import { solicitarProcessamentoPendentes } from "../../services/staging-publisher.service";
 import {
   encerrarVerificacao,
@@ -59,7 +58,6 @@ beforeEach(() => {
   jest.mocked(conferirEstacao).mockResolvedValue(undefined);
   jest.mocked(marcarVisto).mockResolvedValue("nova");
   jest.mocked(atualizarSinalEstacao).mockResolvedValue(true);
-  gravacaoMetricsService.reset();
   jest.spyOn(logger, "warn").mockImplementation(() => undefined);
   jest.spyOn(logger, "error").mockImplementation(() => undefined);
 });
@@ -153,18 +151,6 @@ describe("verificarMensagem", () => {
       expect(conferirEstacao).not.toHaveBeenCalled();
     });
 
-    it("deve somar em rejeitadasGravadas e não em mensagensGravadas quando a mensagem é recusada", async () => {
-      // Dado (Arrange)
-      const mensagem = staging({ payloadBruto: "não é JSON" });
-
-      // Quando (Act)
-      await verificarMensagem(mensagem, relogio);
-
-      // Então (Assert)
-      expect(gravacaoMetricsService.obterRejeitadasGravadas()).toBe(1);
-      expect(gravacaoMetricsService.obterMensagensGravadas()).toBe(0);
-    });
-
     it("deve não registrar duplicata quando a mensagem é recusada", async () => {
       // Dado (Arrange)
       // Quando (Act)
@@ -218,7 +204,7 @@ describe("verificarMensagem", () => {
   });
 
   describe("US-40 · aceita entra em staging:pendentes", () => {
-    it("deve marcar pendente e somar em mensagensGravadas quando a mensagem é aceita", async () => {
+    it("deve marcar pendente sem registrar rejeição nem duplicata quando a mensagem é aceita", async () => {
       // Dado (Arrange)
       const mensagem = staging();
 
@@ -228,7 +214,6 @@ describe("verificarMensagem", () => {
       // Então (Assert)
       expect(resultado).toBe("pendente");
       expect(marcarPendente).toHaveBeenCalledWith(mensagem.id);
-      expect(gravacaoMetricsService.obterMensagensGravadas()).toBe(1);
       expect(registrarRejeicao).not.toHaveBeenCalled();
       expect(registrarDuplicadaIgnorada).not.toHaveBeenCalled();
     });
@@ -316,7 +301,6 @@ describe("verificarMensagem", () => {
       expect(registrarDuplicadaIgnorada).toHaveBeenCalledWith({ estacaoId: ESTACAO_A, timestamp: "2026-10-14T12:00:00Z" });
       expect(registrarRejeicao).not.toHaveBeenCalled();
       expect(solicitarProcessamentoPendentes).not.toHaveBeenCalled();
-      expect(gravacaoMetricsService.obterMensagensGravadas()).toBe(0);
     });
   });
 

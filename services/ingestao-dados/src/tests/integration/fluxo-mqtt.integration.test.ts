@@ -6,16 +6,13 @@ import { pool } from "../../config/db";
 import { encerrarValkey, valkey } from "../../config/valkey";
 import { ConsumidorMqttTelemetria } from "../../events/consumers/mqtt-telemetria.consumer";
 import { RabbitMqTelemetriaPublisher } from "../../events/publishers/rabbitmq-telemetria.publisher";
-import { LISTA_PENDENTES, LISTA_RECEBIDAS } from "../../repositories/staging-valkey.repository";
+import { lerMetricas, LISTA_PENDENTES, LISTA_RECEBIDAS } from "../../repositories/staging-valkey.repository";
 import {
   encerrarVerificacao,
   iniciarVerificacao,
   receberMensagem,
 } from "../../services/processar-mensagem.service";
 import { configurarPublisherStaging } from "../../services/staging-publisher.service";
-import { ReceivedMetricsService } from "../../services/received-metrics.service";
-import { duplicateMetricsService } from "../../services/duplicate-metrics.service";
-import { rejectionMetricsService } from "../../services/rejection-metrics.service";
 import { logger } from "../../utils/logger";
 import { cadastrarEstacao, criarTabelaEstacoes } from "./helpers/estacoes";
 import { esperar, usarValkeyDeTeste } from "./helpers/valkey";
@@ -33,7 +30,6 @@ integration("TASK 11.05 · fluxo MQTT → Valkey → verificação", () => {
   const schema = `fluxo_mqtt_test_${randomUUID().replaceAll("-", "")}`;
   const broker = createBroker();
   const servidor = net.createServer(broker.handle);
-  const recebidas = new ReceivedMetricsService();
   const processarPendentes = jest.fn(async () => undefined);
   let consumidor: ConsumidorMqttTelemetria;
   let estacao: mqtt.MqttClient;
@@ -56,7 +52,7 @@ integration("TASK 11.05 · fluxo MQTT → Valkey → verificação", () => {
 
   // Gravadas no Valkey e já verificadas (a fila de verificação esvaziou).
   const esperarVerificadas = async (total: number) => {
-    await esperar(async () => recebidas.obterTotal() === total);
+    await esperar(async () => (await lerMetricas()).leiturasRecebidas === total);
     await esperar(async () => (await valkey().lLen(LISTA_RECEBIDAS)) === 0);
   };
 
@@ -82,7 +78,6 @@ integration("TASK 11.05 · fluxo MQTT → Valkey → verificação", () => {
       // US-29: sem usuário e senha, como o Mosquitto do compose.
       config: { brokerUrl: `mqtt://127.0.0.1:${port}`, qos: 1 },
       proximoPasso: receberMensagem,
-      metricasRecebidas: recebidas,
       reentregaMs: 300,
     });
     consumidor.iniciar();
@@ -112,11 +107,9 @@ integration("TASK 11.05 · fluxo MQTT → Valkey → verificação", () => {
     jest.spyOn(console, "error").mockImplementation(() => undefined);
     processarPendentes.mockResolvedValue(undefined);
     await pool.query("TRUNCATE estacoes");
-    // O publicador é falso aqui: as pendentes de um teste não podem contar no seguinte.
-    await valkey().del(LISTA_PENDENTES);
-    recebidas.reset();
-    duplicateMetricsService.reset();
-    rejectionMetricsService.reset();
+    // O publicador é falso aqui: pendentes e contadores de um teste não podem
+    // contar no seguinte (o banco lógico 3 é só deste arquivo).
+    await valkey().flushDb();
   });
 
   it("deve marcar pendente, atualizar o último sinal e pedir a publicação quando a leitura é válida", async () => {
@@ -150,7 +143,7 @@ integration("TASK 11.05 · fluxo MQTT → Valkey → verificação", () => {
     expect(await mensagensDa(estacaoId)).toEqual([
       expect.objectContaining({ status: "recusada", motivo: "Payload malformado", conteudo: "texto solto" }),
     ]);
-    expect(rejectionMetricsService.obterMetricas()).toEqual({ "Payload malformado": 1 });
+    expect((await lerMetricas()).leiturasRejeitadas).toEqual({ "Payload malformado": 1 });
     expect((await sinalEstacao(estacaoId)).ultimo_ping).toBeNull();
     expect(processarPendentes).not.toHaveBeenCalled();
   });
@@ -170,9 +163,12 @@ integration("TASK 11.05 · fluxo MQTT → Valkey → verificação", () => {
       // Então (Assert)
       const status = (await mensagensDa(estacaoId)).map((h) => h.status).sort();
       expect(status).toEqual(["duplicada", "pendente"]);
-      expect(await valkey().lLen(LISTA_PENDENTES)).toBe(1);
-      expect(duplicateMetricsService.obterTotal()).toBe(1);
-      expect(rejectionMetricsService.obterMetricas()).toEqual({});
+      expect(await lerMetricas()).toMatchObject({
+        leiturasRecebidas: 2,
+        leiturasRejeitadas: {},
+        duplicadasIgnoradas: 1,
+        mensagensPendentes: 1,
+      });
     });
   });
 
@@ -195,7 +191,7 @@ integration("TASK 11.05 · fluxo MQTT → Valkey → verificação", () => {
       expect.objectContaining({ status: "recusada", motivo: "Estação inativa" }),
     ]);
     expect((await sinalEstacao(inativa)).ultimo_ping).toBeNull();
-    expect(rejectionMetricsService.obterMetricas()).toEqual({ "Estação desconhecida": 1, "Estação inativa": 1 });
+    expect((await lerMetricas()).leiturasRejeitadas).toEqual({ "Estação desconhecida": 1, "Estação inativa": 1 });
   });
 
   it("deve somar 1 em leiturasRecebidas por mensagem gravada quando ela é aceita, recusada ou duplicada", async () => {
@@ -212,6 +208,20 @@ integration("TASK 11.05 · fluxo MQTT → Valkey → verificação", () => {
 
     // Então (Assert)
     expect(await mensagensDa(estacaoId)).toHaveLength(3);
+    expect((await lerMetricas()).leiturasRecebidas).toBe(3);
+  });
+
+  it("deve contar em leiturasRecebidas a mensagem de tópico fora do padrão, porque ela é gravada e depois recusada", async () => {
+    // Dado (Arrange)
+    // Quando (Act)
+    await estacao.publishAsync("pulso/estacoes/est-001/telemetria", payload("2026-10-20T12:16:00Z"), { qos: 1 });
+    await esperarVerificadas(1);
+
+    // Então (Assert)
+    expect(await lerMetricas()).toMatchObject({
+      leiturasRecebidas: 1,
+      leiturasRejeitadas: { "Estação desconhecida": 1 },
+    });
   });
 
   describe("US-14 · último sinal com o PostgreSQL fora", () => {
