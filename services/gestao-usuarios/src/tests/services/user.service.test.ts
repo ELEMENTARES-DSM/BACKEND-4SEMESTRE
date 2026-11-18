@@ -42,6 +42,7 @@ const makePapel = (nome: string, id: string): Papel => ({
 const PAPEL_ADMIN = makePapel("ADMINISTRADOR", "papel-admin");
 const PAPEL_GESTOR = makePapel("GESTOR_PUBLICO", "papel-gestor");
 const PAPEL_PESQUISADOR = makePapel("PESQUISADOR", "papel-pesquisador");
+const PAPEL_MUNICIPE = makePapel("MUNICIPE", "papel-municipe");
 
 const makeCreateDTO = (overrides: Partial<CreateUserDTO> = {}): CreateUserDTO => ({
   nome: "Maria Souza",
@@ -68,6 +69,95 @@ const expectAppError = async (
 // ---------- testes ----------
 
 describe("user.service", () => {
+  describe("cadastrarMunicipe", () => {
+    const makeCadastroDTO = () => ({
+      nome: "Ana da Silva",
+      email: "ana@teste.com",
+      senha: "SenhaForte@2026",
+      municipio: "São José dos Campos",
+      aceite_privacidade: true,
+    });
+
+    it("cadastra munícipe com sucesso vinculando papel MUNICIPE e registrando aceite_privacidade_em", async () => {
+      mockUserRepo.findByEmail.mockResolvedValue(null);
+      mockPapelRepo.findByNome.mockResolvedValue(PAPEL_MUNICIPE);
+      mockHash.mockResolvedValue("hash-bcrypt");
+      mockUserRepo.create.mockResolvedValue(
+        makeUsuario({
+          nome: "Ana da Silva",
+          email: "ana@teste.com",
+          papel_id: PAPEL_MUNICIPE.id,
+          municipio: "São José dos Campos",
+          aceite_privacidade_em: new Date("2026-11-17T12:00:00Z"),
+        })
+      );
+
+      const result = await userService.cadastrarMunicipe(makeCadastroDTO());
+
+      expect(mockUserRepo.findByEmail).toHaveBeenCalledWith("ana@teste.com");
+      expect(mockPapelRepo.findByNome).toHaveBeenCalledWith("MUNICIPE");
+      expect(mockHash).toHaveBeenCalledWith("SenhaForte@2026", 10);
+      expect(mockUserRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          nome: "Ana da Silva",
+          email: "ana@teste.com",
+          senhaHash: "hash-bcrypt",
+          papel_id: PAPEL_MUNICIPE.id,
+          municipio: "São José dos Campos",
+          aceite_privacidade_em: expect.any(Date),
+        })
+      );
+      expect(result).not.toHaveProperty("senha_hash");
+      expect(result.email).toBe("ana@teste.com");
+      expect(result.aceite_privacidade_em).toBeDefined();
+    });
+
+    it("lança 409 quando o e-mail já existe", async () => {
+      mockUserRepo.findByEmail.mockResolvedValue(makeUsuario({ email: "ana@teste.com" }));
+
+      await expectAppError(
+        userService.cadastrarMunicipe(makeCadastroDTO()),
+        409,
+        "E-mail já cadastrado"
+      );
+
+      expect(mockPapelRepo.findByNome).not.toHaveBeenCalled();
+      expect(mockHash).not.toHaveBeenCalled();
+      expect(mockUserRepo.create).not.toHaveBeenCalled();
+    });
+
+    it("lança 500 se o papel MUNICIPE não existir no banco", async () => {
+      mockUserRepo.findByEmail.mockResolvedValue(null);
+      mockPapelRepo.findByNome.mockResolvedValue(null);
+
+      await expectAppError(
+        userService.cadastrarMunicipe(makeCadastroDTO()),
+        500,
+        "Papel MUNICIPE não encontrado no sistema"
+      );
+
+      expect(mockHash).not.toHaveBeenCalled();
+      expect(mockUserRepo.create).not.toHaveBeenCalled();
+    });
+
+    it("normaliza e-mail para letras minúsculas antes de consultar e persistir", async () => {
+      mockUserRepo.findByEmail.mockResolvedValue(null);
+      mockPapelRepo.findByNome.mockResolvedValue(PAPEL_MUNICIPE);
+      mockHash.mockResolvedValue("hash-bcrypt");
+      mockUserRepo.create.mockResolvedValue(makeUsuario());
+
+      const dto = makeCadastroDTO();
+      dto.email = "  ANA.SILVA@Teste.COM  ";
+
+      await userService.cadastrarMunicipe(dto);
+
+      expect(mockUserRepo.findByEmail).toHaveBeenCalledWith("ana.silva@teste.com");
+      expect(mockUserRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ email: "ana.silva@teste.com" })
+      );
+    });
+  });
+
   describe("create", () => {
     it("lança 409 quando o e-mail já está cadastrado", async () => {
       mockUserRepo.findByEmail.mockResolvedValue(makeUsuario());
