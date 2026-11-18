@@ -17,9 +17,8 @@ export function estacaoDoTopico(topico: string | null | undefined): string | nul
 /**
  * Mensagens das estações do lote no Valkey (só leitura). As decididas ficam
  * 7 dias lá; recebida e pendente ficam até sair.
- * ponytail: SCAN em todo staging:msg:*, O(mensagens dos últimos 7 dias) por
- * volta da espera. Basta para o teste; um índice por estação só se o modo
- * contínuo rodar dias seguidos.
+ * A cada volta da espera, o SCAN percorre todo staging:msg:*. Se passar de
+ * alguns milhares de chaves, trocar o SCAN por um índice por estação.
  */
 export async function lerValkey(cliente: ClienteValkey, manifesto: MensagemLote[]): Promise<MensagemStaging[]> {
   const estacoes = new Set(manifesto.map((m) => m.estacao_uuid));
