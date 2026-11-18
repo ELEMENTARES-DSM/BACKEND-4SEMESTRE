@@ -271,7 +271,7 @@
           "mensagensPendentes": {
             "type": "integer",
             "minimum": 0,
-            "description": "Quantidade de mensagens com status recebida ou pendente no staging."
+            "description": "Quantidade de mensagens aceitas esperando publicação no RabbitMQ (tamanho da lista staging:pendentes no Valkey)."
           }
         }
       },
