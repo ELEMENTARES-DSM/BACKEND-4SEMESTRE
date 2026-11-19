@@ -2,11 +2,12 @@
 // com limite de tempo, e encerra com erro se a diferença não for zero.
 //
 // Uso: npm run balanco -- --manifesto <arquivo> [--tempo-limite <segundos>]
-// Variáveis: DATABASE_URL e RABBITMQ_URL (portas publicadas no Docker Compose).
+// Variáveis: DATABASE_URL, RABBITMQ_URL e REDIS_URL (portas publicadas no Docker Compose).
 import amqp from "amqplib";
 import pg from "pg";
+import { createClient } from "redis";
 import { calcularBalanco, formatarBalanco, type Balanco } from "./balanco.js";
-import { espiarDlq, lerBanco } from "./destinos.js";
+import { espiarDlq, lerMedidas, lerValkey } from "./destinos.js";
 import { lerManifesto, resolverCaminhoManifesto } from "./manifesto.js";
 
 function argumento(nome: string): string | undefined {
@@ -18,11 +19,12 @@ const caminho = argumento("--manifesto");
 const tempoLimiteS = Number(argumento("--tempo-limite") ?? "120");
 const databaseUrl = process.env.DATABASE_URL;
 const rabbitUrl = process.env.RABBITMQ_URL;
+const redisUrl = process.env.REDIS_URL;
 
-if (!caminho || !databaseUrl || !rabbitUrl || !Number.isFinite(tempoLimiteS) || tempoLimiteS <= 0) {
+if (!caminho || !databaseUrl || !rabbitUrl || !redisUrl || !Number.isFinite(tempoLimiteS) || tempoLimiteS <= 0) {
   console.error(
     "Uso: npm run balanco -- --manifesto <arquivo> [--tempo-limite <segundos>]\n" +
-      "Defina DATABASE_URL e RABBITMQ_URL.",
+      "Defina DATABASE_URL, RABBITMQ_URL e REDIS_URL.",
   );
   process.exit(2);
 }
@@ -30,15 +32,22 @@ if (!caminho || !databaseUrl || !rabbitUrl || !Number.isFinite(tempoLimiteS) || 
 const manifesto = lerManifesto(resolverCaminhoManifesto(caminho));
 const pool = new pg.Pool({ connectionString: databaseUrl, max: 2 });
 pool.on("error", () => undefined);
+// Sem fila offline: com o Valkey fora, o comando falha e a volta é refeita.
+const valkey = createClient({ url: redisUrl, disableOfflineQueue: true, socket: { reconnectStrategy: () => 1000 } });
+valkey.on("error", () => undefined);
+const valkeyConectado = valkey.connect().catch(() => undefined);
 
-// Banco ou RabbitMQ fora do ar durante a espera: tenta de novo na próxima volta.
+// Valkey, banco ou RabbitMQ fora do ar durante a espera: tenta de novo na próxima volta.
 async function conferir(): Promise<Balanco | undefined> {
   let conexao: amqp.ChannelModel | undefined;
   try {
-    const banco = await lerBanco(pool, manifesto);
+    await valkeyConectado;
+    const staging = await lerValkey(valkey, manifesto);
+    const encaminhadas = staging.filter((m) => m.status === "encaminhada").map((m) => m.id);
+    const medidas = await lerMedidas(pool, encaminhadas);
     conexao = await amqp.connect(rabbitUrl as string);
     const dlq = await espiarDlq(conexao);
-    return calcularBalanco(manifesto, { ...banco, dlq });
+    return calcularBalanco(manifesto, { staging, medidas, dlq });
   } catch (erro) {
     console.error(`[balanço] Sem leitura nesta volta: ${erro instanceof Error ? erro.message : String(erro)}`);
     return undefined;
@@ -62,7 +71,7 @@ async function main(): Promise<number> {
 
   console.log(`Balanço do lote (${caminho})`);
   if (!ultimo) {
-    console.log("  não foi possível ler o banco e a DLQ");
+    console.log("  não foi possível ler o Valkey, o banco e a DLQ");
     return 1;
   }
   console.log(formatarBalanco(ultimo));
@@ -74,13 +83,18 @@ async function main(): Promise<number> {
   return 0;
 }
 
+async function fechar(): Promise<void> {
+  await pool.end().catch(() => undefined);
+  await valkey.disconnect().catch(() => undefined);
+}
+
 main()
   .then(async (codigo) => {
-    await pool.end().catch(() => undefined);
+    await fechar();
     process.exit(codigo);
   })
   .catch(async (erro) => {
     console.error("[balanço] Falha:", erro);
-    await pool.end().catch(() => undefined);
+    await fechar();
     process.exit(1);
   });

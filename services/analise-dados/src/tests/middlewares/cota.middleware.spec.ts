@@ -1,9 +1,12 @@
 import jwt from "jsonwebtoken";
 import { Request, Response } from "express";
 import { authOpcional } from "../../middlewares/auth.middleware";
-import { aplicarCotaEAuditar } from "../../middlewares/cota.middleware";
-import { limparMemoryStore } from "../../services/cota.service";
+import * as cotaMiddleware from "../../middlewares/cota.middleware";
+import * as cotaService from "../../services/cota.service";
 import { COTAS_POR_PERFIL } from "../../config/cotas";
+
+const { aplicarCotaEAuditar } = cotaMiddleware;
+const { limparMemoryStore } = cotaService;
 
 const JWT_SECRET = "segredo-de-teste-analise-dados-123";
 process.env.JWT_SECRET = JWT_SECRET;
@@ -31,11 +34,14 @@ function criarReqRes(options: {
   }
 
   const responseHeaders: Record<string, string> = {};
+  const url = options.url || "/analise/estacoes/1/series";
+  const path = url.split("?")[0];
 
   const req: Partial<Request> = {
     headers,
-    originalUrl: options.url || "/analise/estacoes/1/series",
-    url: options.url || "/analise/estacoes/1/series",
+    originalUrl: url,
+    url,
+    path,
     query: options.query || {},
   };
 
@@ -58,30 +64,35 @@ function criarReqRes(options: {
   return { req: req as Request, res: res as Response, responseHeaders };
 }
 
-describe("Cota Middleware e Rastreamento de Uso (Task 42.05)", () => {
+describe("cota.middleware (US-42)", () => {
   beforeEach(() => {
     limparMemoryStore();
   });
 
-  it("não aplica cota para requisições sem token (anônimas)", async () => {
+  it("deve não aplicar cota quando a requisição é sem token (anônima)", async () => {
+    // Dado: requisição sem cabeçalho Authorization
     const { req, res, responseHeaders } = criarReqRes({});
     const next = jest.fn();
 
+    // Quando: passa pelo authOpcional e aplicarCotaEAuditar
     authOpcional(req, res, () => {
       aplicarCotaEAuditar(req, res, next);
     });
 
+    // Então: segue sem headers de cota
     expect(next).toHaveBeenCalled();
     expect(responseHeaders["x-cota-semana-restante"]).toBeUndefined();
   });
 
-  it("injeta headers de cota restante para MUNICIPE autenticado", async () => {
+  it("deve injetar headers de cota restante quando o usuário é MUNICIPE autenticado", async () => {
+    // Dado: token de MUNICIPE
     const token = gerarToken("MUNICIPE");
     const { req, res, responseHeaders } = criarReqRes({
       authorization: `Bearer ${token}`,
     });
     const next = jest.fn();
 
+    // Quando: passa pelo middleware
     await new Promise<void>((resolve) => {
       authOpcional(req, res, () => {
         aplicarCotaEAuditar(req, res, () => {
@@ -91,14 +102,16 @@ describe("Cota Middleware e Rastreamento de Uso (Task 42.05)", () => {
       });
     });
 
+    // Então: injeta os dois cabeçalhos com o saldo debitado
     expect(next).toHaveBeenCalled();
     expect(responseHeaders["x-cota-semana-restante"]).toBe("1999");
     expect(responseHeaders["x-cota-mes-restante"]).toBe("5999");
   });
 
-  it("responde 429 com data de renovação quando a cota semanal é esgotada (Cenário 5 da US-42)", async () => {
+  it("deve responder 429 com data de renovação quando a cota semanal é esgotada", async () => {
     const limiteOriginal = COTAS_POR_PERFIL.MUNICIPE!.semanal;
     try {
+      // Dado: cota semanal de 1 requisição
       COTAS_POR_PERFIL.MUNICIPE!.semanal = 1;
 
       const token = gerarToken("MUNICIPE", "municipe-teste-429");
@@ -114,7 +127,7 @@ describe("Cota Middleware e Rastreamento de Uso (Task 42.05)", () => {
       });
       expect(req1.res.statusCode).toBe(200);
 
-      // 2ª requisição (deve responder 429)
+      // Quando: chega a 2ª requisição
       const req2 = criarReqRes({ authorization: `Bearer ${token}` });
       const next2 = jest.fn();
       await new Promise<void>((resolve) => {
@@ -124,6 +137,7 @@ describe("Cota Middleware e Rastreamento de Uso (Task 42.05)", () => {
         });
       });
 
+      // Então: responde 429 com renovaEm
       expect(next2).not.toHaveBeenCalled();
       expect(req2.res.statusCode).toBe(429);
       const data = (req2.res as unknown as { data: { erro: string; renovaEm: string } }).data;
@@ -134,29 +148,61 @@ describe("Cota Middleware e Rastreamento de Uso (Task 42.05)", () => {
     }
   });
 
-  it("não debita cota em rotas de status de estações", async () => {
-    const token = gerarToken("MUNICIPE", "municipe-status");
-    const { req, res, responseHeaders } = criarReqRes({
-      authorization: `Bearer ${token}`,
-      url: "/analise/estacoes/status",
-    });
+  it("deve responder 503 e não liberar o pedido quando o Valkey falha", async () => {
+    // Dado: o controle de cota lança erro
+    jest.spyOn(cotaService, "verificarEDebitarCota").mockRejectedValueOnce(new Error("valkey caiu"));
+    const spyErro = jest.spyOn(console, "error").mockImplementation();
+    const { req, res } = criarReqRes({ authorization: `Bearer ${gerarToken("MUNICIPE", "municipe-503")}` });
     const next = jest.fn();
-
-    await new Promise<void>((resolve) => {
-      authOpcional(req, res, () => {
-        aplicarCotaEAuditar(req, res, () => {
-          next();
-          resolve();
+    try {
+      // Quando: chega um pedido com token
+      await new Promise<void>((resolve) => {
+        authOpcional(req, res, () => {
+          aplicarCotaEAuditar(req, res, () => { next(); resolve(); });
+          setImmediate(resolve);
         });
       });
-    });
-
-    expect(next).toHaveBeenCalled();
-    // Como a rota é isenta, não debita cota
-    expect(responseHeaders["x-cota-semana-restante"]).toBeUndefined();
+      // Então: responde 503 e não segue para a rota
+      expect(res.statusCode).toBe(503);
+      expect(next).not.toHaveBeenCalled();
+    } finally {
+      spyErro.mockRestore();
+    }
   });
 
-  it("registra rastro em log estruturado (Cenário 7 da US-42)", async () => {
+  it("deve não debitar cota quando o caminho está em ROTAS_ISENTAS", async () => {
+    // Dado: um caminho real listado na isenção
+    const caminho = "/analise/status-teste";
+    cotaMiddleware.ROTAS_ISENTAS.push(caminho);
+    try {
+      const { req, res, responseHeaders } = criarReqRes({ authorization: `Bearer ${gerarToken("MUNICIPE", "municipe-isento")}`, url: caminho });
+      const next = jest.fn();
+      // Quando: o pedido passa pelo middleware
+      await new Promise<void>((resolve) => {
+        authOpcional(req, res, () => { aplicarCotaEAuditar(req, res, () => { next(); resolve(); }); });
+      });
+      // Então: segue sem debitar cota
+      expect(next).toHaveBeenCalled();
+      expect(responseHeaders["x-cota-semana-restante"]).toBeUndefined();
+    } finally {
+      cotaMiddleware.ROTAS_ISENTAS.splice(cotaMiddleware.ROTAS_ISENTAS.indexOf(caminho), 1);
+    }
+  });
+
+  it("deve debitar cota quando /alarmes aparece só na query string", async () => {
+    // Dado: série com /alarmes na query
+    const { req, res, responseHeaders } = criarReqRes({ authorization: `Bearer ${gerarToken("MUNICIPE", "municipe-query")}`, url: "/analise/estacoes/1/series?x=/alarmes" });
+    const next = jest.fn();
+    // Quando: o pedido passa pelo middleware
+    await new Promise<void>((resolve) => {
+      authOpcional(req, res, () => { aplicarCotaEAuditar(req, res, () => { next(); resolve(); }); });
+    });
+    // Então: é debitado normalmente
+    expect(responseHeaders["x-cota-semana-restante"]).toBe("1999");
+  });
+
+  it("deve registrar rastro em log estruturado quando há requisição com token", async () => {
+    // Dado: token de MUNICIPE com município e período na query
     const spyLog = jest.spyOn(console, "log").mockImplementation();
     const token = gerarToken("MUNICIPE", "municipe-log", "São José dos Campos");
     const { req, res } = criarReqRes({
@@ -165,6 +211,7 @@ describe("Cota Middleware e Rastreamento de Uso (Task 42.05)", () => {
       query: { periodo: "7d" },
     });
 
+    // Quando: passa pelo middleware
     await new Promise<void>((resolve) => {
       authOpcional(req, res, () => {
         aplicarCotaEAuditar(req, res, () => {
@@ -173,6 +220,7 @@ describe("Cota Middleware e Rastreamento de Uso (Task 42.05)", () => {
       });
     });
 
+    // Então: registra JSON estruturado no log
     expect(spyLog).toHaveBeenCalled();
     const logChamado = spyLog.mock.calls.find((call) =>
       typeof call[0] === "string" && call[0].includes("requisicao_dados")
@@ -183,6 +231,7 @@ describe("Cota Middleware e Rastreamento de Uso (Task 42.05)", () => {
     expect(parsed.papel).toBe("MUNICIPE");
     expect(parsed.rota).toContain("/analise/exportar/csv");
     expect(parsed.municipio).toBe("São José dos Campos");
+    expect(parsed.periodo).toBe("7d");
 
     spyLog.mockRestore();
   });

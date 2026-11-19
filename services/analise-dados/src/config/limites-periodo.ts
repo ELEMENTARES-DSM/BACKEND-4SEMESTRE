@@ -28,6 +28,34 @@ export const PERIODOS_PADRAO_DIAS: Record<string, number> = {
   "365d": 365,
 };
 
+const PADRAO_DIAS = /^(\d+)\s*d(ias)?$/i;
+const PADRAO_HORAS = /^(\d+)\s*h(oras)?$/i;
+
+export function validarFormatoPeriodo(
+  periodo?: string,
+  dataInicio?: string,
+  dataFim?: string
+): string | null {
+  if (periodo !== undefined) {
+    const p = periodo.trim().toLowerCase();
+    const predefinido = p in PERIODOS_PADRAO_DIAS;
+    const m = p.match(PADRAO_DIAS) ?? p.match(PADRAO_HORAS);
+    if (!predefinido && (!m || parseInt(m[1], 10) < 1)) {
+      return `Período "${periodo}" não reconhecido. Use 24h, 7d, 30d, 90d, 365d, uma quantidade em dias (ex.: 30d) ou em horas (ex.: 720h).`;
+    }
+    return null;
+  }
+
+  if (dataInicio !== undefined || dataFim !== undefined) {
+    if (!dataInicio || !dataFim) return "Informe data_inicio e data_fim juntas.";
+    const inicio = new Date(dataInicio).getTime();
+    const fim = new Date(dataFim).getTime();
+    if (Number.isNaN(inicio) || Number.isNaN(fim)) return "data_inicio ou data_fim não é uma data válida.";
+    if (fim < inicio) return "data_fim não pode ser anterior a data_inicio.";
+  }
+  return null;
+}
+
 /**
  * Converte um período textual (ex: '24h', '7d', '30d') ou datas de início/fim em quantidade de dias.
  */
@@ -41,11 +69,11 @@ export function calcularDiasSolicitados(
   }
 
   if (periodo) {
-    const matchDias = periodo.match(/^(\d+)\s*d(ias)?$/i);
+    const matchDias = periodo.match(PADRAO_DIAS);
     if (matchDias) {
       return parseInt(matchDias[1], 10);
     }
-    const matchHoras = periodo.match(/^(\d+)\s*h(oras)?$/i);
+    const matchHoras = periodo.match(PADRAO_HORAS);
     if (matchHoras) {
       return Math.ceil(parseInt(matchHoras[1], 10) / 24);
     }

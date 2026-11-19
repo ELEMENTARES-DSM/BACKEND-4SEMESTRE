@@ -157,6 +157,9 @@
           "403": {
             "$ref": "#/components/responses/Forbidden"
           },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
           "500": {
             "$ref": "#/components/responses/InternalError"
           }
@@ -267,6 +270,9 @@
           "200": {
             "$ref": "#/components/responses/IqarSuccess"
           },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
           "500": {
             "$ref": "#/components/responses/InternalError"
           }
@@ -297,6 +303,20 @@
     "responses": {
       "SeriesSuccess": {
         "description": "Séries históricas obtidas com sucesso.",
+        "headers": {
+          "X-Cota-Semana-Restante": {
+            "description": "Requisições restantes na cota semanal (somente com token)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "X-Cota-Mes-Restante": {
+            "description": "Requisições restantes na cota mensal (somente com token)",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        },
         "content": {
           "application/json": {
             "schema": {
@@ -363,6 +383,20 @@
       },
       "UltimasLeiturasSuccess": {
         "description": "Últimas leituras obtidas com sucesso.",
+        "headers": {
+          "X-Cota-Semana-Restante": {
+            "description": "Requisições restantes na cota semanal (somente com token)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "X-Cota-Mes-Restante": {
+            "description": "Requisições restantes na cota mensal (somente com token)",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        },
         "content": {
           "application/json": {
             "schema": {
@@ -390,6 +424,20 @@
       },
       "IqarSuccess": {
         "description": "IQAr obtido com sucesso. Quando não houver dados suficientes, o resultado informa essa condição.",
+        "headers": {
+          "X-Cota-Semana-Restante": {
+            "description": "Requisições restantes na cota semanal (somente com token)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "X-Cota-Mes-Restante": {
+            "description": "Requisições restantes na cota mensal (somente com token)",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        },
         "content": {
           "application/json": {
             "schema": {

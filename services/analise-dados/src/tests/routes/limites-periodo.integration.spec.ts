@@ -178,4 +178,87 @@ describe("TASK 42.04 - Limitar o período de consulta por perfil (US-42)", () =>
       expect(res.statusCode).toBe(404);
     });
   });
+
+  describe("Validação de formatos e parâmetros de período (Code Review)", () => {
+    it.each(["30", "4 semanas", "abc", "0d"])(
+      "responde 400 ao enviar formato de período inválido: %s",
+      (periodoInvalido) => {
+        const { req, res } = criarReqRes({
+          query: { periodo: periodoInvalido },
+        });
+        const next = jest.fn();
+
+        verificarPeriodo(req, res, next);
+
+        expect(next).not.toHaveBeenCalled();
+        expect(res.statusCode).toBe(400);
+        const data = (res as unknown as { data: { erro: string } }).data;
+        expect(data.erro).toContain("não reconhecido");
+      }
+    );
+
+    it("responde 400 ao enviar data_inicio sem data_fim", () => {
+      const { req, res } = criarReqRes({
+        query: { data_inicio: "2026-01-01T00:00:00Z" },
+      });
+      const next = jest.fn();
+
+      verificarPeriodo(req, res, next);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(400);
+      const data = (res as unknown as { data: { erro: string } }).data;
+      expect(data.erro).toBe("Informe data_inicio e data_fim juntas.");
+    });
+
+    it("responde 400 ao enviar data_fim anterior a data_inicio", () => {
+      const { req, res } = criarReqRes({
+        query: {
+          data_inicio: "2026-01-10T00:00:00Z",
+          data_fim: "2026-01-01T00:00:00Z",
+        },
+      });
+      const next = jest.fn();
+
+      verificarPeriodo(req, res, next);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(400);
+      const data = (res as unknown as { data: { erro: string } }).data;
+      expect(data.erro).toBe("data_fim não pode ser anterior a data_inicio.");
+    });
+
+    it("responde 400 ao enviar data inválida", () => {
+      const { req, res } = criarReqRes({
+        query: {
+          data_inicio: "data-invalida",
+          data_fim: "2026-01-10T00:00:00Z",
+        },
+      });
+      const next = jest.fn();
+
+      verificarPeriodo(req, res, next);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(400);
+      const data = (res as unknown as { data: { erro: string } }).data;
+      expect(data.erro).toBe("data_inicio ou data_fim não é uma data válida.");
+    });
+
+    it("responde 400 ao enviar parâmetros de período repetidos em array", () => {
+      const { req, res } = criarReqRes({
+        query: {} as Record<string, string>,
+      });
+      // Simula query com array (ex: ?periodo=24h&periodo=7d)
+      (req.query as unknown as Record<string, unknown>).periodo = ["24h", "7d"];
+      const next = jest.fn();
+
+      verificarPeriodo(req, res, next);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(400);
+      const data = (res as unknown as { data: { erro: string } }).data;
+      expect(data.erro).toContain("Parâmetros de período repetidos");
+    });
+  });
 });

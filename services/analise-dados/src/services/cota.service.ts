@@ -28,6 +28,10 @@ async function incrComTtl(chave: string, ttlSegundos: number): Promise<number> {
     return val;
   }
 
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("Valkey indisponível para o controle de cota");
+  }
+
   // Fallback em memória
   const atual = (memoryStore.get(chave) || 0) + 1;
   memoryStore.set(chave, atual);
@@ -51,7 +55,10 @@ export async function verificarEDebitarCota(
   papel: string,
   data: Date = new Date()
 ): Promise<ResultadoCota> {
-  const cotaConfig = COTAS_POR_PERFIL[papel];
+  const cotaConfig =
+    papel === "GESTOR_PUBLICO" || papel === "ADMINISTRADOR"
+      ? null
+      : COTAS_POR_PERFIL[papel] ?? COTAS_POR_PERFIL.MUNICIPE;
 
   // GESTOR_PUBLICO e ADMINISTRADOR não possuem cota
   if (!cotaConfig) {
