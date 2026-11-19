@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { rejectionMetricsService } from "../services/rejection-metrics.service";
 import { duplicateMetricsService } from "../services/duplicate-metrics.service";
-import { contarPendentes } from "../repositories/staging.repository";
+import { contarPendentes } from "../repositories/staging-valkey.repository";
 import { receivedMetricsService } from "../services/received-metrics.service";
 import { gravacaoMetricsService } from "../services/gravacao-metrics.service";
 
