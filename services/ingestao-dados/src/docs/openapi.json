@@ -90,8 +90,8 @@
           "Métricas"
         ],
         "operationId": "ingestao_dados_metricas",
-        "summary": "Obter métricas de ingestão (recebidas, rejeitadas, duplicadas e gravadas)",
-        "description": "Retorna o total de leituras recebidas pelo MQTT, o total de leituras rejeitadas agrupadas por motivo, em campo separado o total de mensagens duplicadas ignoradas e os totais de mensagens gravadas no staging (aceitas e rejeitadas). Os contadores ficam em memória e zeram ao reiniciar o serviço. Restrito ao perfil ADMINISTRADOR.\n\nExemplo de requisição:\n\n```\ncurl http://localhost/ingestao/metricas \\\n  -H \"Authorization: Bearer <token>\"\n```",
+        "summary": "Obter métricas de ingestão (recebidas, recusadas, duplicadas, pendentes e encaminhadas)",
+        "description": "Retorna, lidos do Valkey (contadores staging:contador:*), o total de mensagens recebidas pelo MQTT, as recusadas agrupadas por motivo, as duplicadas ignoradas, as pendentes de publicação no RabbitMQ, as encaminhadas para telemetria.bruta e o horário de chegada da pendente mais antiga. Os contadores não zeram ao reiniciar o serviço. Com todas as mensagens já verificadas, leiturasRecebidas = soma de leiturasRejeitadas + duplicadasIgnoradas + mensagensPendentes + mensagensEncaminhadas. Restrito ao perfil ADMINISTRADOR.\n\nExemplo de requisição:\n\n```\ncurl http://localhost/ingestao/metricas \\\n  -H \"Authorization: Bearer <token>\"\n```",
         "security": [
           {
             "bearerAuth": []
@@ -107,29 +107,29 @@
                 },
                 "examples": {
                   "comRejeicoes": {
-                    "summary": "Métricas com rejeições registradas",
+                    "summary": "Com recusas, duplicadas e pendentes esperando o RabbitMQ",
                     "value": {
                       "leiturasRecebidas": 120,
                       "leiturasRejeitadas": {
                         "Payload malformado": 3,
-                        "Estação inativa": 1
-                        ,"Timestamp fora da faixa": 1
+                        "Estação inativa": 1,
+                        "Timestamp fora da faixa": 1
                       },
                       "duplicadasIgnoradas": 2,
-                      "mensagensGravadas": 114,
-                      "rejeitadasGravadas": 4,
-                      "mensagensPendentes": 4
+                      "mensagensPendentes": 4,
+                      "mensagensEncaminhadas": 109,
+                      "pendenteMaisAntigaEm": "2026-11-16T10:00:05.123Z"
                     }
                   },
                   "semRejeicoes": {
-                    "summary": "Nenhuma rejeição registrada",
+                    "summary": "Tudo encaminhado, nenhuma recusa",
                     "value": {
                       "leiturasRecebidas": 48,
                       "leiturasRejeitadas": {},
                       "duplicadasIgnoradas": 0,
-                      "mensagensGravadas": 48,
-                      "rejeitadasGravadas": 0,
-                      "mensagensPendentes": 0
+                      "mensagensPendentes": 0,
+                      "mensagensEncaminhadas": 48,
+                      "pendenteMaisAntigaEm": null
                     }
                   }
                 }
@@ -236,42 +236,44 @@
           "leiturasRecebidas",
           "leiturasRejeitadas",
           "duplicadasIgnoradas",
-          "mensagensGravadas",
-          "rejeitadasGravadas",
-          "mensagensPendentes"
+          "mensagensPendentes",
+          "mensagensEncaminhadas",
+          "pendenteMaisAntigaEm"
         ],
         "properties": {
           "leiturasRecebidas": {
             "type": "integer",
             "minimum": 0,
-            "description": "Mensagens de tópico válido entregues ao processamento desde o último início do serviço, inclusive as que depois forem rejeitadas ou ignoradas como duplicata. Tópico fora do padrão não conta. Zera ao reiniciar."
+            "description": "Mensagens gravadas no Valkey ao chegar do MQTT (staging:contador:recebidas), inclusive as de tópico fora do padrão e as que depois forem recusadas ou ignoradas como duplicata. Uma mensagem que o broker reenvia por falha na gravação conta uma vez só. Não zera ao reiniciar."
           },
           "leiturasRejeitadas": {
             "type": "object",
             "additionalProperties": {
-              "type": "integer"
+              "type": "integer",
+              "minimum": 1
             },
-            "description": "Contagem de leituras rejeitadas agrupadas por motivo."
+            "description": "Mensagens recusadas agrupadas por motivo (staging:contador:recusadas:{motivo}). Só aparecem os motivos que já tiveram alguma recusa; {} quando nenhuma."
           },
           "duplicadasIgnoradas": {
             "type": "integer",
             "minimum": 0,
-            "description": "Mensagens duplicadas ignoradas desde o último início do serviço; não entram em leiturasRejeitadas e zeram ao reiniciar."
-          },
-          "mensagensGravadas": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Mensagens aceitas gravadas no staging com status recebida desde o último início do serviço. Duplicata não grava e não conta. Zera ao reiniciar."
-          },
-          "rejeitadasGravadas": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Mensagens rejeitadas gravadas no staging com o motivo desde o último início do serviço. Zera ao reiniciar."
+            "description": "Mensagens com a mesma estação e horário de outra já vista nos últimos 7 dias (staging:contador:duplicadas). Não entram em leiturasRejeitadas nem seguem para telemetria.bruta."
           },
           "mensagensPendentes": {
             "type": "integer",
             "minimum": 0,
-            "description": "Quantidade de mensagens aceitas esperando publicação no RabbitMQ (tamanho da lista staging:pendentes no Valkey)."
+            "description": "Mensagens aceitas esperando publicação no RabbitMQ (tamanho da lista staging:pendentes no Valkey)."
+          },
+          "mensagensEncaminhadas": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Mensagens publicadas em telemetria.bruta com confirmação do RabbitMQ (staging:contador:encaminhadas)."
+          },
+          "pendenteMaisAntigaEm": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Horário de chegada (recebidoEm) da mensagem na frente de staging:pendentes, a próxima a ser publicada. null quando não há pendentes."
           }
         }
       },

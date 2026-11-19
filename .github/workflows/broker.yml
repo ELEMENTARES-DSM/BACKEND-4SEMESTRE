@@ -1,0 +1,39 @@
+name: Broker MQTT
+
+# US-29: broker sem credencial, estação identificada pelo MAC.
+on:
+  push:
+    paths:
+      - "mosquitto/**"
+      - "scripts/mqtt/**"
+      - ".github/workflows/broker.yml"
+  pull_request:
+    paths:
+      - "mosquitto/**"
+      - "scripts/mqtt/**"
+      - ".github/workflows/broker.yml"
+
+jobs:
+  testar-broker:
+    runs-on: ubuntu-latest
+    env:
+      # O compose exige VALKEY_PASSWORD ao interpolar o arquivo inteiro.
+      # Não é segredo: o Valkey nem sobe neste job.
+      VALKEY_PASSWORD: ci-descartavel
+
+    steps:
+      - name: Fazer o Checkout do código
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Criar o .env a partir do exemplo
+        run: cp .env.example .env
+
+      - name: Subir o Mosquitto
+        run: docker compose up -d --wait mosquitto
+
+      - name: Testar os cenários da US-29
+        run: bash scripts/mqtt/testar.sh aabbccddeeff 127.0.0.1
+
+      - name: Logs do Mosquitto
+        if: failure()
+        run: docker compose logs mosquitto

@@ -5,23 +5,16 @@ import request from "supertest";
 import jwt from "jsonwebtoken";
 
 import app from "../../app";
-import { contarPendentes } from "../../repositories/staging-valkey.repository";
-import { rejectionMetricsService } from "../../services/rejection-metrics.service";
-import { duplicateMetricsService } from "../../services/duplicate-metrics.service";
-import { receivedMetricsService } from "../../services/received-metrics.service";
-import { gravacaoMetricsService } from "../../services/gravacao-metrics.service";
-import {
-  PAYLOAD_MALFORMADO,
-  TIMESTAMP_INVALIDO,
-} from "../../validations/motivos-rejeicao";
+import { lerMetricas, MetricasIngestao } from "../../repositories/staging-valkey.repository";
+import { PAYLOAD_MALFORMADO, TIMESTAMP_INVALIDO } from "../../validations/motivos-rejeicao";
 
 jest.mock("../../repositories/staging-valkey.repository", () => ({
-  contarPendentes: jest.fn(),
+  lerMetricas: jest.fn(),
 }));
 
-// Integração sem containers: rota do Express + middleware JWT/papel + controller
-// + contadores reais; só o Valkey é falso. O unitário de obterMetricas está em
-// metricas.controller.test.ts.
+// Integração sem containers: rota do Express + middleware JWT/papel +
+// controller; só o Valkey (lerMetricas) é falso. A leitura real do Valkey está
+// em staging-valkey.integration.test.ts e o unitário em metricas.controller.test.ts.
 describe("GET /ingestao/metricas", () => {
   const JWT_SECRET = process.env.JWT_SECRET as string;
 
@@ -35,18 +28,43 @@ describe("GET /ingestao/metricas", () => {
     });
   };
 
+  const zeradas: MetricasIngestao = {
+    leiturasRecebidas: 0,
+    leiturasRejeitadas: {},
+    duplicadasIgnoradas: 0,
+    mensagensPendentes: 0,
+    mensagensEncaminhadas: 0,
+    pendenteMaisAntigaEm: null,
+  };
+
   beforeEach(() => {
-    jest.mocked(contarPendentes).mockResolvedValue(0);
-    rejectionMetricsService.reset();
-    duplicateMetricsService.reset();
-    receivedMetricsService.reset();
-    gravacaoMetricsService.reset();
+    jest.mocked(lerMetricas).mockResolvedValue(zeradas);
   });
 
-  describe("US-40 · mensagensPendentes vem do Valkey", () => {
-    it("deve retornar mensagensPendentes com o tamanho de staging:pendentes quando há pendentes", async () => {
+  describe("US-21 · contadores lidos do Valkey", () => {
+    it("deve retornar 200 com todos os campos zerados, leiturasRejeitadas {} e pendenteMaisAntigaEm null quando nada chegou", async () => {
       // Dado (Arrange)
-      jest.mocked(contarPendentes).mockResolvedValue(3);
+      // Quando (Act)
+      const resposta = await request(app)
+        .get("/ingestao/metricas")
+        .set("Authorization", `Bearer ${criarToken()}`);
+
+      // Então (Assert)
+      expect(resposta.status).toBe(200);
+      expect(resposta.body).toEqual(zeradas);
+    });
+
+    it("deve retornar cada contador no seu campo e as recusadas por motivo quando há leituras de todos os tipos", async () => {
+      // Dado (Arrange)
+      const metricas: MetricasIngestao = {
+        leiturasRecebidas: 10,
+        leiturasRejeitadas: { [PAYLOAD_MALFORMADO]: 2, [TIMESTAMP_INVALIDO]: 1 },
+        duplicadasIgnoradas: 1,
+        mensagensPendentes: 2,
+        mensagensEncaminhadas: 4,
+        pendenteMaisAntigaEm: "2026-11-16T10:00:00.000Z",
+      };
+      jest.mocked(lerMetricas).mockResolvedValue(metricas);
 
       // Quando (Act)
       const resposta = await request(app)
@@ -55,12 +73,12 @@ describe("GET /ingestao/metricas", () => {
 
       // Então (Assert)
       expect(resposta.status).toBe(200);
-      expect(resposta.body.mensagensPendentes).toBe(3);
+      expect(resposta.body).toEqual(metricas);
     });
 
     it("deve retornar 500 quando o Valkey não responde", async () => {
       // Dado (Arrange)
-      jest.mocked(contarPendentes).mockRejectedValue(new Error("The client is offline"));
+      jest.mocked(lerMetricas).mockRejectedValue(new Error("The client is offline"));
 
       // Quando (Act)
       const resposta = await request(app)
@@ -69,200 +87,8 @@ describe("GET /ingestao/metricas", () => {
 
       // Então (Assert)
       expect(resposta.status).toBe(500);
+      expect(resposta.body).toEqual({ erro: "Não foi possível consultar métricas de ingestão." });
     });
-  });
-
-  it("deve retornar 200 e leiturasRejeitadas como {} quando não há rejeições registradas", async () => {
-    const token = criarToken("ADMINISTRADOR");
-
-    const resposta = await request(app)
-      .get("/ingestao/metricas")
-      .set("Authorization", `Bearer ${token}`);
-
-    expect(resposta.status).toBe(200);
-    expect(resposta.body).toEqual({
-      leiturasRecebidas: 0,
-      leiturasRejeitadas: {},
-      duplicadasIgnoradas: 0,
-      mensagensGravadas: 0,
-      rejeitadasGravadas: 0,
-      mensagensPendentes: 0,
-    });
-  });
-
-  it("deve retornar leiturasRecebidas com o total de mensagens entregues", async () => {
-    receivedMetricsService.incrementar();
-    receivedMetricsService.incrementar();
-    receivedMetricsService.incrementar();
-
-    const resposta = await request(app)
-      .get("/ingestao/metricas")
-      .set("Authorization", `Bearer ${criarToken("ADMINISTRADOR")}`);
-
-    expect(resposta.status).toBe(200);
-    expect(resposta.body).toEqual({
-      leiturasRecebidas: 3,
-      leiturasRejeitadas: {},
-      duplicadasIgnoradas: 0,
-      mensagensGravadas: 0,
-      rejeitadasGravadas: 0,
-      mensagensPendentes: 0,
-    });
-  });
-
-  it("deve manter recebidas, rejeitadas e duplicadas cada uma no seu campo", async () => {
-    // Rejeitadas e duplicadas também foram recebidas: os contadores são independentes.
-    receivedMetricsService.incrementar();
-    receivedMetricsService.incrementar();
-    rejectionMetricsService.incrementarRejeicao(PAYLOAD_MALFORMADO);
-    duplicateMetricsService.incrementar();
-
-    const resposta = await request(app)
-      .get("/ingestao/metricas")
-      .set("Authorization", `Bearer ${criarToken("ADMINISTRADOR")}`);
-
-    expect(resposta.status).toBe(200);
-    expect(resposta.body).toEqual({
-      leiturasRecebidas: 2,
-      leiturasRejeitadas: { [PAYLOAD_MALFORMADO]: 1 },
-      duplicadasIgnoradas: 1,
-      mensagensGravadas: 0,
-      rejeitadasGravadas: 0,
-      mensagensPendentes: 0,
-    });
-  });
-
-  it("deve retornar 200 com formato exato e valores corretos quando houver rejeições registradas", async () => {
-    rejectionMetricsService.incrementarRejeicao(PAYLOAD_MALFORMADO);
-    rejectionMetricsService.incrementarRejeicao(PAYLOAD_MALFORMADO);
-    rejectionMetricsService.incrementarRejeicao(TIMESTAMP_INVALIDO);
-
-    const token = criarToken("ADMINISTRADOR");
-
-    const resposta = await request(app)
-      .get("/ingestao/metricas")
-      .set("Authorization", `Bearer ${token}`);
-
-    expect(resposta.status).toBe(200);
-    expect(resposta.body).toEqual({
-      leiturasRecebidas: 0,
-      leiturasRejeitadas: {
-        [PAYLOAD_MALFORMADO]: 2,
-        [TIMESTAMP_INVALIDO]: 1,
-      },
-      duplicadasIgnoradas: 0,
-      mensagensGravadas: 0,
-      rejeitadasGravadas: 0,
-      mensagensPendentes: 0,
-    });
-  });
-
-  it("deve retornar duplicadasIgnoradas 0 quando não há duplicatas registradas", async () => {
-    const resposta = await request(app)
-      .get("/ingestao/metricas")
-      .set("Authorization", `Bearer ${criarToken("ADMINISTRADOR")}`);
-
-    expect(resposta.status).toBe(200);
-    expect(resposta.body.duplicadasIgnoradas).toBe(0);
-  });
-
-  it("deve retornar duplicadasIgnoradas 2 e leiturasRejeitadas {} após 2 duplicatas", async () => {
-    duplicateMetricsService.incrementar();
-    duplicateMetricsService.incrementar();
-
-    const resposta = await request(app)
-      .get("/ingestao/metricas")
-      .set("Authorization", `Bearer ${criarToken("ADMINISTRADOR")}`);
-
-    expect(resposta.status).toBe(200);
-    expect(resposta.body).toEqual({
-      leiturasRecebidas: 0,
-      leiturasRejeitadas: {},
-      duplicadasIgnoradas: 2,
-      mensagensGravadas: 0,
-      rejeitadasGravadas: 0,
-      mensagensPendentes: 0,
-    });
-  });
-
-  it("deve manter rejeições e duplicatas cada uma no seu campo", async () => {
-    rejectionMetricsService.incrementarRejeicao(PAYLOAD_MALFORMADO);
-    duplicateMetricsService.incrementar();
-    rejectionMetricsService.incrementarRejeicao(TIMESTAMP_INVALIDO);
-    duplicateMetricsService.incrementar();
-    duplicateMetricsService.incrementar();
-
-    const resposta = await request(app)
-      .get("/ingestao/metricas")
-      .set("Authorization", `Bearer ${criarToken("ADMINISTRADOR")}`);
-
-    expect(resposta.status).toBe(200);
-    expect(resposta.body).toEqual({
-      leiturasRecebidas: 0,
-      leiturasRejeitadas: {
-        [PAYLOAD_MALFORMADO]: 1,
-        [TIMESTAMP_INVALIDO]: 1,
-      },
-      duplicadasIgnoradas: 3,
-      mensagensGravadas: 0,
-      rejeitadasGravadas: 0,
-      mensagensPendentes: 0,
-    });
-  });
-
-  it("deve retornar mensagensGravadas e rejeitadasGravadas, cada uma no seu campo (TASK 14.03)", async () => {
-    receivedMetricsService.incrementar();
-    receivedMetricsService.incrementar();
-    receivedMetricsService.incrementar();
-    gravacaoMetricsService.incrementarGravada();
-    gravacaoMetricsService.incrementarGravada();
-    gravacaoMetricsService.incrementarRejeitadaGravada();
-    rejectionMetricsService.incrementarRejeicao(PAYLOAD_MALFORMADO);
-
-    const resposta = await request(app)
-      .get("/ingestao/metricas")
-      .set("Authorization", `Bearer ${criarToken("ADMINISTRADOR")}`);
-
-    expect(resposta.status).toBe(200);
-    expect(resposta.body).toEqual({
-      leiturasRecebidas: 3,
-      leiturasRejeitadas: { [PAYLOAD_MALFORMADO]: 1 },
-      duplicadasIgnoradas: 0,
-      mensagensGravadas: 2,
-      rejeitadasGravadas: 1,
-      mensagensPendentes: 0,
-    });
-  });
-
-  it("deve zerar duplicadasIgnoradas e leiturasRecebidas ao reiniciar o serviço", async () => {
-    duplicateMetricsService.incrementar();
-    duplicateMetricsService.incrementar();
-    receivedMetricsService.incrementar();
-    gravacaoMetricsService.incrementarGravada();
-
-    // Recarregar os módulos simula um novo início do processo.
-    await jest.isolateModulesAsync(async () => {
-      const { default: appReiniciado } = await import("../../app");
-
-      const resposta = await request(appReiniciado)
-        .get("/ingestao/metricas")
-        .set("Authorization", `Bearer ${criarToken("ADMINISTRADOR")}`);
-
-      expect(resposta.status).toBe(200);
-      expect(resposta.body).toEqual({
-        leiturasRecebidas: 0,
-        leiturasRejeitadas: {},
-        duplicadasIgnoradas: 0,
-        mensagensGravadas: 0,
-        rejeitadasGravadas: 0,
-        mensagensPendentes: 0,
-      });
-    });
-
-    // O singleton da instância anterior não foi afetado: foi mesmo outra instância.
-    expect(duplicateMetricsService.obterTotal()).toBe(2);
-    expect(receivedMetricsService.obterTotal()).toBe(1);
-    expect(gravacaoMetricsService.obterMensagensGravadas()).toBe(1);
   });
 
   it("deve retornar 401 quando o token não for informado", async () => {
