@@ -1,17 +1,19 @@
 import { Request, Response, NextFunction } from "express";
-import { PERFIS } from "./auth.middleware";
+import { PERFIS } from "../config/limites-periodo";
 
+/**
+ * Middleware para isolamento territorial do GESTOR_PUBLICO.
+ * Garante que o gestor só consulte dados referentes ao seu município.
+ */
 export function verificarMunicipio(
   req: Request,
   res: Response,
-  next: NextFunction,
+  next: NextFunction
 ) {
   const usuario = req.auth;
 
   if (!usuario) {
-    return res.status(401).json({
-      erro: "Usuário não autenticado.",
-    });
+    return next();
   }
 
   const municipioSolicitado = req.query.municipio;
@@ -29,7 +31,6 @@ export function verificarMunicipio(
     if (typeof municipioSolicitado === "string") {
       req.municipioEscopo = municipioSolicitado;
     }
-
     return next();
   }
 
@@ -45,7 +46,7 @@ export function verificarMunicipio(
 
   if (
     typeof municipioSolicitado === "string" &&
-    municipioSolicitado !== usuario.municipio
+    municipioSolicitado.trim().toLowerCase() !== usuario.municipio.trim().toLowerCase()
   ) {
     return res.status(404).json({
       erro: "Recurso não encontrado.",
