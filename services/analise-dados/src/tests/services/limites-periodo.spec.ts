@@ -1,5 +1,6 @@
 import {
   calcularDiasSolicitados,
+  validarFormatoPeriodo,
   obterLimiteMaximoDias,
   validarPeriodoPorPerfil,
   LIMITES_DIAS_POR_PERFIL,
@@ -12,6 +13,71 @@ describe("Configuração de Limites de Período (Task 42.04 / ELEM-274)", () => 
     expect(LIMITES_DIAS_POR_PERFIL[PERFIS.MUNICIPE]).toBe(30);
     expect(LIMITES_DIAS_POR_PERFIL[PERFIS.GESTOR_PUBLICO]).toBeNull();
     expect(LIMITES_DIAS_POR_PERFIL[PERFIS.ADMINISTRADOR]).toBeNull();
+  });
+
+  describe("validarFormatoPeriodo", () => {
+    it("aceita períodos pré-definidos válidos", () => {
+      expect(validarFormatoPeriodo("24h")).toBeNull();
+      expect(validarFormatoPeriodo("7d")).toBeNull();
+      expect(validarFormatoPeriodo("30d")).toBeNull();
+      expect(validarFormatoPeriodo("90d")).toBeNull();
+      expect(validarFormatoPeriodo("365d")).toBeNull();
+    });
+
+    it("aceita formatos customizados válidos em dias ou horas", () => {
+      expect(validarFormatoPeriodo("15d")).toBeNull();
+      expect(validarFormatoPeriodo("720h")).toBeNull();
+      expect(validarFormatoPeriodo("10dias")).toBeNull();
+      expect(validarFormatoPeriodo("48horas")).toBeNull();
+    });
+
+    it("rejeita formatos inválidos solicitados na review: 30, 4 semanas, abc, 0d", () => {
+      expect(validarFormatoPeriodo("30")).toContain("não reconhecido");
+      expect(validarFormatoPeriodo("4 semanas")).toContain("não reconhecido");
+      expect(validarFormatoPeriodo("abc")).toContain("não reconhecido");
+      expect(validarFormatoPeriodo("0d")).toContain("não reconhecido");
+    });
+
+    it("aceita intervalo válido de data_inicio e data_fim", () => {
+      expect(
+        validarFormatoPeriodo(
+          undefined,
+          "2026-01-01T00:00:00Z",
+          "2026-01-10T00:00:00Z"
+        )
+      ).toBeNull();
+    });
+
+    it("rejeita data_inicio sem data_fim", () => {
+      expect(
+        validarFormatoPeriodo(undefined, "2026-01-01T00:00:00Z", undefined)
+      ).toBe("Informe data_inicio e data_fim juntas.");
+    });
+
+    it("rejeita data_fim sem data_inicio", () => {
+      expect(
+        validarFormatoPeriodo(undefined, undefined, "2026-01-10T00:00:00Z")
+      ).toBe("Informe data_inicio e data_fim juntas.");
+    });
+
+    it("rejeita data_fim anterior a data_inicio", () => {
+      expect(
+        validarFormatoPeriodo(
+          undefined,
+          "2026-01-10T00:00:00Z",
+          "2026-01-01T00:00:00Z"
+        )
+      ).toBe("data_fim não pode ser anterior a data_inicio.");
+    });
+
+    it("rejeita datas inválidas", () => {
+      expect(
+        validarFormatoPeriodo(undefined, "data-invalida", "2026-01-10T00:00:00Z")
+      ).toBe("data_inicio ou data_fim não é uma data válida.");
+      expect(
+        validarFormatoPeriodo(undefined, "2026-01-01T00:00:00Z", "invalida")
+      ).toBe("data_inicio ou data_fim não é uma data válida.");
+    });
   });
 
   describe("calcularDiasSolicitados", () => {

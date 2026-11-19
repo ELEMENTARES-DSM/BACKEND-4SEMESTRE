@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import {
   calcularDiasSolicitados,
+  validarFormatoPeriodo,
   validarPeriodoPorPerfil,
 } from "../config/limites-periodo";
 
@@ -18,6 +19,18 @@ export function verificarPeriodo(
   res: Response,
   next: NextFunction
 ) {
+  if (
+    Array.isArray(req.query.periodo) ||
+    Array.isArray(req.query.data_inicio) ||
+    Array.isArray(req.query.data_fim) ||
+    Array.isArray(req.query.inicio) ||
+    Array.isArray(req.query.fim)
+  ) {
+    return res.status(400).json({
+      erro: "Parâmetros de período repetidos não são permitidos.",
+    });
+  }
+
   const periodo = typeof req.query.periodo === "string" ? req.query.periodo : undefined;
   const dataInicio =
     typeof req.query.data_inicio === "string"
@@ -31,6 +44,11 @@ export function verificarPeriodo(
       : typeof req.query.fim === "string"
       ? req.query.fim
       : undefined;
+
+  const erroFormato = validarFormatoPeriodo(periodo, dataInicio, dataFim);
+  if (erroFormato) {
+    return res.status(400).json({ erro: erroFormato });
+  }
 
   const diasSolicitados = calcularDiasSolicitados(periodo, dataInicio, dataFim);
   const papel = req.auth?.papel;
