@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "amqplib": "^2.2.0",
-    "pg": "^8.23.1"
+    "pg": "^8.23.1",
+    "redis": "^4.7.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
