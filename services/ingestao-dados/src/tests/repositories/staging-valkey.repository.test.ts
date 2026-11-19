@@ -1,20 +1,23 @@
 import { valkey } from "../../config/valkey";
 import {
   chaveMensagem,
-  contarPendentes,
+  chaveVisto,
   descartarPendente,
   encerrarSemPublicar,
   expiraEm,
   gravarBruta,
   lerMensagem,
+  lerMetricas,
   listarRecebidas,
   LISTA_PENDENTES,
   LISTA_RECEBIDAS,
   marcarEncaminhada,
   marcarPendente,
+  marcarVisto,
   proximaPendente,
   RETENCAO_MS,
 } from "../../repositories/staging-valkey.repository";
+import { ESTACAO_DESCONHECIDA, MOTIVOS_REJEICAO, PAYLOAD_MALFORMADO } from "../../validations/motivos-rejeicao";
 
 // Unitário: o cliente do Valkey é falso e registra os comandos de cada MULTI.
 jest.mock("../../config/valkey");
@@ -26,11 +29,12 @@ const SETE_DIAS_DEPOIS = new Date("2026-11-23T10:00:00.000Z");
 
 let comandos: Comando[];
 let cliente: Record<string, jest.Mock>;
+let transacao: Record<string, jest.Mock>;
 
 beforeEach(() => {
   comandos = [];
-  const transacao: Record<string, jest.Mock> = {};
-  for (const nome of ["hSet", "rPush", "lRem", "expireAt"]) {
+  transacao = {};
+  for (const nome of ["hSet", "rPush", "lRem", "expireAt", "incr", "mGet", "lLen", "lIndex"]) {
     transacao[nome] = jest.fn((...args: unknown[]) => {
       comandos.push([nome, ...args]);
       return transacao;
@@ -44,6 +48,8 @@ beforeEach(() => {
     lRange: jest.fn(async () => ["a", "b"]),
     lRem: jest.fn(async () => 1),
     hGetAll: jest.fn(async () => ({})),
+    hGet: jest.fn(async (): Promise<string | undefined> => undefined),
+    set: jest.fn(async (): Promise<string | null> => null),
   };
   jest.mocked(valkey).mockReturnValue(cliente as never);
 });
@@ -62,6 +68,7 @@ describe("gravarBruta", () => {
       expect(comandos).toEqual([
         ["hSet", chaveMensagem(id), { topico: bruta.topico, conteudo: " {cru} ", recebidoEm: bruta.recebidoEm, status: "recebida" }],
         ["rPush", LISTA_RECEBIDAS, id],
+        ["incr", "staging:contador:recebidas"],
       ]);
     });
   });
@@ -141,6 +148,93 @@ describe("encerrarSemPublicar", () => {
     // Então (Assert)
     expect(comandos).toContainEqual(["hSet", chaveMensagem("id-1"), { status: "duplicada" }]);
   });
+
+  describe("US-21 · contadores no mesmo MULTI", () => {
+    it("deve somar em staging:contador:recusadas:{motivo} quando a mensagem é recusada", async () => {
+      // Dado (Arrange)
+      // Quando (Act)
+      await encerrarSemPublicar("id-1", "recusada", AGORA, "Payload malformado");
+
+      // Então (Assert)
+      expect(comandos).toContainEqual(["incr", "staging:contador:recusadas:Payload malformado"]);
+      expect(transacao.exec).toHaveBeenCalledTimes(1);
+    });
+
+    it("deve somar em staging:contador:duplicadas quando a mensagem é duplicada", async () => {
+      // Dado (Arrange)
+      // Quando (Act)
+      await encerrarSemPublicar("id-1", "duplicada", AGORA);
+
+      // Então (Assert)
+      expect(comandos).toContainEqual(["incr", "staging:contador:duplicadas"]);
+    });
+  });
+});
+
+describe("marcarVisto", () => {
+  const ESTACAO = "00000000-0000-4000-8000-00000000000a";
+  const UNIXTIME = 1792400000;
+
+  describe("US-13 · duplicata por estação e horário no Valkey", () => {
+    it("deve devolver nova quando a chave staging:visto não existia", async () => {
+      // Dado (Arrange)
+      cliente.set.mockResolvedValue(null);
+
+      // Quando (Act)
+      const resultado = await marcarVisto(ESTACAO, UNIXTIME, "id-1", AGORA);
+
+      // Então (Assert)
+      expect(resultado).toBe("nova");
+    });
+
+    it("deve devolver nova quando a chave já guarda o mesmo id, porque é a mesma mensagem verificada de novo", async () => {
+      // Dado (Arrange)
+      cliente.set.mockResolvedValue("id-1");
+
+      // Quando (Act)
+      const resultado = await marcarVisto(ESTACAO, UNIXTIME, "id-1", AGORA);
+
+      // Então (Assert)
+      expect(resultado).toBe("nova");
+    });
+
+    it("deve devolver duplicada quando a chave guarda o id de outra mensagem", async () => {
+      // Dado (Arrange)
+      cliente.set.mockResolvedValue("id-original");
+
+      // Quando (Act)
+      const resultado = await marcarVisto(ESTACAO, UNIXTIME, "id-copia", AGORA);
+
+      // Então (Assert)
+      expect(resultado).toBe("duplicada");
+    });
+
+    it("deve usar SET NX GET com expiração 7 dias depois do agora quando marca a chave", async () => {
+      // Dado (Arrange)
+      // Quando (Act)
+      await marcarVisto(ESTACAO, UNIXTIME, "id-1", AGORA);
+
+      // Então (Assert)
+      expect(cliente.set).toHaveBeenCalledWith(chaveVisto(ESTACAO, UNIXTIME), "id-1", {
+        NX: true,
+        GET: true,
+        PXAT: SETE_DIAS_DEPOIS.getTime(),
+      });
+      expect(chaveVisto(ESTACAO, UNIXTIME)).toBe(`staging:visto:${ESTACAO}:${UNIXTIME}`);
+    });
+
+    it("deve propagar o erro quando o Valkey está fora", async () => {
+      // Dado (Arrange)
+      const erro = new Error("Valkey indisponível");
+      cliente.set.mockRejectedValue(erro);
+
+      // Quando (Act)
+      const resultado = marcarVisto(ESTACAO, UNIXTIME, "id-1", AGORA);
+
+      // Então (Assert)
+      await expect(resultado).rejects.toBe(erro);
+    });
+  });
 });
 
 describe("marcarPendente", () => {
@@ -192,6 +286,16 @@ describe("marcarEncaminhada", () => {
     expect(comandos).toContainEqual(["lRem", LISTA_PENDENTES, 1, "id-1"]);
     expect(cliente.lPop).toBeUndefined();
   });
+
+  it("deve somar em staging:contador:encaminhadas no mesmo MULTI quando o RabbitMQ confirma", async () => {
+    // Dado (Arrange)
+    // Quando (Act)
+    await marcarEncaminhada("id-1", AGORA);
+
+    // Então (Assert)
+    expect(comandos).toContainEqual(["incr", "staging:contador:encaminhadas"]);
+    expect(transacao.exec).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("descartarPendente", () => {
@@ -205,15 +309,95 @@ describe("descartarPendente", () => {
   });
 });
 
-describe("contarPendentes", () => {
-  it("deve contar as pendentes pelo tamanho da lista quando a métrica é lida", async () => {
+describe("lerMetricas", () => {
+  // MGET na ordem: recebidas, duplicadas, encaminhadas e uma por motivo de MOTIVOS_REJEICAO.
+  const contadores = (recebidas: string | null, duplicadas: string | null, encaminhadas: string | null) =>
+    [recebidas, duplicadas, encaminhadas, ...MOTIVOS_REJEICAO.map(() => null)] as Array<string | null>;
+
+  it("deve devolver tudo zerado, recusadas {} e pendenteMaisAntigaEm null quando nenhum contador existe", async () => {
     // Dado (Arrange)
+    transacao.exec.mockResolvedValue([contadores(null, null, null), 0, null]);
+
     // Quando (Act)
-    const total = await contarPendentes();
+    const metricas = await lerMetricas();
 
     // Então (Assert)
-    expect(total).toBe(3);
-    expect(cliente.lLen).toHaveBeenCalledWith(LISTA_PENDENTES);
+    expect(metricas).toEqual({
+      leiturasRecebidas: 0,
+      leiturasRejeitadas: {},
+      duplicadasIgnoradas: 0,
+      mensagensPendentes: 0,
+      mensagensEncaminhadas: 0,
+      pendenteMaisAntigaEm: null,
+    });
+    expect(cliente.hGet).not.toHaveBeenCalled();
+  });
+
+  it("deve devolver cada contador, só os motivos com recusa e o recebidoEm da frente quando há de tudo", async () => {
+    // Dado (Arrange)
+    const valores = contadores("10", "1", "6");
+    valores[3 + MOTIVOS_REJEICAO.indexOf(PAYLOAD_MALFORMADO)] = "2";
+    valores[3 + MOTIVOS_REJEICAO.indexOf(ESTACAO_DESCONHECIDA)] = "1";
+    transacao.exec.mockResolvedValue([valores, 1, "id-da-frente"]);
+    cliente.hGet.mockResolvedValue("2026-11-16T09:59:00.000Z");
+
+    // Quando (Act)
+    const metricas = await lerMetricas();
+
+    // Então (Assert)
+    expect(metricas).toEqual({
+      leiturasRecebidas: 10,
+      leiturasRejeitadas: { [PAYLOAD_MALFORMADO]: 2, [ESTACAO_DESCONHECIDA]: 1 },
+      duplicadasIgnoradas: 1,
+      mensagensPendentes: 1,
+      mensagensEncaminhadas: 6,
+      pendenteMaisAntigaEm: "2026-11-16T09:59:00.000Z",
+    });
+    expect(cliente.hGet).toHaveBeenCalledWith(chaveMensagem("id-da-frente"), "recebidoEm");
+  });
+
+  it("deve ler contadores, tamanho e frente de staging:pendentes num MULTI só quando lê as métricas", async () => {
+    // Dado (Arrange)
+    transacao.exec.mockResolvedValue([contadores(null, null, null), 0, null]);
+
+    // Quando (Act)
+    await lerMetricas();
+
+    // Então (Assert)
+    expect(comandos).toEqual([
+      ["mGet", [
+        "staging:contador:recebidas",
+        "staging:contador:duplicadas",
+        "staging:contador:encaminhadas",
+        ...MOTIVOS_REJEICAO.map((m) => `staging:contador:recusadas:${m}`),
+      ]],
+      ["lLen", LISTA_PENDENTES],
+      ["lIndex", LISTA_PENDENTES, 0],
+    ]);
+  });
+
+  it("deve devolver pendenteMaisAntigaEm null quando a da frente foi publicada entre as duas leituras", async () => {
+    // Dado (Arrange)
+    transacao.exec.mockResolvedValue([contadores("1", null, null), 1, "id-ja-publicado"]);
+    cliente.hGet.mockResolvedValue(undefined);
+
+    // Quando (Act)
+    const metricas = await lerMetricas();
+
+    // Então (Assert)
+    expect(metricas.pendenteMaisAntigaEm).toBeNull();
+  });
+
+  it("deve propagar o erro quando o Valkey está fora", async () => {
+    // Dado (Arrange)
+    const erro = new Error("The client is offline");
+    transacao.exec.mockRejectedValue(erro);
+
+    // Quando (Act)
+    const resultado = lerMetricas();
+
+    // Então (Assert)
+    await expect(resultado).rejects.toBe(erro);
   });
 });
 

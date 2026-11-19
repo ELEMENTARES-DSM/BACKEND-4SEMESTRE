@@ -1,12 +1,12 @@
 import type { MensagemLote } from "./manifesto.js";
 
-// O que o fluxo gravou para as mensagens do lote (US-21).
-export interface StagingRow {
+// Uma mensagem como o ingestao-dados guarda no Valkey (staging:msg:{id}, US-40).
+export interface MensagemStaging {
   id: string;
-  estacao_uuid: string;
-  unixtime: number | null;
+  estacao_uuid: string | null;
+  // recebida | pendente | encaminhada | recusada | duplicada
   status: string;
-  motivo_rejeicao: string | null;
+  motivo: string | null;
   payload_bruto: string;
 }
 
@@ -22,7 +22,7 @@ export interface EventoDlq {
 }
 
 export interface Destinos {
-  staging: StagingRow[];
+  staging: MensagemStaging[];
   medidas: MedidasDoStaging[];
   dlq: EventoDlq[];
 }
@@ -36,7 +36,7 @@ export interface Balanco {
   rejeitadasPorMotivo: Record<string, number>;
   ignoradas: number;
   dlq: number;
-  // Medidas de mensagens que ainda não saíram do staging (recebida ou pendente).
+  // Medidas de mensagens que ainda não saíram do Valkey (recebida ou pendente).
   emAndamento: number;
   diferenca: number;
 }
@@ -55,20 +55,17 @@ function leiturasDoEvento(evento: EventoDlq): number {
 /**
  * Fecha o balanço do lote em medidas: enviadas = gravadas (válidas e inválidas)
  * + rejeitadas + ignoradas (duplicatas) + na DLQ. Cada mensagem do manifesto é
- * procurada no staging pela estação e horário, com o mesmo conteúdo (a
- * rejeitada, só pelo conteúdo).
- * As cópias de uma duplicata contam como ignoradas quando a primeira chegou.
+ * procurada no Valkey pela estação e pelo conteúdo; cada cópia recebida é uma
+ * mensagem lá, com o seu status.
+ * As duplicadas só contam como ignoradas quando uma cópia do mesmo conteúdo
+ * foi encaminhada; se todas são duplicadas, a leitura é de outro lote e esta
+ * se perdeu.
  */
 export function calcularBalanco(manifesto: MensagemLote[], destinos: Destinos): Balanco {
-  const aceitas = new Map<string, StagingRow>();
-  const rejeitadasPorConteudo = new Map<string, StagingRow[]>();
-  for (const linha of destinos.staging) {
-    if (linha.status === "rejeitada") {
-      const chave = `${linha.estacao_uuid}|${linha.payload_bruto}`;
-      rejeitadasPorConteudo.set(chave, [...(rejeitadasPorConteudo.get(chave) ?? []), linha]);
-    } else {
-      aceitas.set(`${linha.estacao_uuid}|${linha.unixtime}`, linha);
-    }
+  const porConteudo = new Map<string, MensagemStaging[]>();
+  for (const mensagem of destinos.staging) {
+    const chave = `${mensagem.estacao_uuid}|${mensagem.payload_bruto}`;
+    porConteudo.set(chave, [...(porConteudo.get(chave) ?? []), mensagem]);
   }
   const medidas = new Map(destinos.medidas.map((m) => [m.staging_id, m]));
   const dlqPorStaging = new Map<string, number>();
@@ -95,33 +92,30 @@ export function calcularBalanco(manifesto: MensagemLote[], destinos: Destinos): 
     const porMensagem = m.leituras.length;
     balanco.enviadas += porMensagem * m.vezes;
 
-    const rejeitadas = rejeitadasPorConteudo.get(`${m.estacao_uuid}|${m.payload_bruto}`) ?? [];
-    if (rejeitadas.length > 0) {
-      // Rejeitada não passa pela checagem de duplicata: cada cópia vira uma linha.
-      for (const linha of rejeitadas.slice(0, m.vezes)) {
-        balanco.rejeitadas += porMensagem;
-        const motivo = linha.motivo_rejeicao ?? "sem motivo";
-        balanco.rejeitadasPorMotivo[motivo] = (balanco.rejeitadasPorMotivo[motivo] ?? 0) + porMensagem;
-      }
-      continue;
-    }
-
-    const staging = aceitas.get(`${m.estacao_uuid}|${m.unixtime}`);
-    // Mesma estação e horário com outro conteúdo é linha de outro lote: esta
-    // mensagem foi descartada como duplicata e não chegou a nenhum destino.
-    if (!staging || staging.payload_bruto !== m.payload_bruto) {
-      continue;
-    }
-    if (EM_ANDAMENTO.has(staging.status)) {
+    const copias = porConteudo.get(`${m.estacao_uuid}|${m.payload_bruto}`) ?? [];
+    if (copias.some((c) => EM_ANDAMENTO.has(c.status))) {
       balanco.emAndamento += porMensagem;
       continue;
     }
 
-    const gravadas = medidas.get(staging.id);
+    // Recusada não passa pela checagem de duplicata: cada cópia é recusada.
+    for (const copia of copias.filter((c) => c.status === "recusada").slice(0, m.vezes)) {
+      balanco.rejeitadas += porMensagem;
+      const motivo = copia.motivo ?? "sem motivo";
+      balanco.rejeitadasPorMotivo[motivo] = (balanco.rejeitadasPorMotivo[motivo] ?? 0) + porMensagem;
+    }
+
+    const encaminhada = copias.find((c) => c.status === "encaminhada");
+    if (!encaminhada) {
+      continue;
+    }
+    const gravadas = medidas.get(encaminhada.id);
     balanco.gravadasValidas += gravadas?.validas ?? 0;
     balanco.gravadasInvalidas += gravadas?.invalidas ?? 0;
-    balanco.dlq += dlqPorStaging.get(staging.id) ?? 0;
-    balanco.ignoradas += porMensagem * (m.vezes - 1);
+    balanco.dlq += dlqPorStaging.get(encaminhada.id) ?? 0;
+    // Reentrega do QoS 1 também vira duplicada: conta até as cópias enviadas.
+    const duplicadas = copias.filter((c) => c.status === "duplicada").length;
+    balanco.ignoradas += porMensagem * Math.min(duplicadas, m.vezes - 1);
   }
 
   balanco.diferenca =

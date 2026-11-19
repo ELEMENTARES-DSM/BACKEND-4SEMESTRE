@@ -2,10 +2,6 @@ import { EventEmitter } from "events";
 import mqtt, { type IPublishPacket } from "mqtt";
 import { ConfigMqtt } from "../../../config/mqtt.config";
 import { ConsumidorMqttTelemetria, CLIENT_ID } from "../../../events/consumers/mqtt-telemetria.consumer";
-import {
-  ReceivedMetricsService,
-  receivedMetricsService,
-} from "../../../services/received-metrics.service";
 import { MqttStatusService, mqttStatusService } from "../../../services/mqtt-status.service";
 
 // Unitário de ConsumidorMqttTelemetria (métodos iniciar e encerrar): o cliente
@@ -52,7 +48,6 @@ describe("ConsumidorMqttTelemetria", () => {
   let conectar: jest.Mock;
   let gravadas: unknown[];
   let proximoPasso: jest.Mock;
-  let recebidas: ReceivedMetricsService;
   let estado: MqttStatusService;
   let warn: jest.SpyInstance;
   let error: jest.SpyInstance;
@@ -67,7 +62,6 @@ describe("ConsumidorMqttTelemetria", () => {
       proximoPasso,
       agora: () => dataFixa,
       conectar: conectar as unknown as typeof mqtt.connect,
-      metricasRecebidas: recebidas,
       estadoConexao: estado,
       reentregaMs,
     });
@@ -79,7 +73,6 @@ describe("ConsumidorMqttTelemetria", () => {
     cliente = new ClienteFalso();
     conectar = jest.fn(() => cliente);
     gravadas = [];
-    recebidas = new ReceivedMetricsService();
     estado = new MqttStatusService();
     warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
     error = jest.spyOn(console, "error").mockImplementation(() => undefined);
@@ -405,84 +398,10 @@ describe("ConsumidorMqttTelemetria", () => {
       });
     });
 
-    describe("US-11 · contador de leituras recebidas", () => {
-      it("deve somar 1 quando a mensagem é gravada", async () => {
+    // A contagem de recebidas sobe no MULTI do gravarBruta (staging-valkey.repository).
+    describe("US-11 · estado global da conexão", () => {
+      it("deve usar o estado global lido pelo health quando o estado não é injetado", async () => {
         // Dado (Arrange)
-        criarServico();
-
-        // Quando (Act)
-        await entregar(cliente, TOPICO_A, "{}");
-
-        // Então (Assert)
-        expect(recebidas.obterTotal()).toBe(1);
-      });
-
-      it("deve somar uma por mensagem quando várias estações publicam ao mesmo tempo", async () => {
-        // Dado (Arrange)
-        criarServico();
-
-        // Quando (Act)
-        await Promise.all([
-          entregar(cliente, TOPICO_A, "a"),
-          entregar(cliente, TOPICO_B, "b"),
-          entregar(cliente, TOPICO_A, "c"),
-        ]);
-
-        // Então (Assert)
-        expect(recebidas.obterTotal()).toBe(3);
-      });
-
-      it("deve contar quando o payload é malformado", async () => {
-        // Dado (Arrange)
-        criarServico();
-
-        // Quando (Act)
-        await entregar(cliente, TOPICO_A, "não é json");
-
-        // Então (Assert)
-        expect(recebidas.obterTotal()).toBe(1);
-      });
-
-      it("deve contar duas vezes quando a mesma mensagem é gravada duas vezes", async () => {
-        // Dado (Arrange)
-        criarServico();
-
-        // Quando (Act)
-        await entregar(cliente, TOPICO_A, "{}");
-        await entregar(cliente, TOPICO_A, "{}");
-
-        // Então (Assert)
-        expect(recebidas.obterTotal()).toBe(2);
-      });
-
-      it("deve contar quando o tópico está fora do padrão, porque ela é gravada e depois recusada", async () => {
-        // Dado (Arrange)
-        criarServico();
-
-        // Quando (Act)
-        await entregar(cliente, "pulso/estacoes/telemetria", "{}");
-
-        // Então (Assert)
-        expect(recebidas.obterTotal()).toBe(1);
-      });
-
-      it("deve contar só quando o reenvio é gravado se a primeira gravação falha", async () => {
-        // Dado (Arrange)
-        criarServico(jest.fn().mockRejectedValueOnce(new Error("falhou")).mockResolvedValueOnce(undefined));
-
-        // Quando (Act)
-        await entregar(cliente, TOPICO_A, "{}");
-        const depoisDaFalha = recebidas.obterTotal();
-        await entregar(cliente, TOPICO_A, "{}");
-
-        // Então (Assert)
-        expect(depoisDaFalha).toBe(0);
-        expect(recebidas.obterTotal()).toBe(1);
-      });
-
-      it("deve usar os globais lidos pelas rotas quando contador e estado não são injetados", async () => {
-        // Dado (Arrange)
-        receivedMetricsService.reset();
         mqttStatusService.marcarDesconectado();
         new ConsumidorMqttTelemetria({
           config,
@@ -496,7 +415,6 @@ describe("ConsumidorMqttTelemetria", () => {
 
         // Então (Assert)
         expect(mqttStatusService.estaConectado()).toBe(true);
-        expect(receivedMetricsService.obterTotal()).toBe(1);
       });
     });
 
@@ -519,7 +437,6 @@ describe("ConsumidorMqttTelemetria", () => {
         // Então (Assert)
         expect(erro).toEqual(new Error("Valkey indisponível"));
         expect(error).toHaveBeenCalledWith(expect.stringContaining("Valkey indisponível"));
-        expect(recebidas.obterTotal()).toBe(0);
       });
 
       it("deve desconectar do broker na hora quando o Valkey não grava", async () => {
