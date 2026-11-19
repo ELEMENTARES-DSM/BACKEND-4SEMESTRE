@@ -68,6 +68,7 @@ docker compose build -q simulador-estacoes
 
 export DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:5432/${POSTGRES_DB}"
 export RABBITMQ_URL="amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@localhost:5672"
+# REDIS_URL aponta para o Valkey (nome mantido por compatibilidade)
 export REDIS_URL="redis://:${VALKEY_PASSWORD}@localhost:6379"
 
 esperar_banco() {

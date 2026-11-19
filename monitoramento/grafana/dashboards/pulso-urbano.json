@@ -150,7 +150,7 @@
     },
     "textMode": "value"
    },
-   "description": "Postgres, Redis, RabbitMQ, Mosquitto"
+   "description": "Postgres, Valkey, RabbitMQ, Mosquitto"
   },
   {
    "id": 4,
@@ -879,7 +879,7 @@
   {
    "id": 20,
    "type": "timeseries",
-   "title": "Redis: memória e clientes",
+   "title": "Valkey: memória e clientes",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
