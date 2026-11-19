@@ -15,9 +15,307 @@
     {
       "name": "Saúde",
       "description": "Verificação básica do processo HTTP"
+    },
+    {
+      "name": "Munícipes",
+      "description": "Autocadastro e operações voltadas aos cidadãos"
+    },
+    {
+      "name": "Usuários",
+      "description": "Administração de contas e perfis de usuários"
     }
   ],
   "paths": {
+    "/cadastro": {
+      "post": {
+        "tags": [
+          "Munícipes"
+        ],
+        "operationId": "gestao_usuarios_cadastrar_municipe",
+        "summary": "Cadastrar novo munícipe",
+        "description": "Permite que qualquer pessoa crie a própria conta pública (papel MUNICIPE). O cadastro exige nome, e-mail único, senha complexa (mínimo 8 caracteres com maiúscula, minúscula, dígito e símbolo) e aceite expresso do aviso de privacidade. Limitado a no máximo 5 cadastros por hora por IP.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CadastroMunicipeRequest"
+              },
+              "examples": {
+                "cadastroValido": {
+                  "summary": "Cadastro válido de munícipe",
+                  "value": {
+                    "nome": "Ana da Silva",
+                    "email": "ana.silva@exemplo.com",
+                    "senha": "SenhaForte@2026",
+                    "municipio": "São José dos Campos",
+                    "aceite_privacidade": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Munícipe cadastrado com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsuarioPublicoResponse"
+                },
+                "examples": {
+                  "criadoComSucesso": {
+                    "summary": "Munícipe criado",
+                    "value": {
+                      "id": "11111111-2222-3333-4444-555555555555",
+                      "nome": "Ana da Silva",
+                      "email": "ana.silva@exemplo.com",
+                      "papel_id": "99999999-8888-7777-6666-555555555555",
+                      "municipio": "São José dos Campos",
+                      "esta_ativo": true,
+                      "aceite_privacidade_em": "2026-11-17T12:00:00.000Z",
+                      "criado_em": "2026-11-17T12:00:00.000Z",
+                      "atualizado_em": "2026-11-17T12:00:00.000Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dados de requisição inválidos (ex: senha fora do padrão, e-mail inválido ou falta de aceite do aviso de privacidade).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "semAceite": {
+                    "summary": "Sem aceite do aviso de privacidade",
+                    "value": {
+                      "message": "Dados inválidos",
+                      "errors": {
+                        "aceite_privacidade": [
+                          "O aceite do aviso de privacidade é obrigatório"
+                        ]
+                      }
+                    }
+                  },
+                  "senhaFraca": {
+                    "summary": "Senha não atende aos requisitos",
+                    "value": {
+                      "message": "Dados inválidos",
+                      "errors": {
+                        "senha": [
+                          "Senha deve conter pelo menos um caractere especial"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflito: já existe um usuário com o e-mail informado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "emailDuplicado": {
+                    "summary": "E-mail já cadastrado",
+                    "value": {
+                      "message": "E-mail já cadastrado"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de cadastros excedido (máximo de 5 cadastros por hora por IP).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "rateLimit": {
+                    "summary": "Muitas tentativas",
+                    "value": {
+                      "message": "Limite de tentativas excedido. Tente novamente mais tarde."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/{id}/papel": {
+      "patch": {
+        "tags": [
+          "Usuários"
+        ],
+        "operationId": "gestao_usuarios_trocar_papel",
+        "summary": "Trocar o papel de um usuário",
+        "description": "Permite que o Administrador altere o papel (perfil) de um usuário cadastrado. Cada alteração é auditada em histórico. O novo papel passa a ter efeito no próximo login. Restrito exclusivamente a Administradores (403 para os demais). Para promover ao papel GESTOR_PUBLICO, o usuário deve possuir município cadastrado ou fornecido nesta requisição (400 caso ausente).",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Identificador único (UUID) do usuário",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "example": "11111111-2222-3333-4444-555555555555"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrocarPapelRequest"
+              },
+              "examples": {
+                "trocaParaPesquisadorOuMunicipe": {
+                  "summary": "Troca de papel padrão",
+                  "value": {
+                    "papel_id": "22222222-3333-4444-5555-666666666666"
+                  }
+                },
+                "trocaParaGestorComMunicipio": {
+                  "summary": "Troca para Gestor Público com definição de município",
+                  "value": {
+                    "papel_id": "33333333-4444-5555-6666-777777777777",
+                    "municipio": "São José dos Campos"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Papel do usuário alterado com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsuarioPublicoResponse"
+                },
+                "examples": {
+                  "papelAlterado": {
+                    "summary": "Usuário com papel atualizado",
+                    "value": {
+                      "id": "11111111-2222-3333-4444-555555555555",
+                      "nome": "Ana da Silva",
+                      "email": "ana.silva@exemplo.com",
+                      "papel_id": "22222222-3333-4444-5555-666666666666",
+                      "municipio": "São José dos Campos",
+                      "esta_ativo": true,
+                      "aceite_privacidade_em": "2026-11-17T12:00:00.000Z",
+                      "criado_em": "2026-11-17T12:00:00.000Z",
+                      "atualizado_em": "2026-11-17T12:30:00.000Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dados inválidos na requisição (papel_id inválido ou ausência de município para GESTOR_PUBLICO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "gestorSemMunicipio": {
+                    "summary": "Gestor sem município",
+                    "value": {
+                      "message": "Usuário com papel GESTOR_PUBLICO exige município definido"
+                    }
+                  },
+                  "papelInvalido": {
+                    "summary": "Papel não encontrado",
+                    "value": {
+                      "message": "papel_id inválido: papel não encontrado"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token JWT ausente, inválido ou expirado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "tokenInvalido": {
+                    "summary": "Token inválido",
+                    "value": {
+                      "message": "Token inválido ou expirado"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acesso negado: permissão insuficiente (apenas ADMINISTRADOR pode trocar papel).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "permissaoInsuficiente": {
+                    "summary": "Acesso negado",
+                    "value": {
+                      "message": "Acesso negado: permissão insuficiente"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Usuário não encontrado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "usuarioNaoEncontrado": {
+                    "summary": "Usuário inexistente",
+                    "value": {
+                      "message": "Usuário não encontrado"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -51,7 +349,161 @@
     }
   },
   "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Token JWT de autenticação emitido pelo auth-service."
+      }
+    },
     "schemas": {
+      "CadastroMunicipeRequest": {
+        "type": "object",
+        "required": [
+          "nome",
+          "email",
+          "senha",
+          "aceite_privacidade"
+        ],
+        "properties": {
+          "nome": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 120,
+            "description": "Nome completo do cidadão.",
+            "example": "Ana da Silva"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 150,
+            "description": "Endereço de e-mail único do munícipe.",
+            "example": "ana.silva@exemplo.com"
+          },
+          "senha": {
+            "type": "string",
+            "format": "password",
+            "minLength": 8,
+            "maxLength": 72,
+            "description": "Senha com no mínimo 8 caracteres, contendo maiúscula, minúscula, número e caractere especial.",
+            "example": "SenhaForte@2026"
+          },
+          "municipio": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "Município de interesse ou residência (opcional).",
+            "example": "São José dos Campos"
+          },
+          "aceite_privacidade": {
+            "type": "boolean",
+            "enum": [
+              true
+            ],
+            "description": "Aceite obrigatório dos termos e aviso de privacidade da plataforma.",
+            "example": true
+          }
+        }
+      },
+      "TrocarPapelRequest": {
+        "type": "object",
+        "required": [
+          "papel_id"
+        ],
+        "properties": {
+          "papel_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Identificador único (UUID) do novo papel a ser atribuído",
+            "example": "22222222-3333-4444-5555-666666666666"
+          },
+          "municipio": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "Município do usuário (obrigatório se o novo papel for GESTOR_PUBLICO e o usuário ainda não possuir município)",
+            "example": "São José dos Campos"
+          }
+        }
+      },
+      "UsuarioPublicoResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "nome",
+          "email",
+          "papel_id",
+          "esta_ativo",
+          "criado_em",
+          "atualizado_em"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "11111111-2222-3333-4444-555555555555"
+          },
+          "nome": {
+            "type": "string",
+            "example": "Ana da Silva"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "ana.silva@exemplo.com"
+          },
+          "papel_id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "22222222-3333-4444-5555-666666666666"
+          },
+          "municipio": {
+            "type": "string",
+            "nullable": true,
+            "example": "São José dos Campos"
+          },
+          "esta_ativo": {
+            "type": "boolean",
+            "example": true
+          },
+          "aceite_privacidade_em": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": "2026-11-17T12:00:00.000Z"
+          },
+          "criado_em": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-11-17T12:00:00.000Z"
+          },
+          "atualizado_em": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-11-17T12:30:00.000Z"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "example": "Dados inválidos"
+          },
+          "errors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
       "HealthResponse": {
         "type": "object",
         "required": [

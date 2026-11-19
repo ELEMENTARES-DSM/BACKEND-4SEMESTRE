@@ -6,6 +6,7 @@ export interface Usuario {
   papel_id: string;
   municipio: string | null;
   esta_ativo: boolean;
+  aceite_privacidade_em: Date | null;
   criado_em: Date;
   atualizado_em: Date;
 }

@@ -5,29 +5,30 @@ import {
   lerMensagem,
   listarRecebidas,
   marcarPendente,
+  marcarVisto,
   MensagemStaging,
 } from "../../repositories/staging-valkey.repository";
-import { gravarAceita, gravarRejeitada } from "../../services/gravar-staging.service";
+import { atualizarSinalEstacao } from "../../repositories/estacao.repository";
 import { conferirEstacao } from "../../services/validar-estacao.service";
 import { registrarRejeicao } from "../../services/registro-rejeicao.service";
 import { registrarDuplicadaIgnorada } from "../../services/registro-duplicada.service";
-import { gravacaoMetricsService } from "../../services/gravacao-metrics.service";
 import { solicitarProcessamentoPendentes } from "../../services/staging-publisher.service";
 import {
   encerrarVerificacao,
   iniciarVerificacao,
   receberMensagem,
+  semTravarNoPostgres,
   verificarMensagem,
   verificarRecebidas,
 } from "../../services/processar-mensagem.service";
 import { logger } from "../../utils/logger";
 
-// Unitário: Valkey (repository), PostgreSQL (gravar-staging e conferirEstacao,
-// que têm banco e cache), RabbitMQ (publicador), log e relógio mockados. A
+// Unitário: Valkey (repository), PostgreSQL (último sinal e conferirEstacao,
+// que tem banco e cache), RabbitMQ (publicador), log e relógio mockados. A
 // validação do payload e a leitura do tópico são puras e entram reais; os
 // contadores em memória também.
 jest.mock("../../repositories/staging-valkey.repository");
-jest.mock("../../services/gravar-staging.service");
+jest.mock("../../repositories/estacao.repository");
 jest.mock("../../services/validar-estacao.service");
 jest.mock("../../services/registro-rejeicao.service");
 jest.mock("../../services/registro-duplicada.service");
@@ -55,9 +56,8 @@ beforeEach(() => {
   jest.mocked(gravarBruta).mockResolvedValue("id-gerado");
   jest.mocked(listarRecebidas).mockResolvedValue([]);
   jest.mocked(conferirEstacao).mockResolvedValue(undefined);
-  jest.mocked(gravarAceita).mockResolvedValue("recebida");
-  jest.mocked(gravarRejeitada).mockResolvedValue("rejeitada");
-  gravacaoMetricsService.reset();
+  jest.mocked(marcarVisto).mockResolvedValue("nova");
+  jest.mocked(atualizarSinalEstacao).mockResolvedValue(true);
   jest.spyOn(logger, "warn").mockImplementation(() => undefined);
   jest.spyOn(logger, "error").mockImplementation(() => undefined);
 });
@@ -125,7 +125,7 @@ describe("verificarMensagem", () => {
       expect(registrarRejeicao).toHaveBeenCalledWith("Nível de bateria fora de 0 a 100", ESTACAO_A);
     });
 
-    it("deve gravar a recusa na staging_telemetria com o id do Valkey quando o conteúdo não é JSON", async () => {
+    it("deve marcar recusada só no Valkey, sem marcar visto nem mexer no último sinal, quando o conteúdo não é JSON", async () => {
       // Dado (Arrange)
       const mensagem = staging({ payloadBruto: "  mensagem quebrada\n" });
 
@@ -133,15 +133,12 @@ describe("verificarMensagem", () => {
       await verificarMensagem(mensagem, relogio);
 
       // Então (Assert)
-      expect(gravarRejeitada).toHaveBeenCalledWith(
-        { estacaoId: ESTACAO_A, topico: mensagem.topico, payloadBruto: "  mensagem quebrada\n", recebidoEm: mensagem.recebidoEm },
-        "Payload malformado",
-        mensagem.id,
-      );
       expect(encerrarSemPublicar).toHaveBeenCalledWith(mensagem.id, "recusada", AGORA, "Payload malformado");
+      expect(marcarVisto).not.toHaveBeenCalled();
+      expect(atualizarSinalEstacao).not.toHaveBeenCalled();
     });
 
-    it("deve recusar com \"Estação desconhecida\" sem consultar a estação nem gravar no PostgreSQL quando o tópico não tem UUID", async () => {
+    it("deve recusar com \"Estação desconhecida\" sem consultar a estação quando o tópico não tem UUID", async () => {
       // Dado (Arrange)
       const mensagem = staging({ topico: "pulso/estacoes/est-001/telemetria" });
 
@@ -152,19 +149,6 @@ describe("verificarMensagem", () => {
       expect(resultado).toBe("recusada");
       expect(encerrarSemPublicar).toHaveBeenCalledWith(mensagem.id, "recusada", AGORA, "Estação desconhecida");
       expect(conferirEstacao).not.toHaveBeenCalled();
-      expect(gravarRejeitada).not.toHaveBeenCalled();
-    });
-
-    it("deve somar em rejeitadasGravadas e não em mensagensGravadas quando a mensagem é recusada", async () => {
-      // Dado (Arrange)
-      const mensagem = staging({ payloadBruto: "não é JSON" });
-
-      // Quando (Act)
-      await verificarMensagem(mensagem, relogio);
-
-      // Então (Assert)
-      expect(gravacaoMetricsService.obterRejeitadasGravadas()).toBe(1);
-      expect(gravacaoMetricsService.obterMensagensGravadas()).toBe(0);
     });
 
     it("deve não registrar duplicata quando a mensagem é recusada", async () => {
@@ -202,9 +186,9 @@ describe("verificarMensagem", () => {
         // Então (Assert)
         expect(resultado).toBe("recusada");
         expect(encerrarSemPublicar).toHaveBeenCalledWith(mensagem.id, "recusada", AGORA, motivo);
-        expect(gravarRejeitada).toHaveBeenCalledWith(expect.objectContaining({ estacaoId: ESTACAO_A }), motivo, mensagem.id);
         expect(registrarRejeicao).toHaveBeenCalledWith(motivo, ESTACAO_A);
-        expect(gravarAceita).not.toHaveBeenCalled();
+        expect(marcarVisto).not.toHaveBeenCalled();
+        expect(atualizarSinalEstacao).not.toHaveBeenCalled();
       },
     );
 
@@ -220,7 +204,7 @@ describe("verificarMensagem", () => {
   });
 
   describe("US-40 · aceita entra em staging:pendentes", () => {
-    it("deve marcar pendente e somar em mensagensGravadas quando a mensagem é aceita", async () => {
+    it("deve marcar pendente sem registrar rejeição nem duplicata quando a mensagem é aceita", async () => {
       // Dado (Arrange)
       const mensagem = staging();
 
@@ -230,7 +214,6 @@ describe("verificarMensagem", () => {
       // Então (Assert)
       expect(resultado).toBe("pendente");
       expect(marcarPendente).toHaveBeenCalledWith(mensagem.id);
-      expect(gravacaoMetricsService.obterMensagensGravadas()).toBe(1);
       expect(registrarRejeicao).not.toHaveBeenCalled();
       expect(registrarDuplicadaIgnorada).not.toHaveBeenCalled();
     });
@@ -246,25 +229,65 @@ describe("verificarMensagem", () => {
       expect(marcou).toBeLessThan(pediu);
     });
 
-    it("deve gravar na staging_telemetria com o id do Valkey e o conteúdo como chegou quando a mensagem é aceita", async () => {
+    it("deve marcar visto com a estação, o unixtime em segundos, o id e o agora quando o payload e a estação valem", async () => {
       // Dado (Arrange)
-      const mensagem = staging();
+      const mensagem = staging({
+        payloadBruto: '{"timestamp":"2026-10-14T12:00:00.900Z","leituras":[{"sensor":"T","valor":1}]}',
+      });
 
       // Quando (Act)
       await verificarMensagem(mensagem, relogio);
 
       // Então (Assert)
-      expect(gravarAceita).toHaveBeenCalledWith(
-        { estacaoId: ESTACAO_A, topico: mensagem.topico, payloadBruto: payloadValido, recebidoEm: mensagem.recebidoEm },
-        mensagem.id,
-      );
+      expect(marcarVisto).toHaveBeenCalledWith(ESTACAO_A, Date.parse("2026-10-14T12:00:00Z") / 1000, mensagem.id, AGORA);
     });
   });
 
-  describe("US-13 · duplicata pelo índice da staging_telemetria (até a 40.04)", () => {
-    it("deve marcar duplicada, registrar uma vez e não registrar rejeição quando o PostgreSQL acusa duplicata", async () => {
+  describe("US-14 · último sinal e bateria", () => {
+    it("deve atualizar o último sinal com o recebidoEm e a bateria quando a mensagem é aceita", async () => {
       // Dado (Arrange)
-      jest.mocked(gravarAceita).mockResolvedValue("duplicata");
+      const mensagem = staging({
+        payloadBruto: '{"timestamp":"2026-10-14T12:00:00Z","nivel_bateria":87,"leituras":[{"sensor":"T","valor":1}]}',
+      });
+
+      // Quando (Act)
+      await verificarMensagem(mensagem, relogio);
+
+      // Então (Assert)
+      expect(atualizarSinalEstacao).toHaveBeenCalledWith({
+        estacaoId: ESTACAO_A,
+        ultimoPing: mensagem.recebidoEm,
+        nivelBateria: 87,
+      });
+    });
+
+    it("deve atualizar o último sinal só depois de marcar pendente e pedir a publicação quando a mensagem é aceita", async () => {
+      // Dado (Arrange)
+      // Quando (Act)
+      await verificarMensagem(staging(), relogio);
+
+      // Então (Assert)
+      const pediu = jest.mocked(solicitarProcessamentoPendentes).mock.invocationCallOrder[0];
+      const atualizou = jest.mocked(atualizarSinalEstacao).mock.invocationCallOrder[0];
+      expect(pediu).toBeLessThan(atualizou);
+    });
+
+    it("deve não atualizar o último sinal quando a mensagem é duplicada", async () => {
+      // Dado (Arrange)
+      jest.mocked(marcarVisto).mockResolvedValue("duplicada");
+
+      // Quando (Act)
+      await verificarMensagem(staging(), relogio);
+
+      // Então (Assert)
+      expect(atualizarSinalEstacao).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("US-13 · duplicata pela chave staging:visto no Valkey", () => {
+    it("deve marcar duplicada, registrar uma vez e não registrar rejeição quando a chave já é de outra mensagem", async () => {
+      // Dado (Arrange)
+      jest.mocked(marcarVisto).mockResolvedValue("duplicada");
       const mensagem = staging();
 
       // Quando (Act)
@@ -277,7 +300,7 @@ describe("verificarMensagem", () => {
       expect(registrarDuplicadaIgnorada).toHaveBeenCalledTimes(1);
       expect(registrarDuplicadaIgnorada).toHaveBeenCalledWith({ estacaoId: ESTACAO_A, timestamp: "2026-10-14T12:00:00Z" });
       expect(registrarRejeicao).not.toHaveBeenCalled();
-      expect(gravacaoMetricsService.obterMensagensGravadas()).toBe(0);
+      expect(solicitarProcessamentoPendentes).not.toHaveBeenCalled();
     });
   });
 
@@ -295,7 +318,7 @@ describe("verificarMensagem", () => {
 
     it("deve passar o agora injetado para a expiração quando a mensagem é duplicada", async () => {
       // Dado (Arrange)
-      jest.mocked(gravarAceita).mockResolvedValue("duplicata");
+      jest.mocked(marcarVisto).mockResolvedValue("duplicada");
       const mensagem = staging();
 
       // Quando (Act)
@@ -307,9 +330,9 @@ describe("verificarMensagem", () => {
   });
 
   describe("US-40 · Cenário 4 · PostgreSQL fora não trava o Valkey nem a publicação", () => {
-    it("deve marcar pendente, pedir a publicação e registrar no log quando a gravação da aceita falha", async () => {
+    it("deve marcar pendente, pedir a publicação e registrar no log quando a atualização do último sinal falha", async () => {
       // Dado (Arrange)
-      jest.mocked(gravarAceita).mockRejectedValue(new Error("Banco indisponível"));
+      jest.mocked(atualizarSinalEstacao).mockRejectedValue(new Error("Banco indisponível"));
       const mensagem = staging();
 
       // Quando (Act)
@@ -321,26 +344,8 @@ describe("verificarMensagem", () => {
       expect(solicitarProcessamentoPendentes).toHaveBeenCalled();
       expect(registrarDuplicadaIgnorada).not.toHaveBeenCalled();
       expect(logger.error).toHaveBeenCalledWith(
-        "PostgreSQL indisponível ao gravar a aceita e o último sinal; a leitura segue pelo Valkey",
+        "PostgreSQL indisponível ao atualizar o último sinal; a leitura segue pelo Valkey",
         { stagingId: mensagem.id, erro: "Banco indisponível" },
-      );
-    });
-
-    it("deve marcar recusada com o motivo e registrar no log quando a gravação da recusa falha", async () => {
-      // Dado (Arrange)
-      jest.mocked(gravarRejeitada).mockRejectedValue(new Error("Banco indisponível"));
-      const mensagem = staging({ payloadBruto: "não é JSON" });
-
-      // Quando (Act)
-      const resultado = await verificarMensagem(mensagem, relogio);
-
-      // Então (Assert)
-      expect(resultado).toBe("recusada");
-      expect(encerrarSemPublicar).toHaveBeenCalledWith(mensagem.id, "recusada", AGORA, "Payload malformado");
-      expect(registrarRejeicao).toHaveBeenCalledWith("Payload malformado", ESTACAO_A);
-      expect(logger.error).toHaveBeenCalledWith(
-        "PostgreSQL indisponível ao gravar a recusada; a leitura segue pelo Valkey",
-        expect.objectContaining({ stagingId: mensagem.id }),
       );
     });
 
@@ -354,11 +359,53 @@ describe("verificarMensagem", () => {
 
       // Então (Assert)
       await expect(resultado).rejects.toBe(erro);
-      expect(gravarAceita).not.toHaveBeenCalled();
+      expect(marcarVisto).not.toHaveBeenCalled();
       expect(registrarRejeicao).not.toHaveBeenCalled();
       expect(encerrarSemPublicar).not.toHaveBeenCalled();
       expect(marcarPendente).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("semTravarNoPostgres", () => {
+  it("deve devolver o resultado da gravação quando o PostgreSQL responde", async () => {
+    // Dado (Arrange)
+    const gravar = jest.fn(async () => true);
+
+    // Quando (Act)
+    const resultado = await semTravarNoPostgres(gravar, "atualizar o último sinal", "id-1");
+
+    // Então (Assert)
+    expect(resultado).toBe(true);
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it("deve registrar no log com a ação, o id e o erro e devolver undefined, sem lançar, quando o PostgreSQL falha", async () => {
+    // Dado (Arrange)
+    const gravar = jest.fn(async () => {
+      throw new Error("connect ECONNREFUSED");
+    });
+
+    // Quando (Act)
+    const resultado = await semTravarNoPostgres(gravar, "atualizar o último sinal", "id-1");
+
+    // Então (Assert)
+    expect(resultado).toBeUndefined();
+    expect(logger.error).toHaveBeenCalledWith(
+      "PostgreSQL indisponível ao atualizar o último sinal; a leitura segue pelo Valkey",
+      { stagingId: "id-1", erro: "connect ECONNREFUSED" },
+    );
+  });
+
+  it("deve registrar o valor lançado como texto quando a falha não é um Error", async () => {
+    // Dado (Arrange)
+    const gravar = jest.fn(async () => Promise.reject("tempo esgotado"));
+
+    // Quando (Act)
+    await semTravarNoPostgres(gravar, "atualizar o último sinal", "id-1");
+
+    // Então (Assert)
+    expect(logger.error).toHaveBeenCalledWith(expect.any(String), { stagingId: "id-1", erro: "tempo esgotado" });
   });
 });
 

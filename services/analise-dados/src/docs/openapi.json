@@ -29,11 +29,12 @@
         ],
         "operationId": "getEstacaoSeries",
         "summary": "Obter séries históricas da estação",
-        "description": "Retorna as séries históricas da grandeza solicitada, agrupando os dados em intervalos de 5 minutos para 24h, 1 hora para 7d e 1 dia para 30d.",
+        "description": "Retorna as séries históricas da grandeza solicitada, agrupando os dados em intervalos de 5 minutos para 24h, 1 hora para 7d e 1 dia para 30d. Suporta requisições com ou sem autenticação: usuários sem login podem consultar até 7 dias; MUNICIPE pode consultar até 30 dias; GESTOR_PUBLICO e ADMINISTRADOR não possuem limite de período. Períodos maiores que o permitido para o perfil respondem 400 com o limite máximo na mensagem.",
         "security": [
           {
             "BearerAuth": []
-          }
+          },
+          {}
         ],
         "parameters": [
           {
@@ -163,7 +164,7 @@
         ],
         "operationId": "getPublicEstacaoSeries",
         "summary": "Obter séries históricas da estação (Público)",
-        "description": "Versão pública da consulta de séries históricas, sem necessidade de autenticação. Os agrupamentos são de 5 minutos para 24h, 1 hora para 7d e 1 dia para 30d.",
+        "description": "Versão pública da consulta de séries históricas, sem necessidade de autenticação (limite máximo de até 7 dias; acima disso retorna 400). Os agrupamentos são de 5 minutos para 24h e 1 hora para 7d.",
         "security": [],
         "parameters": [
           {
@@ -405,15 +406,28 @@
         }
       },
       "BadRequest": {
-        "description": "Requisição inválida devido a parâmetros incorretos ou ausentes.",
+        "description": "Requisição inválida devido a parâmetros incorretos, ausentes ou período solicitado superior ao limite permitido para o perfil (sem login: máx 7d; MUNICIPE: máx 30d).",
         "content": {
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/ErrorResponse"
             },
-            "example": {
-              "statusCode": 400,
-              "message": "Parâmetro 'periodo' inválido."
+            "examples": {
+              "parametroInvalido": {
+                "summary": "Parâmetro inválido",
+                "value": {
+                  "statusCode": 400,
+                  "message": "Parâmetro 'periodo' inválido."
+                }
+              },
+              "periodoExcedido": {
+                "summary": "Período superior ao limite do perfil",
+                "value": {
+                  "erro": "Período solicitado (30 dias) excede o limite permitido para o seu perfil. Período máximo permitido: 7 dias.",
+                  "limiteMaximoDias": 7,
+                  "diasSolicitados": 30
+                }
+              }
             }
           }
         }

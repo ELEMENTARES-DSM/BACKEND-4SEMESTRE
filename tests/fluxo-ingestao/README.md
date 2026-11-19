@@ -39,14 +39,15 @@ No Windows, use o Git Bash. O script precisa de Docker e Node 24 na máquina.
 1. Cadastra 10 estações de teste (TF-01 a TF-10, município "Teste Fluxo") com os 5 sensores do simulador, fator_conversao 1 e offset 0 (`semente-estacoes.sql`). Pode rodar mais de uma vez.
 2. Roda o simulador em modo lote (`node dist/lote.js`), com horários únicos por estação. O simulador lê os sensores de cada estação no `gestao-estacoes` (rota interna, com o `INTERNAL_TOKEN`), não de uma lista fixa: cada mensagem tem uma leitura por sensor ativo da estação, com o valor bruto da calibração invertida. Com `--queda-banco`, o script lê os sensores antes de parar o PostgreSQL e os entrega ao simulador em `LOTE_SENSORES_JSON`. O lote tem uma mensagem de cada caso: duplicata, estação desconhecida, umidade 120,0 e sensor inexistente.
 3. Copia o manifesto do lote para `tests/fluxo-ingestao/saida/`.
-4. Confere o balanço (`npm run balanco`), lendo `staging_telemetria`, `medidas` e a `validacao.dlq` sem consumir os eventos da fila. Espera até o lote fechar, com limite de 120 s (`--tempo-limite`).
+4. Confere o balanço (`npm run balanco`), lendo as mensagens do Valkey (`staging:msg:*`, com o status de cada cópia recebida), `medidas` e a `validacao.dlq` sem consumir os eventos da fila. Espera até o lote fechar, com limite de 120 s (`--tempo-limite`). Variáveis: `DATABASE_URL`, `RABBITMQ_URL` e `REDIS_URL` (o script monta as três a partir do `.env`).
 5. No modo contínuo, o lote seguinte começa depois do último horário do anterior.
 
 ## Limites conhecidos
 
 - Leitura de sensor inativo não é gravada em lugar nenhum (só log e contador, US-18). Por isso as estações de teste só têm sensores ativos.
-- As duplicatas são contadas pelo próprio teste, que sabe quantas cópias enviou. No banco, o teste confere que ficou uma linha no staging e uma medida por sensor.
-- Rodar dois lotes simples com o mesmo `--inicio` repete os horários: o segundo lote vira duplicata e o balanço não fecha (a linha do staging só conta quando o conteúdo é o do manifesto). Sem `--inicio`, o lote começa depois do último horário das estações de teste no staging, ou no horário atual, se for maior.
+- As duplicatas são contadas no Valkey: cada cópia recebida vira uma mensagem `duplicada`, e conta como ignorada só quando a cópia com o mesmo conteúdo foi `encaminhada`. Uma reentrega do broker (QoS 1) também vira duplicada; o balanço conta no máximo as cópias que o manifesto diz que foram enviadas.
+- As mensagens ficam no Valkey 7 dias depois de decididas: rode o balanço logo depois do lote. O conferidor faz SCAN em `staging:msg:*` a cada volta, o que basta para o teste.
+- Rodar dois lotes simples com o mesmo `--inicio` repete os horários: o segundo lote vira duplicata e o balanço não fecha (só conta como ignorada a cópia cujo conteúdo foi encaminhado). Sem `--inicio`, o lote começa depois do último horário das estações de teste em `medidas`, ou no horário atual, se for maior.
 
 ## Teste da grandeza nova (US-39)
 
