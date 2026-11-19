@@ -1,5 +1,4 @@
 import { describe, it, expect, jest, beforeEach, afterEach } from "@jest/globals";
-import { PoolClient } from "pg";
 import { pool } from "../../config/db";
 import { atualizarSinalEstacao, buscarEstacaoParaValidacao } from "../../repositories/estacao.repository";
 
@@ -35,11 +34,15 @@ describe("buscarEstacaoParaValidacao", () => {
 });
 
 describe("atualizarSinalEstacao", () => {
-  let mockClient: jest.Mocked<PoolClient>;
+  // pool.query tem várias sobrecargas; o mock só precisa de chamada e resultado.
+  let consulta: jest.Mock<(...args: unknown[]) => Promise<unknown>>;
 
   beforeEach(() => {
-    mockClient = { query: jest.fn() } as unknown as jest.Mocked<PoolClient>;
-    (mockClient.query as jest.Mock).mockResolvedValue({ rowCount: 1 } as never);
+    consulta = jest.spyOn(pool, "query").mockResolvedValue({ rowCount: 1 } as never) as unknown as typeof consulta;
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   it("deve atualizar ultimo_ping e nivel_bateria quando nivelBateria é informado", async () => {
@@ -47,28 +50,51 @@ describe("atualizarSinalEstacao", () => {
     const sinal = { estacaoId: "estacao-123", ultimoPing: "2026-10-16T10:00:00.000Z", nivelBateria: 87 };
 
     // Quando (Act)
-    const atualizou = await atualizarSinalEstacao(mockClient, sinal);
+    const atualizou = await atualizarSinalEstacao(sinal);
 
     // Então (Assert)
     expect(atualizou).toBe(true);
-    expect(mockClient.query).toHaveBeenCalledWith(
-      expect.stringContaining("UPDATE estacoes"),
+    expect(consulta).toHaveBeenCalledWith(
+      expect.stringContaining("nivel_bateria = COALESCE($2, nivel_bateria)"),
       ["2026-10-16T10:00:00.000Z", 87, "estacao-123"],
     );
   });
 
-  it("deve atualizar só o ultimo_ping quando nivelBateria é undefined", async () => {
+  it("deve manter a bateria guardada, passando null, quando nivelBateria é undefined", async () => {
     // Dado (Arrange)
     const sinal = { estacaoId: "estacao-123", ultimoPing: "2026-10-16T10:00:00.000Z", nivelBateria: undefined };
 
     // Quando (Act)
-    const atualizou = await atualizarSinalEstacao(mockClient, sinal);
+    await atualizarSinalEstacao(sinal);
 
     // Então (Assert)
-    expect(atualizou).toBe(true);
-    expect(mockClient.query).toHaveBeenCalledWith(
-      expect.stringContaining("UPDATE estacoes"),
-      ["2026-10-16T10:00:00.000Z", "estacao-123"],
-    );
+    expect(consulta).toHaveBeenCalledWith(expect.stringContaining("UPDATE estacoes"), [
+      "2026-10-16T10:00:00.000Z",
+      null,
+      "estacao-123",
+    ]);
+  });
+
+  it("deve devolver false quando a estação não existe", async () => {
+    // Dado (Arrange)
+    consulta.mockResolvedValue({ rowCount: 0 } as never);
+
+    // Quando (Act)
+    const atualizou = await atualizarSinalEstacao({ estacaoId: "x", ultimoPing: "2026-10-16T10:00:00.000Z" });
+
+    // Então (Assert)
+    expect(atualizou).toBe(false);
+  });
+
+  it("deve propagar o erro quando o PostgreSQL está fora", async () => {
+    // Dado (Arrange)
+    const erro = new Error("connect ECONNREFUSED");
+    consulta.mockRejectedValue(erro);
+
+    // Quando (Act)
+    const resultado = atualizarSinalEstacao({ estacaoId: "x", ultimoPing: "2026-10-16T10:00:00.000Z" });
+
+    // Então (Assert)
+    await expect(resultado).rejects.toBe(erro);
   });
 });
