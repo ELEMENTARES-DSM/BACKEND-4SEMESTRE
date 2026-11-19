@@ -1,6 +1,13 @@
 import { Request, Response, NextFunction } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
 
+export const PERFIS = {
+  ADMINISTRADOR: "ADMINISTRADOR",
+  GESTOR_PUBLICO: "GESTOR_PUBLICO",
+  PESQUISADOR: "PESQUISADOR",
+  MUNICIPE: "MUNICIPE",
+} as const;
+
 export interface AuthPayload {
   id: string;
   papel: string;
@@ -103,4 +110,22 @@ export function authenticate(req: Request, res: Response, next: NextFunction) {
     }
     return next();
   });
+}
+
+export function authorize(...papeisPermitidos: string[]) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.auth) {
+      return res.status(401).json({
+        erro: "Usuário não autenticado.",
+      });
+    }
+
+    if (!papeisPermitidos.includes(req.auth.papel)) {
+      return res.status(403).json({
+        erro: "Acesso negado: permissão insuficiente.",
+      });
+    }
+
+    return next();
+  };
 }

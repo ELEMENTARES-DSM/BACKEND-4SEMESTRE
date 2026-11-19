@@ -4,7 +4,8 @@ import { PoolClient } from "pg";
 import { protegerCliente } from "../../utils/conexao-pg";
 import { logger } from "../../utils/logger";
 
-describe("protegerCliente (TASK 14.03)", () => {
+// Unitário de protegerCliente: o cliente do PostgreSQL é falso.
+describe("protegerCliente", () => {
   let client: EventEmitter & { release: jest.Mock };
 
   beforeEach(() => {
@@ -16,32 +17,43 @@ describe("protegerCliente (TASK 14.03)", () => {
     jest.restoreAllMocks();
   });
 
-  it("queda da conexão com o cliente em uso é registrada em log e não derruba o processo", () => {
+  it("deve registrar em log e não derrubar o processo quando a conexão cai com o cliente em uso", () => {
+    // Dado (Arrange)
     protegerCliente(client as unknown as PoolClient, "gravar mensagem aceita no staging");
 
-    expect(() => client.emit("error", new Error("Connection terminated unexpectedly"))).not.toThrow();
+    // Quando (Act)
+    const emitir = () => client.emit("error", new Error("Connection terminated unexpectedly"));
+
+    // Então (Assert)
+    expect(emitir).not.toThrow();
     expect(logger.error).toHaveBeenCalledWith("Conexão com o PostgreSQL perdida", {
       contexto: "gravar mensagem aceita no staging",
       erro: "Connection terminated unexpectedly",
     });
   });
 
-  it("libera o cliente para o pool quando a conexão não caiu", () => {
+  it("deve devolver o cliente ao pool quando a conexão não caiu", () => {
+    // Dado (Arrange)
     const liberar = protegerCliente(client as unknown as PoolClient, "teste");
 
+    // Quando (Act)
     liberar();
 
+    // Então (Assert)
     expect(client.release).toHaveBeenCalledWith(undefined);
     expect(client.listenerCount("error")).toBe(0);
   });
 
-  it("descarta o cliente quando a conexão caiu", () => {
+  it("deve descartar o cliente quando a conexão caiu", () => {
+    // Dado (Arrange)
     const liberar = protegerCliente(client as unknown as PoolClient, "teste");
     const queda = new Error("Connection terminated unexpectedly");
     client.emit("error", queda);
 
+    // Quando (Act)
     liberar();
 
+    // Então (Assert)
     expect(client.release).toHaveBeenCalledWith(queda);
     expect(client.listenerCount("error")).toBe(0);
   });
