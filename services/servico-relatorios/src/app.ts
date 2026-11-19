@@ -1,12 +1,14 @@
 import express from "express";
 import cors from "cors";
 import openapi from "./docs/openapi.json";
+import medicoesRoutes from "./routes/medicoes.routes";
 
 const app = express();
 
 // Necessário no desenvolvimento: Swagger UI e API usam portas diferentes.
+// Content-Disposition exposto para a tela ler o nome do CSV (US-31).
 if (process.env.SWAGGER_UI_ORIGIN) {
-  app.use(cors({ origin: process.env.SWAGGER_UI_ORIGIN }));
+  app.use(cors({ origin: process.env.SWAGGER_UI_ORIGIN, exposedHeaders: ["Content-Disposition"] }));
 }
 app.use(express.json());
 
@@ -22,5 +24,8 @@ app.get("/relatorios/openapi.json", (_req, res) => {
 app.get("/relatorios/health", (_req, res) => {
   res.json({ status: "ok" });
 });
+
+// Medições do município em JSON ou CSV, com login (US-31).
+app.use("/relatorios/medicoes", medicoesRoutes);
 
 export default app;
