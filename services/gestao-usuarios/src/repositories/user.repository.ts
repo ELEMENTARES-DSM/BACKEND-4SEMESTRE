@@ -7,6 +7,7 @@ interface CreateParams {
   senhaHash: string;
   papel_id: string;
   municipio?: string;
+  aceite_privacidade_em?: Date;
 }
 
 interface UpdateParams {
@@ -19,10 +20,17 @@ interface UpdateParams {
 
 export const create = async (params: CreateParams): Promise<Usuario> => {
   const result = await pool.query<Usuario>(
-    `INSERT INTO usuarios (nome, email, senha_hash, papel_id, municipio)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO usuarios (nome, email, senha_hash, papel_id, municipio, aceite_privacidade_em)
+     VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING *`,
-    [params.nome, params.email, params.senhaHash, params.papel_id, params.municipio ?? null]
+    [
+      params.nome,
+      params.email,
+      params.senhaHash,
+      params.papel_id,
+      params.municipio ?? null,
+      params.aceite_privacidade_em ?? null,
+    ]
   );
 
   return result.rows[0];
