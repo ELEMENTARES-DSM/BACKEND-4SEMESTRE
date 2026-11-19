@@ -24,6 +24,11 @@ export const updateStatusSchema = z.object({
   esta_ativo: z.boolean(),
 });
 
+export const trocarPapelSchema = z.object({
+  papel_id: z.string().uuid("papel_id deve ser um UUID válido"),
+  municipio: z.string().trim().max(100, "Município deve ter no máximo 100 caracteres").optional(),
+});
+
 export const cadastroMunicipeSchema = z.object({
   nome: z.string().trim().min(2, "Nome deve ter no mínimo 2 caracteres").max(120, "Nome deve ter no máximo 120 caracteres"),
   email: z.string().trim().toLowerCase().email("E-mail inválido").max(150, "E-mail deve ter no máximo 150 caracteres"),
