@@ -3,7 +3,6 @@ import { MensagemIngestaoInput } from "../dto/mensagem-ingestao.dto";
 import { inserirStaging } from "../repositories/staging.repository";
 import { atualizarSinalEstacao } from "../repositories/estacao.repository";
 import { ValidarPayloadService } from "./validar-payload.service";
-import { solicitarProcessamentoPendentes } from "./staging-publisher.service";
 import { protegerCliente } from "../utils/conexao-pg";
 
 export type ResultadoGravacao = "recebida" | "rejeitada" | "duplicata";
@@ -46,6 +45,7 @@ function extrairUnixtime(payload: unknown): number | null {
 
 export async function gravarAceita(
   mensagem: MensagemIngestaoInput,
+  id: string,
 ): Promise<ResultadoGravacao> {
   const validacao = validador.validar(mensagem);
 
@@ -68,6 +68,7 @@ export async function gravarAceita(
 
     const gravou = await inserirStaging(
       {
+        id,
         estacaoId: mensagem.estacaoId,
         unixtime,
         recebidoEm: mensagem.recebidoEm,
@@ -90,7 +91,6 @@ export async function gravarAceita(
       nivelBateria: validacao.payloadValidado.nivel_bateria,
     });
     await client.query("COMMIT");
-    solicitarProcessamentoPendentes();
     return "recebida";
   } catch (erro) {
     // Com a conexão perdida o ROLLBACK também falha; o erro que importa é o original.
@@ -104,6 +104,7 @@ export async function gravarAceita(
 export async function gravarRejeitada(
   mensagem: MensagemIngestaoInput,
   motivo: string,
+  id: string,
 ): Promise<ResultadoGravacao> {
   if (!motivo.trim() || motivo.length > 255) {
     throw new Error("O motivo da rejeição deve ter entre 1 e 255 caracteres");
@@ -112,6 +113,7 @@ export async function gravarRejeitada(
   const json = lerJson(mensagem.payloadBruto);
 
   await inserirStaging({
+    id,
     estacaoId: mensagem.estacaoId,
     unixtime: extrairUnixtime(json.valor),
     recebidoEm: mensagem.recebidoEm,
