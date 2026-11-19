@@ -34,15 +34,16 @@ function criarRequest(
 }
 
 describe("municipio.middleware", () => {
-  it("Dado que o usuário não está autenticado, quando verificar o município, então deve retornar 401", () => {
+  it("Dado que o usuário não está autenticado, quando verificar o município, então deve permitir acesso anônimo", () => {
     const req = {} as Request;
     const res = criarResponse();
     const next = jest.fn() as NextFunction;
 
     verificarMunicipio(req, res, next);
 
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(next).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+    expect(req.municipioEscopo).toBeUndefined();
   });
 
   it("Dado um Administrador sem município solicitado, quando verificar o município, então deve permitir acesso global", () => {
