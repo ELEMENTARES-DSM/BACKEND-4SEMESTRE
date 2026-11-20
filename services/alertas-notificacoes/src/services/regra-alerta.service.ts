@@ -1,23 +1,14 @@
 import * as regraAlertaRepository from "../repositories/regra-alerta.repository";
 import { CreateRegraAlertaDTO } from "../validations/regra-alerta.validation";
-import { StatusRegraAlerta } from "../models/regra-alerta.model";
+import {
+  SensorComEstacao,
+  StatusRegraAlerta,
+} from "../models/regra-alerta.model";
 import { UsuarioPayload } from "../types/express";
 import { AppError } from "../middlewares/error-handler";
 
 const SENSOR_NAO_ENCONTRADO = "Sensor não encontrado.";
 const REGRA_NAO_ENCONTRADA = "Regra de alerta não encontrada.";
-
-// RN-04: faixa aceitável de valor_limite por tipo de sensor (limites inclusivos).
-export const FAIXAS_VALOR_LIMITE_POR_TIPO: Record<
-  string,
-  { min?: number; max?: number }
-> = {
-  "Umidade Relativa": { min: 0, max: 100 },
-  "PM2.5": { min: 0 },
-  PM10: { min: 0 },
-  "Velocidade do Vento": { min: 0 },
-  Temperatura: { min: -90, max: 60 },
-};
 
 /**
  * RN-06/RNF-06: define o filtro territorial a partir do papel do usuário.
@@ -63,30 +54,27 @@ const garantirAcessoAoMunicipio = (
   }
 };
 
+/**
+ * RN-04 (US-39): o valor limite precisa caber na faixa física da grandeza do
+ * sensor, lida do catálogo (limites inclusivos). Fora da faixa responde 400:
+ * é dado inválido, não um estado do sensor. Faixa e agregação que o
+ * Administrador alterar valem para as regras novas; as já cadastradas seguem.
+ */
 const garantirValorCoerenteComSensor = (
-  tipo: string,
-  unidade: string,
+  sensor: Pick<
+    SensorComEstacao,
+    "tipo" | "unidade_medida" | "faixa_min" | "faixa_max"
+  >,
   valorLimite: number
 ) => {
-  const faixa = FAIXAS_VALOR_LIMITE_POR_TIPO[tipo];
-  if (!faixa) return;
+  const min = Number(sensor.faixa_min);
+  const max = Number(sensor.faixa_max);
 
-  const { min, max } = faixa;
-  const abaixo = min !== undefined && valorLimite < min;
-  const acima = max !== undefined && valorLimite > max;
-
-  if (!abaixo && !acima) return;
-
-  const regra =
-    min !== undefined && max !== undefined
-      ? `estar entre ${min} e ${max} ${unidade}`
-      : min !== undefined
-        ? `ser maior ou igual a ${min} ${unidade}`
-        : `ser menor ou igual a ${max} ${unidade}`;
+  if (valorLimite >= min && valorLimite <= max) return;
 
   throw new AppError(
-    `O valor limite para sensores de ${tipo} deve ${regra}.`,
-    422
+    `O valor limite para sensores de ${sensor.tipo} deve estar entre ${min} e ${max} ${sensor.unidade_medida}.`,
+    400
   );
 };
 
@@ -111,11 +99,7 @@ export const create = async (
     );
   }
 
-  garantirValorCoerenteComSensor(
-    sensor.tipo,
-    sensor.unidade_medida,
-    data.valor_limite
-  );
+  garantirValorCoerenteComSensor(sensor, data.valor_limite);
 
   return regraAlertaRepository.create({
     sensorId: data.sensor_id,

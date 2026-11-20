@@ -49,7 +49,7 @@ set -a
 . ./.env
 set +a
 
-for servico in postgres rabbitmq mosquitto valkey ingestao-dados servico-validacao; do
+for servico in postgres rabbitmq mosquitto valkey gestao-estacoes ingestao-dados servico-validacao; do
   docker compose ps --status running --services | grep -qx "$servico" \
     || erro "o serviço $servico não está rodando. Suba com: docker compose up -d --build"
 done
@@ -68,6 +68,7 @@ docker compose build -q simulador-estacoes
 
 export DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:5432/${POSTGRES_DB}"
 export RABBITMQ_URL="amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@localhost:5672"
+# REDIS_URL aponta para o Valkey (nome mantido por compatibilidade)
 export REDIS_URL="redis://:${VALKEY_PASSWORD}@localhost:6379"
 
 esperar_banco() {
@@ -97,6 +98,24 @@ if [ -z "$inicio" ]; then
   agora=$(date +%s)
   inicio=$(( ultimo >= agora ? ultimo + 1 : agora ))
 fi
+# O simulador lê os sensores de cada estação no gestao-estacoes (rota interna). Com
+# --queda-banco o PostgreSQL está parado quando o simulador roda e o gestao-estacoes
+# não responde: lê os sensores antes e entrega ao simulador em LOTE_SENSORES_JSON.
+sensores_env=()
+if [ "$queda_banco" -gt 0 ]; then
+  sensores_json=$(docker compose exec -T gestao-estacoes node -e '
+    Promise.all(process.argv.slice(1).map(async (id) => {
+      const r = await fetch(`http://127.0.0.1:3000/api/v1/internal/estacoes/${id}/sensores`, {
+        headers: { "X-Internal-Token": process.env.INTERNAL_TOKEN },
+      });
+      if (!r.ok) throw new Error(`estação ${id}: HTTP ${r.status}`);
+      return [id, await r.json()];
+    })).then((lista) => console.log(JSON.stringify(Object.fromEntries(lista))))
+      .catch((e) => { console.error(e.message); process.exit(1); });
+  ' ${estacoes//,/ }) || erro "não consegui ler os sensores das estações de teste no gestao-estacoes."
+  sensores_env=(-e "LOTE_SENSORES_JSON=$sensores_json")
+fi
+
 n=0
 while :; do
   n=$((n + 1))
@@ -114,6 +133,7 @@ while :; do
     -e LOTE_MEDIDAS="$medidas" \
     -e LOTE_INICIO_UNIX="$inicio" \
     -e LOTE_MANIFESTO=/app/manifesto.jsonl \
+    ${sensores_env[@]+"${sensores_env[@]}"} \
     simulador-estacoes node dist/lote.js
   docker cp "$container:/app/manifesto.jsonl" "$manifesto" >/dev/null
   docker rm "$container" >/dev/null

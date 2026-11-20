@@ -8,6 +8,7 @@ import * as sensorRepository from "../../repositories/sensor.repository";
 import * as medidaRepository from "../../repositories/medida.repository";
 import { EventoTelemetriaDTO, SensorEventoRow } from "../../dto/evento-telemetria.dto";
 import logger from "../../utils/logger";
+import { faixaDoCatalogo } from "../helpers/catalogo";
 
 jest.mock("../../repositories/sensor.repository");
 jest.mock("../../repositories/medida.repository");
@@ -24,10 +25,11 @@ describe("processar-telemetria.service - sensor inexistente ou inativo (US-18)",
     id: `sensor-${codigo}`,
     estacao_id: "estacao-uuid-1",
     codigo,
-    fator: "1.000000",
-    ganho: "0.000000",
+    fator_conversao: "1.000000",
+    offset: "0.000000",
     status,
     tipo: "Temperatura",
+    ...faixaDoCatalogo("Temperatura"),
     municipio: "São José dos Campos",
     estacao_status: "Ativa",
   });

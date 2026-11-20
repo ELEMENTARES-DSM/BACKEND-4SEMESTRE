@@ -7,6 +7,7 @@ import {
 } from "./defeitos.js";
 import { criarClienteMqtt, publicar } from "./mqtt.client.js";
 import { criarRng } from "./random.js";
+import { buscarSensoresDaEstacao, lerConfigApi } from "./sensores.api.js";
 import { gerarTelemetria } from "./telemetria.factory.js";
 
 const estacaoIds = (process.env.SIM_ESTACAO_IDS ?? "")
@@ -22,6 +23,8 @@ const tiposAtivos = lerTiposAtivos(process.env.SIM_TIPOS_ERRO);
 const estacaoInativaId =
   process.env.SIM_ESTACAO_INATIVA_ID?.trim() || undefined;
 const semente = process.env.SIM_SEED?.trim() || undefined;
+// Os sensores de cada estação vêm do gestao-estacoes (catálogo), não de uma lista fixa.
+const configApi = lerConfigApi();
 
 if (estacaoIds.length === 0) {
   throw new Error(
@@ -88,7 +91,16 @@ async function executarCiclo(): Promise<void> {
       }
 
       try {
-        const payload = gerarTelemetria(rng);
+        // Lê a cada ciclo: um sensor cadastrado agora já entra na próxima mensagem.
+        const sensores = await buscarSensoresDaEstacao(estacaoId, configApi);
+        if (sensores.length === 0) {
+          console.warn(
+            `[simulador] Estação ${estacaoId} sem sensor ativo com código: nada a publicar.`,
+          );
+          continue;
+        }
+
+        const payload = gerarTelemetria(sensores, rng);
         const defeito = sortearDefeito();
         const mensagem = defeito
           ? aplicarDefeito(defeito, estacaoId, payload, rng, estacaoInativaId)

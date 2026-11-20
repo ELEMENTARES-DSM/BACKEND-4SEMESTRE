@@ -1,6 +1,6 @@
 -- Estações e sensores só do teste contínuo da ingestão (US-21).
--- Município próprio, para não se misturar com os dados do time; fator 1 e
--- ganho 0, para o valor real ser o valor enviado. Pode rodar mais de uma vez.
+-- Município próprio, para não se misturar com os dados do time; fator_conversao 1 e
+-- offset 0, para o valor real ser o valor enviado. Pode rodar mais de uma vez.
 
 INSERT INTO estacoes (id, codigo, nome, municipio, latitude, longitude, status)
 SELECT
@@ -14,7 +14,7 @@ SELECT
 FROM generate_series(1, 10) AS n
 ON CONFLICT (codigo) DO NOTHING;
 
-INSERT INTO sensores (estacao_id, codigo, nome, tipo, unidade_medida, fator, ganho, status)
+INSERT INTO sensores (estacao_id, codigo, nome, tipo, unidade_medida, fator_conversao, offset_calibracao, status)
 SELECT e.id, s.codigo, s.nome, s.tipo, s.unidade, 1.0, 0.0, 'Ativo'
 FROM estacoes e
 CROSS JOIN (VALUES

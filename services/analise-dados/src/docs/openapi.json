@@ -24,9 +24,7 @@
   "paths": {
     "/analise/estacoes/{id}/series": {
       "get": {
-        "tags": [
-          "Análise"
-        ],
+        "tags": ["Análise"],
         "operationId": "getEstacaoSeries",
         "summary": "Obter séries históricas da estação",
         "description": "Retorna as séries históricas da grandeza solicitada, agrupando os dados em intervalos de 5 minutos para 24h, 1 hora para 7d e 1 dia para 30d. Suporta requisições com ou sem autenticação: usuários sem login podem consultar até 7 dias; MUNICIPE pode consultar até 30 dias com cota de 2.000 requisições/semana e 6.000 requisições/mês (retornando cabeçalhos X-Cota-Semana-Restante e X-Cota-Mes-Restante, ou 429 se esgotada); GESTOR_PUBLICO e ADMINISTRADOR não possuem limite de período nem cota. Períodos maiores que o permitido para o perfil respondem 400 com o limite máximo na mensagem.",
@@ -57,11 +55,7 @@
             "description": "Período da série histórica. O agrupamento dos dados depende do período selecionado.",
             "schema": {
               "type": "string",
-              "enum": [
-                "24h",
-                "7d",
-                "30d"
-              ],
+              "enum": ["24h", "7d", "30d"],
               "example": "24h"
             }
           }
@@ -93,9 +87,7 @@
     },
     "/analise/estacoes/{id}/ultimas-leituras": {
       "get": {
-        "tags": [
-          "Análise"
-        ],
+        "tags": ["Análise"],
         "operationId": "getEstacaoUltimasLeituras",
         "summary": "Obter últimas leituras da estação",
         "description": "Retorna as últimas leituras disponíveis da estação, incluindo a grandeza, o valor calibrado, a unidade de medida e o tempo relativo da leitura.",
@@ -136,9 +128,7 @@
     },
     "/analise/iqar": {
       "get": {
-        "tags": [
-          "Análise"
-        ],
+        "tags": ["Análise"],
         "operationId": "getIqar",
         "summary": "Obter Índice de Qualidade do Ar (IQAr)",
         "description": "Retorna o IQAr, incluindo a cor e o rótulo correspondente à faixa oficial de qualidade do ar. Quando não houver dados suficientes, retorna o texto 'Sem dados suficientes'.",
@@ -166,66 +156,133 @@
         }
       }
     },
-    "/public/analise/publico/{municipio}/estacoes/{id}/series": {
+    "/analise/publico/{municipio}/estacoes/{codigo}/series": {
       "get": {
         "tags": ["Público"],
         "operationId": "getPublicEstacaoSeries",
         "summary": "Obter séries históricas da estação (Público)",
-        "description": "Versão pública com limite de 7 dias e filtrada por município.",
+        "description": "Versão pública da consulta de séries históricas sem exigência de autenticação, filtrada por município e restrita a estações ativas (limite máximo de até 7 dias para acesso anônimo; acima disso retorna 400). Os agrupamentos são de 5 minutos para 24h e 1 hora para 7d.",
         "security": [],
         "parameters": [
-          {"$ref": "#/components/parameters/MunicipioParam"},
-          {"$ref": "#/components/parameters/EstacaoId"},
+          {
+            "$ref": "#/components/parameters/MunicipioParam"
+          },
+          {
+            "$ref": "#/components/parameters/EstacaoCodigoParam"
+          },
           {
             "name": "grandeza",
             "in": "query",
             "required": true,
-            "schema": {"type": "string", "example": "PM25"}
+            "description": "Grandeza que será consultada. Exemplos: PM25, PM10 e Temperatura.",
+            "schema": {
+              "type": "string",
+              "example": "PM25"
+            }
           },
           {
             "name": "periodo",
             "in": "query",
             "required": true,
-            "schema": {"type": "string", "enum": ["24h", "7d", "30d"], "example": "24h"}
+            "description": "Período da série histórica (para acesso anônimo, o limite máximo é de 7 dias).",
+            "schema": {
+              "type": "string",
+              "enum": ["24h", "7d", "30d"],
+              "example": "24h"
+            }
           }
         ],
         "responses": {
-          "200": {"$ref": "#/components/responses/SeriesSuccess"},
-          "400": {"$ref": "#/components/responses/BadRequest"},
-          "404": {"$ref": "#/components/responses/EstacaoNotFound"},
-          "500": {"$ref": "#/components/responses/InternalError"}
+          "200": {
+            "$ref": "#/components/responses/SeriesSuccess"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/EstacaoNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
         }
       }
     },
-    "/public/analise/publico/{municipio}/estacoes/{id}/ultimas-leituras": {
+    "/analise/publico/{municipio}/estacoes/{codigo}/ultimas-leituras": {
       "get": {
         "tags": ["Público"],
         "operationId": "getPublicEstacaoUltimasLeituras",
         "summary": "Obter últimas leituras da estação (Público)",
+        "description": "Versão pública da consulta de últimas leituras válidas de uma estação ativa pertencente ao município informado, sem necessidade de autenticação.",
         "security": [],
         "parameters": [
-          {"$ref": "#/components/parameters/MunicipioParam"},
-          {"$ref": "#/components/parameters/EstacaoId"}
+          {
+            "$ref": "#/components/parameters/MunicipioParam"
+          },
+          {
+            "$ref": "#/components/parameters/EstacaoCodigoParam"
+          }
         ],
         "responses": {
-          "200": {"$ref": "#/components/responses/UltimasLeiturasSuccess"},
-          "404": {"$ref": "#/components/responses/EstacaoNotFound"},
-          "500": {"$ref": "#/components/responses/InternalError"}
+          "200": {
+            "$ref": "#/components/responses/UltimasLeiturasSuccess"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/EstacaoNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
         }
       }
     },
-    "/public/analise/publico/{municipio}/iqar": {
+    "/analise/publico/{municipio}/iqar": {
       "get": {
         "tags": ["Público"],
         "operationId": "getPublicIqar",
-        "summary": "Obter IQAr (Público)",
+        "summary": "Obter IQAr por município (Público)",
+        "description": "Versão pública da consulta do Índice de Qualidade do Ar filtrada por município e estações ativas, sem necessidade de autenticação.",
         "security": [],
         "parameters": [
-          {"$ref": "#/components/parameters/MunicipioParam"}
+          {
+            "$ref": "#/components/parameters/MunicipioParam"
+          },
+          {
+            "name": "estacaoId",
+            "in": "query",
+            "required": false,
+            "description": "Identificador ou código opcional de uma estação ativa pertencente ao município informado.",
+            "schema": {
+              "type": "string",
+              "example": "EST-001"
+            }
+          }
         ],
         "responses": {
-          "200": {"$ref": "#/components/responses/IqarSuccess"},
-          "500": {"$ref": "#/components/responses/InternalError"}
+          "200": {
+            "$ref": "#/components/responses/IqarSuccess"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/EstacaoNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
         }
       }
     }
@@ -247,6 +304,26 @@
         "schema": {
           "type": "string",
           "example": "estacao-01"
+        }
+      },
+      "EstacaoCodigoParam": {
+        "name": "codigo",
+        "in": "path",
+        "required": true,
+        "description": "Código ou identificador de uma estação ativa pertencente ao município.",
+        "schema": {
+          "type": "string",
+          "example": "EST-001"
+        }
+      },
+      "MunicipioParam": {
+        "name": "municipio",
+        "in": "path",
+        "required": true,
+        "description": "Nome do município para filtro dos dados públicos.",
+        "schema": {
+          "type": "string",
+          "example": "São José dos Campos"
         }
       }
     },
@@ -281,11 +358,11 @@
                   "periodo": "24h",
                   "dados": [
                     {
-                      "timestamp": "2026-06-06T10:00:00Z",
+                      "timestamp": "2026-06-06T10:00:00-03:00",
                       "valor": 25.4
                     },
                     {
-                      "timestamp": "2026-06-06T10:05:00Z",
+                      "timestamp": "2026-06-06T10:05:00-03:00",
                       "valor": 26.1
                     }
                   ]
@@ -299,11 +376,11 @@
                   "periodo": "7d",
                   "dados": [
                     {
-                      "timestamp": "2026-06-06T10:00:00Z",
+                      "timestamp": "2026-06-06T10:00:00-03:00",
                       "valor": 25.4
                     },
                     {
-                      "timestamp": "2026-06-06T11:00:00Z",
+                      "timestamp": "2026-06-06T11:00:00-03:00",
                       "valor": 26.1
                     }
                   ]
@@ -317,11 +394,11 @@
                   "periodo": "30d",
                   "dados": [
                     {
-                      "timestamp": "2026-06-06T00:00:00Z",
+                      "timestamp": "2026-06-06T00:00:00-03:00",
                       "valor": 25.4
                     },
                     {
-                      "timestamp": "2026-06-07T00:00:00Z",
+                      "timestamp": "2026-06-07T00:00:00-03:00",
                       "valor": 26.1
                     }
                   ]
@@ -471,7 +548,7 @@
         }
       },
       "EstacaoNotFound": {
-        "description": "Estação não encontrada ou indisponível para consulta no município do Gestor. A resposta não diferencia os dois casos.",
+        "description": "Estação não encontrada ou indisponível para consulta no município informado. A resposta não diferencia os dois casos.",
         "content": {
           "application/json": {
             "schema": {
@@ -534,10 +611,7 @@
     "schemas": {
       "ErrorResponse": {
         "type": "object",
-        "required": [
-          "statusCode",
-          "message"
-        ],
+        "required": ["statusCode", "message"],
         "properties": {
           "statusCode": {
             "type": "integer",
@@ -551,10 +625,7 @@
       },
       "QuotaExceededResponse": {
         "type": "object",
-        "required": [
-          "erro",
-          "renovaEm"
-        ],
+        "required": ["erro", "renovaEm"],
         "properties": {
           "erro": {
             "type": "string",
@@ -577,12 +648,7 @@
       },
       "SeriesResponse": {
         "type": "object",
-        "required": [
-          "estacaoId",
-          "grandeza",
-          "periodo",
-          "dados"
-        ],
+        "required": ["estacaoId", "grandeza", "periodo", "dados"],
         "properties": {
           "estacaoId": {
             "type": "string",
@@ -594,11 +660,7 @@
           },
           "periodo": {
             "type": "string",
-            "enum": [
-              "24h",
-              "7d",
-              "30d"
-            ],
+            "enum": ["24h", "7d", "30d"],
             "example": "24h"
           },
           "dados": {
@@ -606,15 +668,12 @@
             "description": "Pontos da série histórica agrupados conforme o período solicitado.",
             "items": {
               "type": "object",
-              "required": [
-                "timestamp",
-                "valor"
-              ],
+              "required": ["timestamp", "valor"],
               "properties": {
                 "timestamp": {
                   "type": "string",
                   "format": "date-time",
-                  "example": "2026-06-06T10:00:00Z"
+                  "example": "2026-06-06T10:00:00-03:00"
                 },
                 "valor": {
                   "type": "number",
@@ -627,10 +686,7 @@
       },
       "UltimasLeiturasResponse": {
         "type": "object",
-        "required": [
-          "estacaoId",
-          "leituras"
-        ],
+        "required": ["estacaoId", "leituras"],
         "properties": {
           "estacaoId": {
             "type": "string",
@@ -670,11 +726,7 @@
       },
       "IqarResponse": {
         "type": "object",
-        "required": [
-          "status",
-          "rotuloFaixa",
-          "mensagem"
-        ],
+        "required": ["status", "rotuloFaixa", "mensagem"],
         "properties": {
           "status": {
             "type": "string",

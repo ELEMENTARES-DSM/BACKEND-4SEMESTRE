@@ -34,6 +34,9 @@ const sensor = (over: Partial<SensorComEstacao> = {}): SensorComEstacao => ({
   status: "Ativo",
   estacao_id: "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
   municipio: "São José dos Campos",
+  // Faixa do catálogo (tipos_sensor) para PM2.5; vem do JOIN no repository.
+  faixa_min: "0.00",
+  faixa_max: "1000.00",
   ...over,
 });
 
@@ -116,15 +119,15 @@ describe("regraAlertaService.create", () => {
     expect(repo.create).not.toHaveBeenCalled();
   });
 
-  it("retorna 422 quando o valor limite está fora da faixa do sensor (RN-04)", async () => {
+  it("retorna 400 quando o valor limite está fora da faixa do sensor (RN-04)", async () => {
     repo.findSensorComEstacao.mockResolvedValue(sensor());
 
     await expect(
       regraAlertaService.create(gestor, payload({ valor_limite: -1 }))
     ).rejects.toMatchObject({
-      statusCode: 422,
+      statusCode: 400,
       message:
-        "O valor limite para sensores de PM2.5 deve ser maior ou igual a 0 µg/m³.",
+        "O valor limite para sensores de PM2.5 deve estar entre 0 e 1000 µg/m³.",
     });
     expect(repo.create).not.toHaveBeenCalled();
   });
@@ -139,6 +142,123 @@ describe("regraAlertaService.create", () => {
     expect(repo.create).toHaveBeenCalledWith(
       expect.objectContaining({ valorLimite: 0 })
     );
+  });
+
+  describe("faixa vinda do catálogo (US-39)", () => {
+    const direcao = () =>
+      sensor({
+        tipo: "Direção do Vento",
+        unidade_medida: "°",
+        faixa_min: "0.00",
+        faixa_max: "360.00",
+      });
+
+    const temperatura: Partial<SensorComEstacao> = {
+      tipo: "Temperatura",
+      unidade_medida: "°C",
+      faixa_min: "-50.00",
+      faixa_max: "60.00",
+    };
+
+    it.each([
+      { tipo: "PM2.5 (0 a 1000)", over: {}, limite: 0, aceito: true },
+      { tipo: "PM2.5 (0 a 1000)", over: {}, limite: 1000, aceito: true },
+      { tipo: "PM2.5 (0 a 1000)", over: {}, limite: -0.01, aceito: false },
+      { tipo: "PM2.5 (0 a 1000)", over: {}, limite: 1000.01, aceito: false },
+      { tipo: "Temperatura (-50 a 60)", over: temperatura, limite: -50, aceito: true },
+      { tipo: "Temperatura (-50 a 60)", over: temperatura, limite: 60, aceito: true },
+      { tipo: "Temperatura (-50 a 60)", over: temperatura, limite: -50.01, aceito: false },
+      { tipo: "Temperatura (-50 a 60)", over: temperatura, limite: 60.01, aceito: false },
+    ])("$tipo: limite $limite aceito = $aceito", async ({ over, limite, aceito }) => {
+      // Dado
+      repo.findSensorComEstacao.mockResolvedValue(sensor(over));
+      repo.create.mockResolvedValue(regra({ valor_limite: limite }));
+
+      // Quando
+      const promessa = regraAlertaService.create(gestor, payload({ valor_limite: limite }));
+
+      // Então
+      if (aceito) {
+        await expect(promessa).resolves.toBeDefined();
+        expect(repo.create).toHaveBeenCalledTimes(1);
+      } else {
+        await expect(promessa).rejects.toMatchObject({ statusCode: 400 });
+        expect(repo.create).not.toHaveBeenCalled();
+      }
+    });
+
+    it("aceita 360 e recusa 360,01 para direção do vento (grandeza que não tinha faixa no código)", async () => {
+      // Dado
+      repo.findSensorComEstacao.mockResolvedValue(direcao());
+      repo.create.mockResolvedValue(regra({ valor_limite: 360 }));
+
+      // Quando / Então
+      await expect(
+        regraAlertaService.create(gestor, payload({ valor_limite: 360 }))
+      ).resolves.toBeDefined();
+      await expect(
+        regraAlertaService.create(gestor, payload({ valor_limite: 360.01 }))
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        message: "O valor limite para sensores de Direção do Vento deve estar entre 0 e 360 °.",
+      });
+    });
+
+    it("recusa -90 para temperatura, que o código antigo aceitava (a faixa do catálogo é -50 a 60)", async () => {
+      // Dado
+      repo.findSensorComEstacao.mockResolvedValue(
+        sensor({ tipo: "Temperatura", unidade_medida: "°C", faixa_min: "-50.00", faixa_max: "60.00" })
+      );
+
+      // Quando / Então
+      await expect(
+        regraAlertaService.create(gestor, payload({ valor_limite: -90 }))
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("limita também o máximo de PM e de vento, que o código antigo deixava sem teto", async () => {
+      // Dado
+      repo.findSensorComEstacao.mockResolvedValue(
+        sensor({ tipo: "Velocidade do Vento", unidade_medida: "km/h", faixa_min: "0.00", faixa_max: "400.00" })
+      );
+
+      // Quando / Então
+      await expect(
+        regraAlertaService.create(gestor, payload({ valor_limite: 400.01 }))
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        message: "O valor limite para sensores de Velocidade do Vento deve estar entre 0 e 400 km/h.",
+      });
+    });
+
+    it("usa a faixa da grandeza nova cadastrada pelo Administrador, sem mudar o código", async () => {
+      // Dado: "Nebulosidade" de 0 a 8 oitavos
+      repo.findSensorComEstacao.mockResolvedValue(
+        sensor({ tipo: "Nebulosidade", unidade_medida: "oitavos", faixa_min: "0.00", faixa_max: "8.00" })
+      );
+      repo.create.mockResolvedValue(regra({ valor_limite: 8 }));
+
+      // Quando / Então
+      await expect(
+        regraAlertaService.create(gestor, payload({ valor_limite: 8 }))
+      ).resolves.toBeDefined();
+      await expect(
+        regraAlertaService.create(gestor, payload({ valor_limite: 9 }))
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        message: "O valor limite para sensores de Nebulosidade deve estar entre 0 e 8 oitavos.",
+      });
+    });
+
+    it("segue respondendo 422 para sensor inativo, mesmo com limite fora da faixa", async () => {
+      // Dado
+      repo.findSensorComEstacao.mockResolvedValue(sensor({ status: "Inativo" }));
+
+      // Quando / Então: a checagem do sensor vem antes da faixa
+      await expect(
+        regraAlertaService.create(gestor, payload({ valor_limite: 99999 }))
+      ).rejects.toMatchObject({ statusCode: 422 });
+    });
   });
 
   it("permite ao administrador criar em qualquer município", async () => {

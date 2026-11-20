@@ -25,6 +25,9 @@ Uma porta só: `1883` (MQTT 3.1.1, sem TLS). A sessão persistente
 | Estação | `<mac>` | publica em `pulso/estacoes/<mac>/telemetria` | 1 |
 | ingestao-dados | `ingestao-dados` (fixo, sessão persistente) | assina `pulso/estacoes/+/telemetria` | 1 |
 
+Só pode haver uma instância do ingestao-dados: uma segunda, com o mesmo
+clientId, derruba a sessão da primeira.
+
 ```bash
 # assinar (outro terminal)
 mosquitto_sub -h localhost -p 1883 -t 'pulso/estacoes/+/telemetria' -v
