@@ -5,6 +5,8 @@ import { writeFileSync } from "node:fs";
 import { contarLeiturasEnviadas, lerCasos, planejarLote } from "./lote/plano.js";
 import { criarClienteMqtt, publicar } from "./mqtt.client.js";
 import { criarRng } from "./random.js";
+import type { SensorSimulado } from "./sensores.js";
+import { buscarSensoresDaEstacao, lerConfigApi, lerSensoresDeJson } from "./sensores.api.js";
 
 const estacoes = (process.env.LOTE_ESTACOES ?? process.env.SIM_ESTACAO_IDS ?? "")
   .split(",")
@@ -18,8 +20,22 @@ if (!Number.isInteger(inicioUnix) || inicioUnix <= 0) {
   throw new Error("LOTE_INICIO_UNIX deve ser um unixtime em segundos.");
 }
 
+// Os sensores de cada estação vêm do gestao-estacoes (catálogo), não de uma lista fixa.
+// Com LOTE_SENSORES_JSON (teste de fluxo com o PostgreSQL parado) usa os sensores
+// já lidos; sem ele, lê da rota interna.
+const sensoresPorEstacao = process.env.LOTE_SENSORES_JSON?.trim()
+  ? lerSensoresDeJson(process.env.LOTE_SENSORES_JSON)
+  : new Map<string, SensorSimulado[]>();
+if (sensoresPorEstacao.size === 0) {
+  const config = lerConfigApi();
+  for (const estacao of new Set(estacoes)) {
+    sensoresPorEstacao.set(estacao, await buscarSensoresDaEstacao(estacao, config));
+  }
+}
+
 const mensagens = planejarLote({
   estacoes,
+  sensoresPorEstacao,
   medidas,
   inicioUnix,
   casos: lerCasos(process.env.LOTE_CASOS),

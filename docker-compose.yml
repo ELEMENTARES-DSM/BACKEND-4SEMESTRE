@@ -148,6 +148,7 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      # REDIS_URL aponta para o Valkey (nome mantido por compatibilidade)
       REDIS_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
     volumes:
       - ./services/auth-service/src:/app/src
@@ -236,6 +237,7 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      # REDIS_URL aponta para o Valkey (nome mantido por compatibilidade)
       REDIS_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
     volumes:
       - ./services/gestao-usuarios/src:/app/src
@@ -266,6 +268,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
       INTERNAL_TOKEN: ${INTERNAL_TOKEN}
+      REDIS_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
     volumes:
       - ./services/gestao-estacoes/src:/app/src
       - ./services/gestao-estacoes/tsconfig.json:/app/tsconfig.json
@@ -274,6 +277,8 @@ services:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      valkey:
         condition: service_healthy
     networks:
       - app-network
@@ -294,6 +299,7 @@ services:
       RABBITMQ_RECOVERY_INTERVAL_MS: ${RABBITMQ_RECOVERY_INTERVAL_MS:-10000}
       MQTT_BROKER_URL: mqtt://mosquitto:1883
       MQTT_QOS: ${MQTT_QOS:-1}
+      # REDIS_URL aponta para o Valkey (nome mantido por compatibilidade)
       REDIS_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
     volumes:
       - ./services/ingestao-dados/src:/app/src
@@ -322,6 +328,7 @@ services:
       PORT: 3000
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET}
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
     volumes:
       - ./services/servico-relatorios/src:/app/src
@@ -372,9 +379,14 @@ services:
       SIM_TIPOS_ERRO: ${SIM_TIPOS_ERRO:-}
       SIM_SEED: ${SIM_SEED:-}
       SIM_ESTACAO_INATIVA_ID: ${SIM_ESTACAO_INATIVA_ID:-}
+      # Os sensores de cada estação vêm do catálogo, pela rota interna do gestao-estacoes.
+      SIM_API_URL: ${SIM_API_URL:-http://gestao-estacoes:3000}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
     depends_on:
       mosquitto:
         condition: service_healthy
+      gestao-estacoes:
+        condition: service_started
     restart: unless-stopped
     networks:
       - app-network

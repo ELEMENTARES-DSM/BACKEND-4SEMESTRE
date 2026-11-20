@@ -1,5 +1,5 @@
 import type { Rng } from "./random.js";
-import { SENSORES, gerarValorSensor } from "./sensores.js";
+import { gerarLeituraBruta, type SensorSimulado } from "./sensores.js";
 
 export interface LeituraItem {
   sensor: string;
@@ -12,10 +12,17 @@ export interface PayloadTelemetria {
   leituras: LeituraItem[];
 }
 
-export function gerarTelemetria(rng: Rng = Math.random): PayloadTelemetria {
-  const leituras = SENSORES.map((sensor) => ({
+/**
+ * Uma leitura por sensor da estação, com o valor bruto que a placa enviaria
+ * (a calibração invertida: o valor real cai dentro da faixa da grandeza).
+ */
+export function gerarTelemetria(
+  sensores: readonly SensorSimulado[],
+  rng: Rng = Math.random,
+): PayloadTelemetria {
+  const leituras = sensores.map((sensor) => ({
     sensor: sensor.codigo,
-    valor: gerarValorSensor(sensor, rng),
+    valor: gerarLeituraBruta(sensor, rng),
   }));
 
   return {
