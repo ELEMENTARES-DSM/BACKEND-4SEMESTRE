@@ -166,116 +166,66 @@
         }
       }
     },
-    "/public/analise/estacoes/{id}/series": {
+    "/public/analise/publico/{municipio}/estacoes/{id}/series": {
       "get": {
-        "tags": [
-          "Público"
-        ],
+        "tags": ["Público"],
         "operationId": "getPublicEstacaoSeries",
         "summary": "Obter séries históricas da estação (Público)",
-        "description": "Versão pública da consulta de séries históricas, sem necessidade de autenticação (limite máximo de até 7 dias; acima disso retorna 400). Os agrupamentos são de 5 minutos para 24h e 1 hora para 7d.",
+        "description": "Versão pública com limite de 7 dias e filtrada por município.",
         "security": [],
         "parameters": [
-          {
-            "$ref": "#/components/parameters/EstacaoId"
-          },
+          {"$ref": "#/components/parameters/MunicipioParam"},
+          {"$ref": "#/components/parameters/EstacaoId"},
           {
             "name": "grandeza",
             "in": "query",
             "required": true,
-            "description": "Grandeza que será consultada. Exemplos: PM25, PM10 e O3.",
-            "schema": {
-              "type": "string",
-              "example": "PM25"
-            }
+            "schema": {"type": "string", "example": "PM25"}
           },
           {
             "name": "periodo",
             "in": "query",
             "required": true,
-            "description": "Período da série histórica.",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "24h",
-                "7d",
-                "30d"
-              ],
-              "example": "24h"
-            }
+            "schema": {"type": "string", "enum": ["24h", "7d", "30d"], "example": "24h"}
           }
         ],
         "responses": {
-          "200": {
-            "$ref": "#/components/responses/SeriesSuccess"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "404": {
-            "$ref": "#/components/responses/EstacaoNotFound"
-          },
-          "429": {
-            "$ref": "#/components/responses/TooManyRequests"
-          },
-          "500": {
-            "$ref": "#/components/responses/InternalError"
-          }
+          "200": {"$ref": "#/components/responses/SeriesSuccess"},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "404": {"$ref": "#/components/responses/EstacaoNotFound"},
+          "500": {"$ref": "#/components/responses/InternalError"}
         }
       }
     },
-    "/public/analise/estacoes/{id}/ultimas-leituras": {
+    "/public/analise/publico/{municipio}/estacoes/{id}/ultimas-leituras": {
       "get": {
-        "tags": [
-          "Público"
-        ],
+        "tags": ["Público"],
         "operationId": "getPublicEstacaoUltimasLeituras",
         "summary": "Obter últimas leituras da estação (Público)",
-        "description": "Versão pública da consulta de últimas leituras, sem necessidade de autenticação.",
         "security": [],
         "parameters": [
-          {
-            "$ref": "#/components/parameters/EstacaoId"
-          }
+          {"$ref": "#/components/parameters/MunicipioParam"},
+          {"$ref": "#/components/parameters/EstacaoId"}
         ],
         "responses": {
-          "200": {
-            "$ref": "#/components/responses/UltimasLeiturasSuccess"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "404": {
-            "$ref": "#/components/responses/EstacaoNotFound"
-          },
-          "429": {
-            "$ref": "#/components/responses/TooManyRequests"
-          },
-          "500": {
-            "$ref": "#/components/responses/InternalError"
-          }
+          "200": {"$ref": "#/components/responses/UltimasLeiturasSuccess"},
+          "404": {"$ref": "#/components/responses/EstacaoNotFound"},
+          "500": {"$ref": "#/components/responses/InternalError"}
         }
       }
     },
-    "/public/analise/iqar": {
+    "/public/analise/publico/{municipio}/iqar": {
       "get": {
-        "tags": [
-          "Público"
-        ],
+        "tags": ["Público"],
         "operationId": "getPublicIqar",
         "summary": "Obter IQAr (Público)",
-        "description": "Versão pública da consulta do Índice de Qualidade do Ar, sem necessidade de autenticação.",
         "security": [],
+        "parameters": [
+          {"$ref": "#/components/parameters/MunicipioParam"}
+        ],
         "responses": {
-          "200": {
-            "$ref": "#/components/responses/IqarSuccess"
-          },
-          "429": {
-            "$ref": "#/components/responses/TooManyRequests"
-          },
-          "500": {
-            "$ref": "#/components/responses/InternalError"
-          }
+          "200": {"$ref": "#/components/responses/IqarSuccess"},
+          "500": {"$ref": "#/components/responses/InternalError"}
         }
       }
     }
