@@ -2,13 +2,15 @@ import { Router, Request, Response } from "express";
 import { authOpcional } from "../middlewares/auth.middleware";
 import { verificarPeriodo } from "../middlewares/periodo.middleware";
 import { verificarMunicipio } from "../middlewares/municipio.middleware";
+import { aplicarCotaEAuditar } from "../middlewares/cota.middleware";
 
 const router = Router();
 
-// Aplica autenticação opcional, validação de limites de período e isolamento de município
+// Aplica autenticação opcional, validação de limites de período, isolamento de município e cota/auditoria
 router.use(authOpcional);
 router.use(verificarPeriodo);
 router.use(verificarMunicipio);
+router.use(aplicarCotaEAuditar);
 
 // ATENÇÃO: as rotas abaixo devolvem dados FIXOS (stub) da ELEM-274.
 // O dado real vem das tasks 35.06 (séries, ELEM-198), 35.07 (últimas leituras, ELEM-199),
