@@ -28,11 +28,21 @@ export async function prepararSchemaAlarmes(pool: Pool, schema: string): Promise
       municipio VARCHAR(100) NOT NULL
     )
   `);
+  // Só as colunas do catálogo (tipos_sensor, do gestao-estacoes) que o serviço lê (US-39).
+  await pool.query(`
+    CREATE TABLE tipos_sensor (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      nome VARCHAR(100) NOT NULL UNIQUE,
+      unidade VARCHAR(20) NOT NULL,
+      faixa_min NUMERIC(12,2) NOT NULL,
+      faixa_max NUMERIC(12,2) NOT NULL
+    )
+  `);
   await pool.query(`
     CREATE TABLE sensores (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       estacao_id UUID NOT NULL REFERENCES estacoes(id),
-      tipo VARCHAR(50) NOT NULL,
+      tipo VARCHAR(100) NOT NULL REFERENCES tipos_sensor(nome),
       unidade_medida VARCHAR(20) NOT NULL,
       codigo VARCHAR(30),
       status VARCHAR(20) NOT NULL DEFAULT 'Ativo'
@@ -45,11 +55,33 @@ export async function prepararSchemaAlarmes(pool: Pool, schema: string): Promise
   await aplicar(pool, "../../../../../servico-validacao/src/db/migrations/1792900000000_create-alarmes-table.cjs");
 }
 
+/** Cadastra ou atualiza uma grandeza no catálogo (o Administrador mudando a faixa, por exemplo). */
+export async function cadastrarGrandeza(
+  pool: Pick<Pool, "query">,
+  grandeza: { nome: string; unidade: string; faixaMin: string; faixaMax: string }
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO tipos_sensor (nome, unidade, faixa_min, faixa_max)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (nome) DO UPDATE
+       SET unidade = EXCLUDED.unidade, faixa_min = EXCLUDED.faixa_min, faixa_max = EXCLUDED.faixa_max`,
+    [grandeza.nome, grandeza.unidade, grandeza.faixaMin, grandeza.faixaMax]
+  );
+}
+
 export async function cadastrarSensor(
   pool: Pick<Pool, "query">,
   estacao: { codigo: string; nome: string; municipio: string },
-  sensor: { codigo: string; tipo: string; unidade: string }
+  sensor: { codigo: string; tipo: string; unidade: string; faixaMin?: string; faixaMax?: string }
 ): Promise<{ estacaoId: string; sensorId: string }> {
+  // O sensor referencia o catálogo por FK. A faixa só importa para os testes de regra;
+  // a grandeza existente não é sobrescrita (o teste pode ter alterado a faixa).
+  await pool.query(
+    `INSERT INTO tipos_sensor (nome, unidade, faixa_min, faixa_max)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (nome) DO NOTHING`,
+    [sensor.tipo, sensor.unidade, sensor.faixaMin ?? "0", sensor.faixaMax ?? "1000"]
+  );
   const { rows: [e] } = await pool.query<{ id: string }>(
     "INSERT INTO estacoes (codigo, nome, municipio) VALUES ($1, $2, $3) RETURNING id",
     [estacao.codigo, estacao.nome, estacao.municipio]

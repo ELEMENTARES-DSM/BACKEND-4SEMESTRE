@@ -1,6 +1,10 @@
 import { uuidAleatorio } from "../defeitos.js";
 import type { Rng } from "../random.js";
-import { SENSORES, gerarValorSensor } from "../sensores.js";
+import {
+  gerarLeituraBruta,
+  gerarLeituraForaDaFaixa,
+  type SensorSimulado,
+} from "../sensores.js";
 import type { LeituraItem } from "../telemetria.factory.js";
 
 // Casos que o lote do teste contínuo (US-21) pode incluir, um de cada.
@@ -27,13 +31,13 @@ export interface MensagemLote {
 
 export interface OpcoesPlano {
   estacoes: string[];
+  /** Sensores ativos de cada estação, lidos do gestao-estacoes. */
+  sensoresPorEstacao: ReadonlyMap<string, readonly SensorSimulado[]>;
   medidas: number;
   inicioUnix: number;
   casos: readonly CasoEspecial[];
   rng: Rng;
 }
-
-const LEITURAS_POR_MENSAGEM = SENSORES.length;
 
 export function lerCasos(valor: string | undefined): CasoEspecial[] {
   if (valor === undefined) {
@@ -57,24 +61,58 @@ export function lerCasos(valor: string | undefined): CasoEspecial[] {
 }
 
 /**
+ * Quantas mensagens o lote precisa: estações em rodízio, cada mensagem com uma
+ * leitura por sensor da estação, até somar `medidas` leituras.
+ */
+function contarMensagens(
+  estacoes: string[],
+  tamanhos: ReadonlyMap<string, number>,
+  medidas: number,
+): number {
+  let leituras = 0;
+  let mensagens = 0;
+
+  while (leituras < medidas) {
+    leituras += tamanhos.get(estacoes[mensagens % estacoes.length]) as number;
+    mensagens += 1;
+  }
+
+  return mensagens;
+}
+
+/**
  * Monta as mensagens do lote: tantas quanto bastam para `medidas` leituras,
  * distribuídas entre as estações, com horários únicos por estação (1 s de
- * intervalo a partir de `inicioUnix`). Cada caso especial substitui uma
- * mensagem válida, espalhada pelo lote.
+ * intervalo a partir de `inicioUnix`). Cada estação envia uma leitura por
+ * sensor ativo dela, com o valor bruto da calibração invertida. Cada caso
+ * especial substitui uma mensagem válida, espalhada pelo lote.
  */
 export function planejarLote(opcoes: OpcoesPlano): MensagemLote[] {
-  const { estacoes, medidas, inicioUnix, casos, rng } = opcoes;
+  const { estacoes, sensoresPorEstacao, medidas, inicioUnix, casos, rng } = opcoes;
 
   if (estacoes.length === 0) {
     throw new Error("Informe ao menos uma estação para o lote.");
   }
-  if (!Number.isInteger(medidas) || medidas < LEITURAS_POR_MENSAGEM) {
+
+  const tamanhos = new Map<string, number>();
+  for (const estacao of estacoes) {
+    const sensores = sensoresPorEstacao.get(estacao) ?? [];
+    if (sensores.length === 0) {
+      throw new Error(
+        `A estação ${estacao} não tem sensor ativo com código: cadastre os sensores antes do lote.`,
+      );
+    }
+    tamanhos.set(estacao, sensores.length);
+  }
+
+  const menorMensagem = Math.min(...tamanhos.values());
+  if (!Number.isInteger(medidas) || medidas < menorMensagem) {
     throw new Error(
-      `O lote precisa de pelo menos ${LEITURAS_POR_MENSAGEM} medidas (uma mensagem).`,
+      `O lote precisa de pelo menos ${menorMensagem} medidas (uma mensagem).`,
     );
   }
 
-  const total = Math.ceil(medidas / LEITURAS_POR_MENSAGEM);
+  const total = contarMensagens(estacoes, tamanhos, medidas);
   if (casos.length >= total) {
     throw new Error("O lote é pequeno demais para os casos pedidos.");
   }
@@ -90,12 +128,13 @@ export function planejarLote(opcoes: OpcoesPlano): MensagemLote[] {
   for (let i = 0; i < total; i++) {
     const caso = posicoes.get(i) ?? "valida";
     const estacaoDoLote = estacoes[i % estacoes.length];
+    const sensores = sensoresPorEstacao.get(estacaoDoLote) as readonly SensorSimulado[];
     const unixtime = proximoHorario.get(estacaoDoLote) as number;
     proximoHorario.set(estacaoDoLote, unixtime + 1);
 
-    const leituras = SENSORES.map((sensor) => ({
+    const leituras: LeituraItem[] = sensores.map((sensor) => ({
       sensor: sensor.codigo,
-      valor: gerarValorSensor(sensor, rng),
+      valor: gerarLeituraBruta(sensor, rng),
     }));
     let estacao = estacaoDoLote;
 
@@ -103,8 +142,16 @@ export function planejarLote(opcoes: OpcoesPlano): MensagemLote[] {
       estacao = uuidAleatorio(rng);
     }
     if (caso === "umidade_invalida") {
-      const umidade = SENSORES.findIndex((s) => s.tipo === "Umidade Relativa");
-      leituras[umidade] = { sensor: SENSORES[umidade].codigo, valor: 120.0 };
+      // Umidade 120 (valor real); estação sem sensor de umidade usa o primeiro sensor, acima da faixa.
+      const indice = Math.max(
+        0,
+        sensores.findIndex((s) => s.tipo === "Umidade Relativa"),
+      );
+      const alvo = sensores[indice].tipo === "Umidade Relativa" ? 120 : undefined;
+      leituras[indice] = {
+        sensor: sensores[indice].codigo,
+        valor: gerarLeituraForaDaFaixa(sensores[indice], alvo),
+      };
     }
     if (caso === "sensor_inexistente") {
       leituras[0] = { sensor: "SENSOR-INEXISTENTE", valor: leituras[0].valor };

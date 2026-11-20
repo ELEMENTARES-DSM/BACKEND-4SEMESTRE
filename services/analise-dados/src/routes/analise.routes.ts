@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import { authOpcional, authenticate } from "../middlewares/auth.middleware";
 import { verificarPeriodo } from "../middlewares/periodo.middleware";
 import { verificarMunicipio } from "../middlewares/municipio.middleware";
+import { aplicarCotaEAuditar } from "../middlewares/cota.middleware";
 import {
   UltimasLeiturasService,
   ErroHttpUltimasLeituras,
@@ -10,10 +11,11 @@ import {
 const router = Router();
 const ultimasLeiturasService = new UltimasLeiturasService();
 
-// Aplica autenticação opcional, validação de limites de período e isolamento de município
+// Aplica autenticação opcional, validação de limites de período, isolamento de município e cota/auditoria
 router.use(authOpcional);
 router.use(verificarPeriodo);
 router.use(verificarMunicipio);
+router.use(aplicarCotaEAuditar);
 
 function exigirAuthSePrivada(req: Request, res: Response, next: NextFunction) {
   if (req.baseUrl.startsWith("/public")) {

@@ -1,9 +1,10 @@
 import { TipoSensor } from "../models/sensor.model";
 
 export interface CreateSensorDTO {
-  codigo?: string;
+  codigo: string;
   nome?: string;
   tipo: TipoSensor;
-  fator?: number;
-  ganho?: number;
+  unidade_leitura?: string | null;
+  fator_conversao?: number;
+  offset?: number;
 }

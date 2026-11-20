@@ -203,10 +203,13 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
       INTERNAL_TOKEN: ${INTERNAL_TOKEN}
+      REDIS_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      valkey:
         condition: service_healthy
     networks:
       - app-network

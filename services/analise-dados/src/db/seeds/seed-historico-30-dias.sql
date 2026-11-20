@@ -17,7 +17,7 @@ SET codigo = EXCLUDED.codigo,
     status = EXCLUDED.status;
 
 -- 2. Inserir Sensores para as Estações
-INSERT INTO sensores (id, estacao_id, codigo, nome, tipo, unidade_medida, fator, ganho, status, criado_em)
+INSERT INTO sensores (id, estacao_id, codigo, nome, tipo, unidade_medida, fator_conversao, offset_calibracao, status, criado_em)
 VALUES
   ('b0000000-0000-4000-8000-000000000001'::uuid, 'e0000000-0000-4000-8000-000000000001'::uuid, 'PM25-HIST-01', 'Sensor PM2.5 - Histórico', 'PM2.5', 'µg/m³', 1.0, 0.0, 'Ativo', CURRENT_TIMESTAMP - INTERVAL '31 days'),
   ('b0000000-0000-4000-8000-000000000002'::uuid, 'e0000000-0000-4000-8000-000000000001'::uuid, 'PM10-HIST-01', 'Sensor PM10 - Histórico', 'PM10', 'µg/m³', 1.0, 0.0, 'Ativo', CURRENT_TIMESTAMP - INTERVAL '31 days'),
