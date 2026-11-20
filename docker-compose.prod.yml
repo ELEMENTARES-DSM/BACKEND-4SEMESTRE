@@ -119,6 +119,7 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      # REDIS_URL aponta para o Valkey (nome mantido por compatibilidade)
       REDIS_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
     depends_on:
       postgres:
@@ -183,6 +184,7 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      # REDIS_URL aponta para o Valkey (nome mantido por compatibilidade)
       REDIS_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
     depends_on:
       postgres:
@@ -225,6 +227,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
       RABBITMQ_RECOVERY_INTERVAL_MS: ${RABBITMQ_RECOVERY_INTERVAL_MS:-10000}
+      # REDIS_URL aponta para o Valkey (nome mantido por compatibilidade)
       REDIS_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
     depends_on:
       postgres:

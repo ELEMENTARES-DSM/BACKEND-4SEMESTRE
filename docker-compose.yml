@@ -148,6 +148,7 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      # REDIS_URL aponta para o Valkey (nome mantido por compatibilidade)
       REDIS_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
     volumes:
       - ./services/auth-service/src:/app/src
@@ -236,6 +237,7 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      # REDIS_URL aponta para o Valkey (nome mantido por compatibilidade)
       REDIS_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
     volumes:
       - ./services/gestao-usuarios/src:/app/src
@@ -297,6 +299,7 @@ services:
       RABBITMQ_RECOVERY_INTERVAL_MS: ${RABBITMQ_RECOVERY_INTERVAL_MS:-10000}
       MQTT_BROKER_URL: mqtt://mosquitto:1883
       MQTT_QOS: ${MQTT_QOS:-1}
+      # REDIS_URL aponta para o Valkey (nome mantido por compatibilidade)
       REDIS_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
     volumes:
       - ./services/ingestao-dados/src:/app/src
