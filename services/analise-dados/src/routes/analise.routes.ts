@@ -3,14 +3,16 @@ import { authOpcional, authenticate } from "../middlewares/auth.middleware";
 import { verificarPeriodo } from "../middlewares/periodo.middleware";
 import { verificarMunicipio } from "../middlewares/municipio.middleware";
 import { IqarService, ErroHttpIqar } from "../services/iqar.service";
+import { aplicarCotaEAuditar } from "../middlewares/cota.middleware";
 
 const router = Router();
 const iqarService = new IqarService();
 
-// Aplica autenticação opcional, validação de limites de período e isolamento de município
+// Aplica autenticação opcional, validação de limites de período, isolamento de município e cota/auditoria
 router.use(authOpcional);
 router.use(verificarPeriodo);
 router.use(verificarMunicipio);
+router.use(aplicarCotaEAuditar);
 
 function exigirAuthSePrivada(req: Request, res: Response, next: NextFunction) {
   if (req.baseUrl.startsWith("/public")) {
