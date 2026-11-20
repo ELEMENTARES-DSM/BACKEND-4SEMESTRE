@@ -1,8 +1,12 @@
-import { Router, Request, Response } from "express";
-import { authOpcional } from "../middlewares/auth.middleware";
+import { Router, Request, Response, NextFunction } from "express";
+import { authOpcional, authenticate } from "../middlewares/auth.middleware";
 import { verificarPeriodo } from "../middlewares/periodo.middleware";
 import { verificarMunicipio } from "../middlewares/municipio.middleware";
 import { aplicarCotaEAuditar } from "../middlewares/cota.middleware";
+import {
+  UltimasLeiturasService,
+  ErroHttpUltimasLeituras,
+} from "../services/ultimas-leituras.service";
 import { z } from "zod";
 import {
   ErroHttpSeries,
@@ -11,6 +15,7 @@ import {
 } from "../services/series.service";
 
 const router = Router();
+const ultimasLeiturasService = new UltimasLeiturasService();
 
 // Aplica autenticação opcional, validação de limites de período, isolamento de município e cota/auditoria
 router.use(authOpcional);
@@ -18,6 +23,12 @@ router.use(verificarPeriodo);
 router.use(verificarMunicipio);
 router.use(aplicarCotaEAuditar);
 
+function exigirAuthSePrivada(req: Request, res: Response, next: NextFunction) {
+  if (req.baseUrl.startsWith("/public")) {
+    return next();
+  }
+  return authenticate(req, res, next);
+}
 const querySeriesSchema = z.object({
   grandeza: z
     .string({ error: "Parâmetro 'grandeza' é obrigatório." })
@@ -67,28 +78,40 @@ router.get("/estacoes/:id/series", async (req: Request, res: Response) => {
   },
 );
 
+router.get(
+  "/estacoes/:id/ultimas-leituras",
+  exigirAuthSePrivada,
+  async (req: Request, res: Response) => {
+    try {
+      const id = String(req.params.id);
+
+      const resultado = await ultimasLeiturasService.obterUltimasLeituras({
+        estacaoId: id,
+        usuario: req.auth,
+      });
+
+      return res.status(200).json(resultado);
+    } catch (error) {
+      if (error instanceof ErroHttpUltimasLeituras) {
+        return res.status(error.statusCode).json({
+          statusCode: error.statusCode,
+          message: error.message,
+        });
+      }
+
+      console.error("Erro ao consultar últimas leituras:", error);
+      return res.status(500).json({
+        statusCode: 500,
+        message: "Internal Server Error",
+      });
+    }
+  },
+);
+
 // ATENÇÃO: as rotas abaixo devolvem dados FIXOS (stub) da ELEM-274.
-// O dado real vem das tasks 35.07 (últimas leituras, ELEM-199),
-// 35.08 (IQAr, ELEM-200) e 35.09 (rotas públicas, ELEM-201) da US-35.
+// O dado real vem das tasks 35.08 (IQAr, ELEM-200) e 35.09 (rotas públicas, ELEM-201) da US-35.
 // O CSV (/exportar/csv) é da task 31.03 (ELEM-171), que ainda não existe na develop.
 // Não usar em produção até essas tasks serem entregues.
-
-// GET /analise/estacoes/:id/ultimas-leituras
-router.get("/estacoes/:id/ultimas-leituras", (req: Request, res: Response) => {
-  const { id } = req.params;
-
-  return res.json({
-    estacao_id: id,
-    leituras: [
-      {
-        grandeza: "PM25",
-        valor: 12.4,
-        unidade: "µg/m³",
-        tempo_relativo: "há 2 minutos",
-      },
-    ],
-  });
-});
 
 // GET /analise/iqar
 router.get("/iqar", (req: Request, res: Response) => {
