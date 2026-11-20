@@ -174,6 +174,90 @@ describe("receberMensagem", () => {
       expect(encerrarSemPublicar).not.toHaveBeenCalled();
     });
   });
+
+    describe("US-40 · verificação prévia falha: a mensagem segue para o Valkey", () => {
+    const atrasada: MensagemBruta = {
+      topico: topico(ESTACAO_A),
+      payloadBruto: '{"timestamp":"2026-11-16T09:50:04Z","leituras":[{"sensor":"T","valor":1}]}',
+      recebidoEm: "2026-11-16T10:00:05.000Z",
+    };
+
+    it("deve gravar a leitura em dia no Valkey e registrar no log quando a conferência da estação falha", async () => {
+      // Dado (Arrange): estação nova com o PostgreSQL fora
+      jest.mocked(conferirEstacao).mockRejectedValue(new Error("Banco indisponível"));
+
+      // Quando (Act)
+      const id = await receberMensagem(bruta);
+
+      // Então (Assert)
+      expect(id).toBe("id-gerado");
+      expect(gravarBruta).toHaveBeenCalledWith(bruta);
+      expect(gravarAceita).not.toHaveBeenCalled();
+      expect(gravarRejeitada).not.toHaveBeenCalled();
+      expect(publicarLeituraAtrasada).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith(
+        "Verificação prévia falhou; seguindo pelo Valkey",
+        expect.objectContaining({ topico: bruta.topico, erro: "Banco indisponível" }),
+      );
+    });
+
+    it("deve gravar a leitura atrasada no Valkey e registrar no log quando a conferência da estação falha", async () => {
+      // Dado (Arrange)
+      jest.mocked(conferirEstacao).mockRejectedValue(new Error("Banco indisponível"));
+
+      // Quando (Act)
+      const id = await receberMensagem(atrasada);
+
+      // Então (Assert)
+      expect(id).toBe("id-gerado");
+      expect(gravarBruta).toHaveBeenCalledWith(atrasada);
+      expect(gravarAceita).not.toHaveBeenCalled();
+      expect(publicarLeituraAtrasada).not.toHaveBeenCalled();
+      expect(marcarStagingPublicada).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith(
+        "Verificação prévia falhou; seguindo pelo Valkey",
+        expect.objectContaining({ topico: atrasada.topico, erro: "Banco indisponível" }),
+      );
+    });
+
+    it.each([
+      ["payload inválido", { ...bruta, payloadBruto: "não é JSON" }, undefined],
+      ["estação inativa", bruta, "Estação inativa"],
+    ])(
+      "deve gravar no Valkey e não encerrar nada quando a gravação da recusa direta falha: %s",
+      async (_nome, mensagem, motivoEstacao) => {
+        // Dado (Arrange)
+        jest.mocked(conferirEstacao).mockResolvedValue(motivoEstacao);
+        jest.mocked(gravarRejeitada).mockRejectedValue(new Error("Banco indisponível"));
+
+        // Quando (Act)
+        const id = await receberMensagem(mensagem);
+
+        // Então (Assert)
+        expect(id).toBe("id-gerado");
+        expect(gravarBruta).toHaveBeenCalledWith(mensagem);
+        expect(encerrarSemPublicar).not.toHaveBeenCalled();
+        expect(registrarRejeicao).not.toHaveBeenCalled();
+        expect(logger.warn).toHaveBeenCalledWith(
+          "Verificação prévia falhou; seguindo pelo Valkey",
+          expect.objectContaining({ erro: "Banco indisponível" }),
+        );
+      },
+    );
+
+    it("deve pedir a verificação só depois de gravar no Valkey quando cai no fallback", async () => {
+      // Dado (Arrange)
+      jest.mocked(conferirEstacao).mockRejectedValue(new Error("Banco indisponível"));
+
+      // Quando (Act)
+      await receberMensagem(bruta);
+
+      // Então (Assert)
+      const gravou = jest.mocked(gravarBruta).mock.invocationCallOrder[0];
+      const leuFila = jest.mocked(listarRecebidas).mock.invocationCallOrder[0];
+      expect(gravou).toBeLessThan(leuFila);
+    });
+  });
 });
 
 describe("verificarMensagem", () => {
@@ -428,6 +512,64 @@ describe("verificarMensagem", () => {
       expect(registrarRejeicao).not.toHaveBeenCalled();
       expect(encerrarSemPublicar).not.toHaveBeenCalled();
       expect(marcarPendente).not.toHaveBeenCalled();
+    });
+  });
+
+    describe("US-28 · atrasada que caiu no Valkey depois de gravada no PostgreSQL", () => {
+    const atrasada = (): MensagemStaging =>
+      staging({
+        payloadBruto: '{"timestamp":"2026-11-16T09:50:04Z","leituras":[{"sensor":"T","valor":1}]}',
+        recebidoEm: "2026-11-16T10:00:05.000Z",
+      });
+    const unixtime = Math.floor(Date.parse("2026-11-16T09:50:04Z") / 1000);
+
+    it("deve republicar o original e encerrar como duplicada quando a atrasada já está gravada com o mesmo payload", async () => {
+      // Dado (Arrange): gravarAceita ok + publicação falhou na primeira tentativa
+      const mensagem = atrasada();
+      jest.mocked(gravarAceita).mockResolvedValue("duplicata");
+      jest.mocked(buscarStagingPorEstacaoEUnixtime).mockResolvedValue(
+        { id: "original", payload_bruto: mensagem.payloadBruto } as never,
+      );
+
+      // Quando (Act)
+      const resultado = await verificarMensagem(mensagem, relogio);
+
+      // Então (Assert)
+      expect(resultado).toBe("duplicada");
+      expect(encerrarSemPublicar).toHaveBeenCalledWith(mensagem.id, "duplicada", AGORA);
+      expect(buscarStagingPorEstacaoEUnixtime).toHaveBeenCalledWith(ESTACAO_A, unixtime);
+      expect(publicarLeituraAtrasada).toHaveBeenCalledWith(
+        expect.objectContaining({ staging_id: "original", estacao_uuid: ESTACAO_A, unixtime }),
+      );
+      expect(marcarStagingPublicada).toHaveBeenCalledWith("original");
+    });
+
+    it("deve não republicar quando o payload do original é diferente", async () => {
+      // Dado (Arrange)
+      const mensagem = atrasada();
+      jest.mocked(gravarAceita).mockResolvedValue("duplicata");
+      jest.mocked(buscarStagingPorEstacaoEUnixtime).mockResolvedValue(
+        { id: "original", payload_bruto: "{outro}" } as never,
+      );
+
+      // Quando (Act)
+      await verificarMensagem(mensagem, relogio);
+
+      // Então (Assert)
+      expect(publicarLeituraAtrasada).not.toHaveBeenCalled();
+      expect(marcarStagingPublicada).not.toHaveBeenCalled();
+    });
+
+    it("deve não consultar nem republicar quando a duplicata é uma leitura em dia", async () => {
+      // Dado (Arrange)
+      jest.mocked(gravarAceita).mockResolvedValue("duplicata");
+
+      // Quando (Act)
+      await verificarMensagem(staging(), relogio);
+
+      // Então (Assert)
+      expect(buscarStagingPorEstacaoEUnixtime).not.toHaveBeenCalled();
+      expect(publicarLeituraAtrasada).not.toHaveBeenCalled();
     });
   });
 });

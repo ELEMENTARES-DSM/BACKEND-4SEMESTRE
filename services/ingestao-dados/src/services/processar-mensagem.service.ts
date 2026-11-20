@@ -42,39 +42,52 @@ let timer: NodeJS.Timeout | undefined;
 /**
  * Leitura em dia vai para o Valkey. Leituras atrasadas e recusas conhecidas são
  * verificadas primeiro e não entram em staging:recebidas/staging:pendentes.
+ * Se essa verificação prévia falhar (PostgreSQL fora, por exemplo), a mensagem
+ * entra no Valkey e a rodada de verificação decide depois.
  */
 export async function receberMensagem(mensagem: MensagemBruta): Promise<string> {
-  const estacaoId = extrairEstacaoId(mensagem.topico);
-  if (estacaoId) {
-    const entrada: MensagemIngestaoInput = { ...mensagem, estacaoId };
-    const validacao = validador.validar(entrada);
-    const id = randomUUID();
-    const staging: MensagemStaging = { ...mensagem, id, status: "recebida" };
-
-    if (!validacao.sucesso || !validacao.payloadValidado) {
-      await verificarMensagem(staging, () => new Date(), { foraDoValkey: true });
-      return id;
-    }
-
-    const motivoEstacao = await conferirEstacao(
-      estacaoId,
-      validacao.payloadValidado.timestamp,
-      mensagem.recebidoEm,
-    );
-    if (motivoEstacao !== undefined) {
-      await verificarMensagem(staging, () => new Date(), { foraDoValkey: true });
-      return id;
-    }
-
-    if (leituraAtrasada(mensagem.recebidoEm, validacao.payloadValidado.timestamp)) {
-      await verificarMensagem(staging, () => new Date(), { foraDoValkey: true });
-      return id;
-    }
-  }
+  const idDireto = await verificarAntesDoValkey(mensagem);
+  if (idDireto) return idDireto;
 
   const id = await gravarBruta(mensagem);
   solicitarVerificacao();
   return id;
+}
+
+/**
+ * Devolve o id quando a mensagem foi resolvida fora do Valkey (recusa conhecida
+ * ou leitura atrasada). Devolve undefined quando ela deve entrar no Valkey:
+ * leitura em dia, tópico sem UUID ou qualquer falha na verificação prévia.
+ */
+async function verificarAntesDoValkey(mensagem: MensagemBruta): Promise<string | undefined> {
+  const estacaoId = extrairEstacaoId(mensagem.topico);
+  if (!estacaoId) return undefined;
+
+  const id = randomUUID();
+  const staging: MensagemStaging = { ...mensagem, id, status: "recebida" };
+
+  try {
+    const validacao = validador.validar({ ...mensagem, estacaoId });
+    const payload = validacao.sucesso ? validacao.payloadValidado : undefined;
+
+    let foraDoValkey = payload === undefined;
+    if (payload) {
+      const motivoEstacao = await conferirEstacao(estacaoId, payload.timestamp, mensagem.recebidoEm);
+      foraDoValkey =
+        motivoEstacao !== undefined || leituraAtrasada(mensagem.recebidoEm, payload.timestamp);
+    }
+    if (!foraDoValkey) return undefined;
+
+    await verificarMensagem(staging, () => new Date(), { foraDoValkey: true });
+    return id;
+  } catch (erro) {
+    logger.warn("Verificação prévia falhou; seguindo pelo Valkey", {
+      stagingId: id,
+      topico: mensagem.topico,
+      erro: motivo(erro),
+    });
+    return undefined;
+  }
 }
 
 export function leituraAtrasada(recebidoEm: string, timestamp: string): boolean {
@@ -197,7 +210,7 @@ export async function verificarMensagem(
   if (gravacao === "duplicata") {
     if (!foraDoValkey) await encerrarSemPublicar(staging.id, "duplicada", agora());
     registrarDuplicadaIgnorada({ estacaoId, timestamp: validacao.payloadValidado.timestamp });
-    if (foraDoValkey) {
+    if (atrasada) {
       const unixtime = Math.floor(Date.parse(validacao.payloadValidado.timestamp) / 1000);
       const original = await buscarStagingPorEstacaoEUnixtime(estacaoId, unixtime);
       if (original?.payload_bruto === mensagem.payloadBruto) {
