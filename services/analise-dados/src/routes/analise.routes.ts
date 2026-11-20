@@ -7,6 +7,7 @@ import {
   UltimasLeiturasService,
   ErroHttpUltimasLeituras,
 } from "../services/ultimas-leituras.service";
+import { IqarService, ErroHttpIqar } from "../services/iqar.service";
 import { z } from "zod";
 import {
   ErroHttpSeries,
@@ -16,6 +17,7 @@ import {
 
 const router = Router();
 const ultimasLeiturasService = new UltimasLeiturasService();
+const iqarService = new IqarService();
 
 // Aplica autenticação opcional, validação de limites de período, isolamento de município e cota/auditoria
 router.use(authOpcional);
@@ -108,20 +110,74 @@ router.get(
   },
 );
 
-// ATENÇÃO: as rotas abaixo devolvem dados FIXOS (stub) da ELEM-274.
-// O dado real vem das tasks 35.08 (IQAr, ELEM-200) e 35.09 (rotas públicas, ELEM-201) da US-35.
-// O CSV (/exportar/csv) é da task 31.03 (ELEM-171), que ainda não existe na develop.
-// Não usar em produção até essas tasks serem entregues.
+// GET /analise/estacoes/:id/iqar (US-35 / ELEM-200)
+router.get(
+  "/estacoes/:id/iqar",
+  exigirAuthSePrivada,
+  async (req: Request, res: Response) => {
+    try {
+      const id = String(req.params.id);
 
-// GET /analise/iqar
-router.get("/iqar", (req: Request, res: Response) => {
-  return res.json({
-    indice: 45,
-    classificacao: "Boa",
-    cor: "#00E400",
-    municipio: req.municipioEscopo || "Geral",
-  });
-});
+      const resultado = await iqarService.calcularIqarPorEstacao({
+        estacaoId: id,
+        usuario: req.auth,
+      });
+
+      return res.status(200).json(resultado);
+    } catch (error) {
+      if (error instanceof ErroHttpIqar) {
+        return res.status(error.statusCode).json({
+          statusCode: error.statusCode,
+          message: error.message,
+        });
+      }
+
+      console.error("Erro ao calcular o IQAr da estação:", error);
+      return res.status(500).json({
+        statusCode: 500,
+        message: "Internal Server Error",
+      });
+    }
+  },
+);
+
+// GET /analise/iqar (aceita ?estacaoId=... ou orienta o uso de /estacoes/:id/iqar)
+router.get(
+  "/iqar",
+  exigirAuthSePrivada,
+  async (req: Request, res: Response) => {
+    const estacaoId =
+      typeof req.query.estacaoId === "string" ? req.query.estacaoId.trim() : "";
+
+    if (!estacaoId) {
+      return res.status(400).json({
+        statusCode: 400,
+        message: "Informe o ID da estação na rota: /estacoes/:id/iqar",
+      });
+    }
+
+    try {
+      const resultado = await iqarService.calcularIqarPorEstacao({
+        estacaoId,
+        usuario: req.auth,
+      });
+      return res.status(200).json(resultado);
+    } catch (error) {
+      if (error instanceof ErroHttpIqar) {
+        return res.status(error.statusCode).json({
+          statusCode: error.statusCode,
+          message: error.message,
+        });
+      }
+
+      console.error("Erro ao calcular o IQAr da estação:", error);
+      return res.status(500).json({
+        statusCode: 500,
+        message: "Internal Server Error",
+      });
+    }
+  },
+);
 
 // GET /analise/exportar/csv (ou rota de CSV da 31.03)
 router.get("/exportar/csv", (req: Request, res: Response) => {
