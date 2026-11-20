@@ -25,7 +25,6 @@
   "devDependencies": {
     "@apidevtools/swagger-parser": "^13.1.0",
     "@playwright/test": "^1.63.0",
-    "@types/jest": "^30.0.0",
     "@types/node": "^22.20.3",
     "allure-commandline": "^2.43.0",
     "allure-playwright": "^3.12.1"
