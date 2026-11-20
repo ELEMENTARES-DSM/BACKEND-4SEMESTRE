@@ -78,40 +78,12 @@ router.get("/estacoes/:id/series", async (req: Request, res: Response) => {
   },
 );
 
-// ATENÇÃO: as rotas abaixo devolvem dados FIXOS (stub) da ELEM-274.
-// O dado real vem das tasks 35.07 (últimas leituras, ELEM-199),
-// 35.08 (IQAr, ELEM-200) e 35.09 (rotas públicas, ELEM-201) da US-35.
-// O CSV (/exportar/csv) é da task 31.03 (ELEM-171), que ainda não existe na develop.
-// Não usar em produção até essas tasks serem entregues.
-
-// GET /analise/estacoes/:id/series e GET /public/analise/estacoes/:id/series
-router.get("/estacoes/:id/series", (req: Request, res: Response) => {
-  const { id } = req.params;
-  const { grandeza = "PM25", periodo = "24h" } = req.query;
-
-  return res.json({
-    estacao_id: id,
-    grandeza,
-    periodo,
-    usuario_papel: req.auth?.papel || "ANONIMO",
-    pontos: [
-      {
-        timestamp: new Date().toISOString(),
-        valor: 15.5,
-      },
-    ],
-  });
-});
-
 router.get(
   "/estacoes/:id/ultimas-leituras",
   exigirAuthSePrivada,
   async (req: Request, res: Response) => {
     try {
       const id = String(req.params.id);
-// GET /analise/estacoes/:id/ultimas-leituras
-router.get("/estacoes/:id/ultimas-leituras", (req: Request, res: Response) => {
-  const { id } = req.params;
 
       const resultado = await ultimasLeiturasService.obterUltimasLeituras({
         estacaoId: id,
@@ -135,6 +107,11 @@ router.get("/estacoes/:id/ultimas-leituras", (req: Request, res: Response) => {
     }
   },
 );
+
+// ATENÇÃO: as rotas abaixo devolvem dados FIXOS (stub) da ELEM-274.
+// O dado real vem das tasks 35.08 (IQAr, ELEM-200) e 35.09 (rotas públicas, ELEM-201) da US-35.
+// O CSV (/exportar/csv) é da task 31.03 (ELEM-171), que ainda não existe na develop.
+// Não usar em produção até essas tasks serem entregues.
 
 // GET /analise/iqar
 router.get("/iqar", (req: Request, res: Response) => {
