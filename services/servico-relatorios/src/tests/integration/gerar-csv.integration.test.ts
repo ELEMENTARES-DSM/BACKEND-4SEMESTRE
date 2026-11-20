@@ -33,7 +33,7 @@ function saidaLenta(): { saida: Writable; texto: () => Promise<string> } {
   return { saida, texto };
 }
 
-integration("US-31 · CSV em lotes (PostgreSQL)", () => {
+integration("gerar-csv.service (US-31)", () => {
   const schema = nomeDeSchema("relatorios_csv");
   const filtros = (dias: { inicio: string; fim: string }): repositorio.FiltrosMedicoes => ({
     municipio: "São José dos Campos",
@@ -59,31 +59,33 @@ integration("US-31 · CSV em lotes (PostgreSQL)", () => {
     await apagarSchema(pool, schema);
   });
 
-  it("deve escrever 12.001 linhas em 3 lotes, sem repetir linha, quando há 12.000 medidas", async () => {
-    // Dado
-    const lotes = jest.spyOn(repositorio, "buscarLoteMedicoes");
-    const { saida, texto } = saidaLenta();
+  describe("escreverCsv", () => {
+    it("deve escrever 12.001 linhas em 3 lotes, sem repetir linha, quando há 12.000 medidas", async () => {
+      // Dado:
+      const lotes = jest.spyOn(repositorio, "buscarLoteMedicoes");
+      const { saida, texto } = saidaLenta();
 
-    // Quando
-    await escreverCsv(filtros({ inicio: "2026-11-01", fim: "2026-11-06" }), saida);
+      // Quando:
+      await escreverCsv(filtros({ inicio: "2026-11-01", fim: "2026-11-06" }), saida);
 
-    // Então
-    const linhas = (await texto()).split("\r\n").slice(0, -1);
-    expect(linhas).toHaveLength(12001);
-    expect(new Set(linhas).size).toBe(12001);
-    expect(lotes).toHaveBeenCalledTimes(3);
-    // No mesmo minuto, a ordem entre os dois sensores segue o id (UUID), que é arbitrário.
-    expect(linhas[1]).toMatch(/^01\/11\/2026 00:00;EST-001;Centro;São José dos Campos;[TU]-01;.+;20;21;Sim$/);
-  });
+      // Então:
+      const linhas = (await texto()).split("\r\n").slice(0, -1);
+      expect(linhas).toHaveLength(12001);
+      expect(new Set(linhas).size).toBe(12001);
+      expect(lotes).toHaveBeenCalledTimes(3);
+      // No mesmo minuto, a ordem entre os dois sensores segue o id (UUID), que é arbitrário.
+      expect(linhas[1]).toMatch(/^01\/11\/2026 00:00;EST-001;Centro;São José dos Campos;[TU]-01;.+;20;21;Sim$/);
+    });
 
-  it("deve escrever só o cabeçalho quando o período não tem medições", async () => {
-    // Dado
-    const { saida, texto } = saidaLenta();
+    it("deve escrever só o cabeçalho quando o período não tem medições", async () => {
+      // Dado:
+      const { saida, texto } = saidaLenta();
 
-    // Quando
-    await escreverCsv(filtros({ inicio: "2026-10-01", fim: "2026-10-01" }), saida);
+      // Quando:
+      await escreverCsv(filtros({ inicio: "2026-10-01", fim: "2026-10-01" }), saida);
 
-    // Então
-    expect(await texto()).toBe(`${BOM}${CABECALHO_CSV}\r\n`);
+      // Então:
+      expect(await texto()).toBe(`${BOM}${CABECALHO_CSV}\r\n`);
+    });
   });
 });

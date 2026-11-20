@@ -25,7 +25,7 @@ const integration = process.env.RELATORIOS_TEST_DATABASE_URL ? describe : descri
 const SJC = "São José dos Campos";
 const emBrasilia = (dataHora: string) => Date.parse(`${dataHora}:00-03:00`) / 1000;
 
-integration("US-31 · consulta das medições (PostgreSQL)", () => {
+integration("medicoes.repository (US-31)", () => {
   const schema = nomeDeSchema("relatorios_medicoes");
   const dia = periodo("2026-11-06", "2026-11-06");
   const filtrosSjc = (extra: Partial<FiltrosMedicoes> = {}): FiltrosMedicoes => ({
@@ -69,25 +69,25 @@ integration("US-31 · consulta das medições (PostgreSQL)", () => {
 
   describe("Cenário 4 · isolamento", () => {
     it("deve trazer só as medições do município pedido quando há dois municípios no banco", async () => {
-      // Dado
+      // Dado:
       const filtros = filtrosSjc();
 
-      // Quando
+      // Quando:
       const linhas = await buscarMedicoes(filtros, { pagina: 1, porPagina: 500 });
 
-      // Então
+      // Então:
       expect(linhas).toHaveLength(5);
       expect(new Set(linhas.map((l) => l.municipio))).toEqual(new Set([SJC]));
     });
 
     it("deve dizer que não há estação quando o município não está cadastrado", async () => {
-      // Dado
+      // Dado:
       const municipio = "Atlântida";
 
-      // Quando
+      // Quando:
       const existe = await existeEstacaoNoMunicipio(municipio);
 
-      // Então
+      // Então:
       expect(existe).toBe(false);
       expect(await existeEstacaoNoMunicipio(SJC)).toBe(true);
     });
@@ -95,13 +95,13 @@ integration("US-31 · consulta das medições (PostgreSQL)", () => {
 
   describe("período em Brasília", () => {
     it("deve pôr as medidas de 23:59 e de 00:00 no dia certo quando o período é um dia", async () => {
-      // Dado
+      // Dado:
       const filtros = filtrosSjc({ estacoes: ["EST-001"], grandezas: ["Temperatura"] });
 
-      // Quando
+      // Quando:
       const linhas = await buscarMedicoes(filtros, { pagina: 1, porPagina: 500 });
 
-      // Então
+      // Então:
       expect(linhas.map((l) => Number(l.unixtime))).toEqual([
         emBrasilia("2026-11-06T00:00"),
         emBrasilia("2026-11-06T11:05"),
@@ -112,49 +112,49 @@ integration("US-31 · consulta das medições (PostgreSQL)", () => {
 
   describe("filtros de estação e grandeza", () => {
     it("deve trazer só a estação pedida quando filtra por estação", async () => {
-      // Dado
+      // Dado:
       const filtros = filtrosSjc({ estacoes: ["EST-002"] });
 
-      // Quando
+      // Quando:
       const linhas = await buscarMedicoes(filtros, { pagina: 1, porPagina: 500 });
 
-      // Então
+      // Então:
       expect(linhas.map((l) => l.estacao_codigo)).toEqual(["EST-002"]);
     });
 
     it("deve trazer só a grandeza pedida quando filtra por grandeza", async () => {
-      // Dado
+      // Dado:
       const filtros = filtrosSjc({ grandezas: ["Umidade Relativa"] });
 
-      // Quando
+      // Quando:
       const linhas = await buscarMedicoes(filtros, { pagina: 1, porPagina: 500 });
 
-      // Então
+      // Então:
       expect(linhas.map((l) => l.sensor_codigo)).toEqual(["U-01"]);
     });
 
     it("deve combinar os dois filtros quando vêm juntos", async () => {
-      // Dado
+      // Dado:
       const filtros = filtrosSjc({ estacoes: ["EST-001", "EST-002"], grandezas: ["Temperatura"] });
 
-      // Quando
+      // Quando:
       const total = await contarMedicoes(filtros);
 
-      // Então
+      // Então:
       expect(total).toBe(4);
     });
   });
 
   describe("Cenário 5 · período sem medições", () => {
     it("deve devolver zero quando nenhuma estação enviou leitura no período", async () => {
-      // Dado
+      // Dado:
       const filtros = filtrosSjc(periodo("2026-10-01", "2026-10-02"));
 
-      // Quando
+      // Quando:
       const total = await contarMedicoes(filtros);
       const linhas = await buscarMedicoes(filtros, { pagina: 1, porPagina: 500 });
 
-      // Então
+      // Então:
       expect(total).toBe(0);
       expect(linhas).toEqual([]);
     });
@@ -162,13 +162,13 @@ integration("US-31 · consulta das medições (PostgreSQL)", () => {
 
   describe("Cenário 6 · medida inválida", () => {
     it("deve trazer a medida com valida = false quando ela foi marcada como inválida", async () => {
-      // Dado
+      // Dado:
       const filtros = filtrosSjc({ grandezas: ["Umidade Relativa"] });
 
-      // Quando
+      // Quando:
       const [linha] = await buscarMedicoes(filtros, { pagina: 1, porPagina: 500 });
 
-      // Então
+      // Então:
       expect(linha).toMatchObject({
         estacao_codigo: "EST-001",
         estacao_nome: "Centro",
@@ -182,25 +182,25 @@ integration("US-31 · consulta das medições (PostgreSQL)", () => {
 
   describe("paginação e lotes do CSV", () => {
     it("deve trazer a segunda página quando pede a página 2", async () => {
-      // Dado
+      // Dado:
       const filtros = filtrosSjc();
       const todas = await buscarMedicoes(filtros, { pagina: 1, porPagina: 500 });
 
-      // Quando
+      // Quando:
       const pagina2 = await buscarMedicoes(filtros, { pagina: 2, porPagina: 2 });
 
-      // Então
+      // Então:
       expect(pagina2.map((l) => l.id)).toEqual(todas.slice(2, 4).map((l) => l.id));
     });
 
     it("deve ler cada linha uma vez, sem pular, quando lê em lotes com unixtime empatado", async () => {
-      // Dado
+      // Dado:
       const filtros = filtrosSjc();
       const todas = await buscarMedicoes(filtros, { pagina: 1, porPagina: 500 });
       const lidas: LinhaMedicao[] = [];
       let chave: ChaveLote | null = null;
 
-      // Quando
+      // Quando:
       for (;;) {
         const lote: LinhaMedicao[] = await buscarLoteMedicoes(filtros, chave, 2);
         lidas.push(...lote);
@@ -208,7 +208,7 @@ integration("US-31 · consulta das medições (PostgreSQL)", () => {
         chave = lote[lote.length - 1];
       }
 
-      // Então
+      // Então:
       expect(lidas.map((l) => l.id)).toEqual(todas.map((l) => l.id));
     });
   });

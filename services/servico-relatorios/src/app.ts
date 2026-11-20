@@ -1,7 +1,8 @@
-import express from "express";
+import express, { NextFunction, Request, Response } from "express";
 import cors from "cors";
 import openapi from "./docs/openapi.json";
 import medicoesRoutes from "./routes/medicoes.routes";
+import logger from "./utils/logger";
 
 const app = express();
 
@@ -27,5 +28,13 @@ app.get("/relatorios/health", (_req, res) => {
 
 // Medições do município em JSON ou CSV, com login (US-31).
 app.use("/relatorios/medicoes", medicoesRoutes);
+
+// Garante erro em JSON (e não HTML padrão do Express) em falhas inesperadas no formato JSON.
+app.use((erro: Error, _req: Request, res: Response, _next: NextFunction) => {
+  void _next;
+  logger.error("Erro inesperado no serviço de relatórios", { erro: erro.message });
+  if (res.headersSent) return;
+  res.status(500).json({ erro: "Erro interno do servidor." });
+});
 
 export default app;

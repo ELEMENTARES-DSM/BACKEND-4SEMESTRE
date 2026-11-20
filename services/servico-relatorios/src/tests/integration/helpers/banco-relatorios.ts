@@ -21,7 +21,7 @@ export async function prepararSchemaRelatorios(pool: Pool, schema: string): Prom
     CREATE TABLE sensores (
       id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
       estacao_id     UUID        NOT NULL REFERENCES estacoes(id),
-      tipo           VARCHAR(50) NOT NULL,
+      tipo           VARCHAR(100) NOT NULL,
       unidade_medida VARCHAR(20) NOT NULL,
       codigo         VARCHAR(30)
     )
