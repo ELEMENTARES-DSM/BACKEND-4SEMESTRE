@@ -24,12 +24,10 @@
   "paths": {
     "/analise/estacoes/{id}/series": {
       "get": {
-        "tags": [
-          "Análise"
-        ],
+        "tags": ["Análise"],
         "operationId": "getEstacaoSeries",
         "summary": "Obter séries históricas da estação",
-        "description": "Retorna as séries históricas da grandeza solicitada, agrupando os dados em intervalos de 5 minutos para 24h, 1 hora para 7d e 1 dia para 30d. Suporta requisições com ou sem autenticação: usuários sem login podem consultar até 7 dias; MUNICIPE pode consultar até 30 dias; GESTOR_PUBLICO e ADMINISTRADOR não possuem limite de período. Períodos maiores que o permitido para o perfil respondem 400 com o limite máximo na mensagem.",
+        "description": "Retorna as séries históricas da grandeza solicitada, agrupando os dados em intervalos de 5 minutos para 24h, 1 hora para 7d e 1 dia para 30d. Suporta requisições com ou sem autenticação: usuários sem login podem consultar até 7 dias; MUNICIPE pode consultar até 30 dias com cota de 2.000 requisições/semana e 6.000 requisições/mês (retornando cabeçalhos X-Cota-Semana-Restante e X-Cota-Mes-Restante, ou 429 se esgotada); GESTOR_PUBLICO e ADMINISTRADOR não possuem limite de período nem cota. Períodos maiores que o permitido para o perfil respondem 400 com o limite máximo na mensagem.",
         "security": [
           {
             "BearerAuth": []
@@ -57,11 +55,7 @@
             "description": "Período da série histórica. O agrupamento dos dados depende do período selecionado.",
             "schema": {
               "type": "string",
-              "enum": [
-                "24h",
-                "7d",
-                "30d"
-              ],
+              "enum": ["24h", "7d", "30d"],
               "example": "24h"
             }
           }
@@ -82,6 +76,9 @@
           "404": {
             "$ref": "#/components/responses/EstacaoNotFound"
           },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
           "500": {
             "$ref": "#/components/responses/InternalError"
           }
@@ -90,9 +87,7 @@
     },
     "/analise/estacoes/{id}/ultimas-leituras": {
       "get": {
-        "tags": [
-          "Análise"
-        ],
+        "tags": ["Análise"],
         "operationId": "getEstacaoUltimasLeituras",
         "summary": "Obter últimas leituras da estação",
         "description": "Retorna as últimas leituras disponíveis da estação, incluindo a grandeza, o valor calibrado, a unidade de medida e o tempo relativo da leitura.",
@@ -122,6 +117,9 @@
           "404": {
             "$ref": "#/components/responses/EstacaoNotFound"
           },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
           "500": {
             "$ref": "#/components/responses/InternalError"
           }
@@ -130,9 +128,7 @@
     },
     "/analise/iqar": {
       "get": {
-        "tags": [
-          "Análise"
-        ],
+        "tags": ["Análise"],
         "operationId": "getIqar",
         "summary": "Obter Índice de Qualidade do Ar (IQAr)",
         "description": "Retorna o IQAr, incluindo a cor e o rótulo correspondente à faixa oficial de qualidade do ar. Quando não houver dados suficientes, retorna o texto 'Sem dados suficientes'.",
@@ -151,6 +147,9 @@
           "403": {
             "$ref": "#/components/responses/Forbidden"
           },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
           "500": {
             "$ref": "#/components/responses/InternalError"
           }
@@ -159,9 +158,7 @@
     },
     "/public/analise/estacoes/{id}/series": {
       "get": {
-        "tags": [
-          "Público"
-        ],
+        "tags": ["Público"],
         "operationId": "getPublicEstacaoSeries",
         "summary": "Obter séries históricas da estação (Público)",
         "description": "Versão pública da consulta de séries históricas, sem necessidade de autenticação (limite máximo de até 7 dias; acima disso retorna 400). Os agrupamentos são de 5 minutos para 24h e 1 hora para 7d.",
@@ -187,11 +184,7 @@
             "description": "Período da série histórica.",
             "schema": {
               "type": "string",
-              "enum": [
-                "24h",
-                "7d",
-                "30d"
-              ],
+              "enum": ["24h", "7d", "30d"],
               "example": "24h"
             }
           }
@@ -206,6 +199,9 @@
           "404": {
             "$ref": "#/components/responses/EstacaoNotFound"
           },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
           "500": {
             "$ref": "#/components/responses/InternalError"
           }
@@ -214,9 +210,7 @@
     },
     "/public/analise/estacoes/{id}/ultimas-leituras": {
       "get": {
-        "tags": [
-          "Público"
-        ],
+        "tags": ["Público"],
         "operationId": "getPublicEstacaoUltimasLeituras",
         "summary": "Obter últimas leituras da estação (Público)",
         "description": "Versão pública da consulta de últimas leituras, sem necessidade de autenticação.",
@@ -236,6 +230,9 @@
           "404": {
             "$ref": "#/components/responses/EstacaoNotFound"
           },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
           "500": {
             "$ref": "#/components/responses/InternalError"
           }
@@ -244,9 +241,7 @@
     },
     "/public/analise/iqar": {
       "get": {
-        "tags": [
-          "Público"
-        ],
+        "tags": ["Público"],
         "operationId": "getPublicIqar",
         "summary": "Obter IQAr (Público)",
         "description": "Versão pública da consulta do Índice de Qualidade do Ar, sem necessidade de autenticação.",
@@ -254,6 +249,9 @@
         "responses": {
           "200": {
             "$ref": "#/components/responses/IqarSuccess"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
@@ -285,6 +283,20 @@
     "responses": {
       "SeriesSuccess": {
         "description": "Séries históricas obtidas com sucesso.",
+        "headers": {
+          "X-Cota-Semana-Restante": {
+            "description": "Requisições restantes na cota semanal (somente com token)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "X-Cota-Mes-Restante": {
+            "description": "Requisições restantes na cota mensal (somente com token)",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        },
         "content": {
           "application/json": {
             "schema": {
@@ -299,11 +311,11 @@
                   "periodo": "24h",
                   "dados": [
                     {
-                      "timestamp": "2026-06-06T10:00:00Z",
+                      "timestamp": "2026-06-06T10:00:00-03:00",
                       "valor": 25.4
                     },
                     {
-                      "timestamp": "2026-06-06T10:05:00Z",
+                      "timestamp": "2026-06-06T10:05:00-03:00",
                       "valor": 26.1
                     }
                   ]
@@ -317,11 +329,11 @@
                   "periodo": "7d",
                   "dados": [
                     {
-                      "timestamp": "2026-06-06T10:00:00Z",
+                      "timestamp": "2026-06-06T10:00:00-03:00",
                       "valor": 25.4
                     },
                     {
-                      "timestamp": "2026-06-06T11:00:00Z",
+                      "timestamp": "2026-06-06T11:00:00-03:00",
                       "valor": 26.1
                     }
                   ]
@@ -335,11 +347,11 @@
                   "periodo": "30d",
                   "dados": [
                     {
-                      "timestamp": "2026-06-06T00:00:00Z",
+                      "timestamp": "2026-06-06T00:00:00-03:00",
                       "valor": 25.4
                     },
                     {
-                      "timestamp": "2026-06-07T00:00:00Z",
+                      "timestamp": "2026-06-07T00:00:00-03:00",
                       "valor": 26.1
                     }
                   ]
@@ -351,6 +363,20 @@
       },
       "UltimasLeiturasSuccess": {
         "description": "Últimas leituras obtidas com sucesso.",
+        "headers": {
+          "X-Cota-Semana-Restante": {
+            "description": "Requisições restantes na cota semanal (somente com token)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "X-Cota-Mes-Restante": {
+            "description": "Requisições restantes na cota mensal (somente com token)",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        },
         "content": {
           "application/json": {
             "schema": {
@@ -378,6 +404,20 @@
       },
       "IqarSuccess": {
         "description": "IQAr obtido com sucesso. Quando não houver dados suficientes, o resultado informa essa condição.",
+        "headers": {
+          "X-Cota-Semana-Restante": {
+            "description": "Requisições restantes na cota semanal (somente com token)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "X-Cota-Mes-Restante": {
+            "description": "Requisições restantes na cota mensal (somente com token)",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        },
         "content": {
           "application/json": {
             "schema": {
@@ -474,6 +514,38 @@
           }
         }
       },
+      "TooManyRequests": {
+        "description": "Limite de cota de requisições excedido para o perfil (semanal ou mensal). Retorna a data em que a cota será renovada.",
+        "headers": {
+          "X-Cota-Semana-Restante": {
+            "description": "Saldo restante de requisições na semana atual",
+            "schema": {
+              "type": "string",
+              "example": "0"
+            }
+          },
+          "X-Cota-Mes-Restante": {
+            "description": "Saldo restante de requisições no mês atual",
+            "schema": {
+              "type": "string",
+              "example": "120"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/QuotaExceededResponse"
+            },
+            "example": {
+              "erro": "Limite de cota semanal de requisições excedido para o seu perfil.",
+              "renovaEm": "2026-11-23T00:00:00.000Z",
+              "semanaRestante": 0,
+              "mesRestante": 120
+            }
+          }
+        }
+      },
       "InternalError": {
         "description": "Erro interno durante o processamento da requisição.",
         "content": {
@@ -492,10 +564,7 @@
     "schemas": {
       "ErrorResponse": {
         "type": "object",
-        "required": [
-          "statusCode",
-          "message"
-        ],
+        "required": ["statusCode", "message"],
         "properties": {
           "statusCode": {
             "type": "integer",
@@ -507,14 +576,35 @@
           }
         }
       },
-      "SeriesResponse": {
+      "QuotaExceededResponse": {
         "type": "object",
         "required": [
-          "estacaoId",
-          "grandeza",
-          "periodo",
-          "dados"
+          "erro",
+          "renovaEm"
         ],
+        "properties": {
+          "erro": {
+            "type": "string",
+            "example": "Limite de cota semanal de requisições excedido para o seu perfil."
+          },
+          "renovaEm": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-11-23T00:00:00.000Z"
+          },
+          "semanaRestante": {
+            "type": "integer",
+            "example": 0
+          },
+          "mesRestante": {
+            "type": "integer",
+            "example": 120
+          }
+        }
+      },
+      "SeriesResponse": {
+        "type": "object",
+        "required": ["estacaoId", "grandeza", "periodo", "dados"],
         "properties": {
           "estacaoId": {
             "type": "string",
@@ -526,11 +616,7 @@
           },
           "periodo": {
             "type": "string",
-            "enum": [
-              "24h",
-              "7d",
-              "30d"
-            ],
+            "enum": ["24h", "7d", "30d"],
             "example": "24h"
           },
           "dados": {
@@ -538,15 +624,12 @@
             "description": "Pontos da série histórica agrupados conforme o período solicitado.",
             "items": {
               "type": "object",
-              "required": [
-                "timestamp",
-                "valor"
-              ],
+              "required": ["timestamp", "valor"],
               "properties": {
                 "timestamp": {
                   "type": "string",
                   "format": "date-time",
-                  "example": "2026-06-06T10:00:00Z"
+                  "example": "2026-06-06T10:00:00-03:00"
                 },
                 "valor": {
                   "type": "number",
@@ -559,10 +642,7 @@
       },
       "UltimasLeiturasResponse": {
         "type": "object",
-        "required": [
-          "estacaoId",
-          "leituras"
-        ],
+        "required": ["estacaoId", "leituras"],
         "properties": {
           "estacaoId": {
             "type": "string",
@@ -602,11 +682,7 @@
       },
       "IqarResponse": {
         "type": "object",
-        "required": [
-          "status",
-          "rotuloFaixa",
-          "mensagem"
-        ],
+        "required": ["status", "rotuloFaixa", "mensagem"],
         "properties": {
           "status": {
             "type": "string",

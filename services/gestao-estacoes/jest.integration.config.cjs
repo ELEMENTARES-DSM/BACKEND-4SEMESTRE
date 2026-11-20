@@ -1,6 +1,8 @@
 module.exports = {
   testEnvironment: "node",
-  roots: ["<rootDir>/tests/integration"],
+  // tests/integration: fluxo contra a API no Docker Compose (variáveis TEST_*).
+  // src/tests/integration: migrations e rotas contra o banco de teste.
+  roots: ["<rootDir>/tests/integration", "<rootDir>/src/tests/integration"],
   testMatch: ["**/*.test.ts"],
   maxWorkers: 1,
   testTimeout: 15000,

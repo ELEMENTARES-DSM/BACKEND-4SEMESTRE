@@ -30,6 +30,14 @@ router.get(
   sensorController.listByEstacao
 );
 
+// Códigos que a estação mandou e ainda não têm sensor: só quem cadastra sensor vê.
+router.get(
+  "/estacoes/:estacaoId/sensores/detectados",
+  checkRole(PAPEIS_PERMITIDOS),
+  validate(estacaoIdParamSchema, "params"),
+  sensorController.listarDetectados
+);
+
 router.put(
   "/sensores/:id",
   checkRole(PAPEIS_PERMITIDOS),

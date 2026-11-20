@@ -210,6 +210,7 @@ services:
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      JWT_SECRET: ${JWT_SECRET}
     volumes:
       - ./services/analise-dados/src:/app/src
       - ./services/analise-dados/tsconfig.json:/app/tsconfig.json
@@ -267,6 +268,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
       INTERNAL_TOKEN: ${INTERNAL_TOKEN}
+      REDIS_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
     volumes:
       - ./services/gestao-estacoes/src:/app/src
       - ./services/gestao-estacoes/tsconfig.json:/app/tsconfig.json
@@ -275,6 +277,8 @@ services:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      valkey:
         condition: service_healthy
     networks:
       - app-network
@@ -374,9 +378,14 @@ services:
       SIM_TIPOS_ERRO: ${SIM_TIPOS_ERRO:-}
       SIM_SEED: ${SIM_SEED:-}
       SIM_ESTACAO_INATIVA_ID: ${SIM_ESTACAO_INATIVA_ID:-}
+      # Os sensores de cada estação vêm do catálogo, pela rota interna do gestao-estacoes.
+      SIM_API_URL: ${SIM_API_URL:-http://gestao-estacoes:3000}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
     depends_on:
       mosquitto:
         condition: service_healthy
+      gestao-estacoes:
+        condition: service_started
     restart: unless-stopped
     networks:
       - app-network

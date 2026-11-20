@@ -29,10 +29,19 @@ export interface SensorEventoRow {
   id: string;
   estacao_id: string;
   codigo: string;
-  fator: string;
-  ganho: string;
+  /** valor = bruto x fator_conversao + offset (NUMERIC, chega como texto). */
+  fator_conversao: string;
+  offset: string;
   status: string;
   tipo: string;
+  /**
+   * Faixa física e unidade da grandeza do sensor, lidas do catálogo
+   * (tipos_sensor) na mesma consulta. NUMERIC chega como texto, o que combina
+   * com a conta em decimal exato.
+   */
+  faixa_min: string;
+  faixa_max: string;
+  unidade: string;
   municipio: string;
   estacao_status: string;
 }
