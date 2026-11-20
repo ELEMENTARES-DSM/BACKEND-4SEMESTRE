@@ -15,13 +15,18 @@ interface DadosRegraAlerta {
   severidade: SeveridadeRegraAlerta;
 }
 
+// A faixa física da grandeza vem do catálogo (tipos_sensor) por JOIN, na mesma
+// consulta: o limite da regra é conferido contra a faixa que o Administrador
+// mantém, sem lista fixa no código (US-39).
 export const findSensorComEstacao = async (
   sensorId: string
 ): Promise<SensorComEstacao | null> => {
   const result = await pool.query<SensorComEstacao>(
-    `SELECT s.id, s.tipo, s.unidade_medida, s.status, s.estacao_id, e.municipio
+    `SELECT s.id, s.tipo, s.unidade_medida, s.status, s.estacao_id, e.municipio,
+            t.faixa_min, t.faixa_max
      FROM sensores s
      JOIN estacoes e ON e.id = s.estacao_id
+     JOIN tipos_sensor t ON t.nome = s.tipo
      WHERE s.id = $1`,
     [sensorId]
   );

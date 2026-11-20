@@ -104,21 +104,21 @@ export function formatarEscala6(valorEscala6: bigint): string {
 }
 
 /**
- * Calcula valor_real = (bruto * fator) + ganho usando BigInt em escala 6,
- * retornando o resultado com 2 casas decimais e arredondamento HALF_UP
- * (afastando-se de zero em caso de empate).
+ * Calcula valor_real = (bruto * fator_conversao) + offset usando BigInt em
+ * escala 6, retornando o resultado com 2 casas decimais e arredondamento
+ * HALF_UP (afastando-se de zero em caso de empate).
  */
 export function calibrarValor(
   valorBruto: number | string,
-  fator: number | string,
-  ganho: number | string,
+  fatorConversao: number | string,
+  offset: number | string,
 ): string {
   const bruto6 = paraBigIntEscala6(valorBruto);
-  const fator6 = paraBigIntEscala6(fator);
-  const ganho6 = paraBigIntEscala6(ganho);
+  const fator6 = paraBigIntEscala6(fatorConversao);
+  const offset6 = paraBigIntEscala6(offset);
 
-  // (bruto6 * fator6) está na escala 10^12; ganho6 * 10^6 também está na escala 10^12
-  const totalEscala12 = bruto6 * fator6 + ganho6 * ESCALA_6;
+  // (bruto6 * fator6) está na escala 10^12; offset6 * 10^6 também está na escala 10^12
+  const totalEscala12 = bruto6 * fator6 + offset6 * ESCALA_6;
 
   if (totalEscala12 === 0n) {
     return "0.00";

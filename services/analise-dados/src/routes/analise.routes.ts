@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { authOpcional } from "../middlewares/auth.middleware";
 import { verificarPeriodo } from "../middlewares/periodo.middleware";
 import { verificarMunicipio } from "../middlewares/municipio.middleware";
+import { aplicarCotaEAuditar } from "../middlewares/cota.middleware";
 import { z } from "zod";
 import {
   ErroHttpSeries,
@@ -11,10 +12,11 @@ import {
 
 const router = Router();
 
-// Aplica autenticação opcional, validação de limites de período e isolamento de município
+// Aplica autenticação opcional, validação de limites de período, isolamento de município e cota/auditoria
 router.use(authOpcional);
 router.use(verificarPeriodo);
 router.use(verificarMunicipio);
+router.use(aplicarCotaEAuditar);
 
 const querySeriesSchema = z.object({
   grandeza: z
