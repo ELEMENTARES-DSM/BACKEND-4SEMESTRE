@@ -64,7 +64,7 @@
         ],
         "operationId": "alertas_regras_create",
         "summary": "Criar regra de alerta",
-        "description": "Cria uma regra de alerta para um sensor ativo. A regra sempre nasce ativa; campos extras são descartados. GESTOR_PUBLICO só atua em sensores do seu município (sensor de outro município responde 404, como se não existisse); ADMINISTRADOR tem acesso global. O valor limite deve ser coerente com o tipo do sensor (RN-04): Umidade Relativa 0 a 100; PM2.5, PM10 e Velocidade do Vento >= 0; Temperatura -90 a 60.",
+        "description": "Cria uma regra de alerta para um sensor ativo. A regra sempre nasce ativa; campos extras são descartados. GESTOR_PUBLICO só atua em sensores do seu município (sensor de outro município responde 404, como se não existisse); ADMINISTRADOR tem acesso global. O valor limite deve caber na faixa física da grandeza do sensor (RN-04), lida do catálogo de grandezas (`GET /estacoes/tipos-sensor`), com limites inclusivos: fora da faixa responde 400. A faixa que o Administrador alterar vale para as regras novas; as regras já cadastradas continuam valendo.",
         "security": [
           {
             "bearerAuth": []
@@ -119,7 +119,7 @@
             }
           },
           "400": {
-            "description": "Payload inválido ou JSON malformado.",
+            "description": "Payload inválido, JSON malformado ou valor limite fora da faixa física da grandeza do sensor.",
             "content": {
               "application/json": {
                 "schema": {
@@ -142,6 +142,12 @@
                           "Invalid input: expected number, received string"
                         ]
                       }
+                    }
+                  },
+                  "foraDaFaixa": {
+                    "summary": "Valor fora da faixa da grandeza (RN-04)",
+                    "value": {
+                      "message": "O valor limite para sensores de PM2.5 deve estar entre 0 e 1000 µg/m³."
                     }
                   },
                   "jsonMalformado": {
@@ -228,7 +234,7 @@
             }
           },
           "422": {
-            "description": "Sensor inativo ou valor limite incoerente com a unidade do sensor.",
+            "description": "Sensor inativo (RN-01).",
             "content": {
               "application/json": {
                 "schema": {
@@ -239,12 +245,6 @@
                     "summary": "Sensor inativo (RN-01)",
                     "value": {
                       "message": "Não é possível criar regra de alerta para um sensor inativo."
-                    }
-                  },
-                  "foraDaFaixa": {
-                    "summary": "Valor fora da faixa (RN-04)",
-                    "value": {
-                      "message": "O valor limite para sensores de PM2.5 deve ser maior ou igual a 0 µg/m³."
                     }
                   }
                 }
@@ -1183,13 +1183,7 @@
             "properties": {
               "sensor_tipo": {
                 "type": "string",
-                "enum": [
-                  "Temperatura",
-                  "Umidade Relativa",
-                  "PM2.5",
-                  "PM10",
-                  "Velocidade do Vento"
-                ],
+                "description": "Nome de uma grandeza do catálogo (`GET /estacoes/tipos-sensor`); a lista não é fixa.",
                 "example": "PM2.5"
               },
               "sensor_unidade_medida": {

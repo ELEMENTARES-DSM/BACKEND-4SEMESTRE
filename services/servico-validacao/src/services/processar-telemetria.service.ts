@@ -10,10 +10,10 @@ import { inserirMedidaIdempotente } from "../repositories/medida.repository";
 import { buscarSensoresPorEvento } from "../repositories/sensor.repository";
 import { calibrarValor, valoresBrutosIguais } from "./calibracao.service";
 import {
-  buscarFaixaFisica,
   dentroDaFaixa,
   descreverFaixa,
   FaixaFisica,
+  faixaDoSensor,
 } from "./faixa-fisica.service";
 import {
   metricasValidacaoService,
@@ -108,8 +108,9 @@ function validarEstruturaEvento(evento: EventoTelemetriaDTO): void {
  * - Busca os sensores da estação em uma única consulta SQL (sem cache).
  * - US-18: leitura de sensor inexistente na estação é devolvida em `recusadas`
  *   (o consumidor a envia à DLQ); de sensor inativo é ignorada, com log e contador.
- * - Calibra cada leitura válida: (bruto * fator) + ganho em BigInt escala 6 com HALF_UP para 2 casas.
- * - US-19: valor real fora da faixa física da grandeza é gravado com valida falso.
+ * - Calibra cada leitura válida: (bruto * fator_conversao) + offset em BigInt escala 6 com HALF_UP para 2 casas.
+ * - US-19 e US-39: valor real fora da faixa física da grandeza (lida do catálogo
+ *   tipos_sensor, junto com o sensor) é gravado com valida falso.
  * - Persiste cada leitura válida em `medidas` com o unixtime da estação e criado_em em UTC.
  * - Garante idempotência por UNIQUE (sensor_id, unixtime): mantém a primeira medida e,
  *   se o valor bruto divergir, registra a divergência em log.
@@ -176,14 +177,14 @@ export const processarEventoTelemetria = async (
 
       const valorCalibrado = calibrarValor(
         leitura.valor,
-        sensor.fator,
-        sensor.ganho,
+        sensor.fator_conversao,
+        sensor.offset,
       );
 
       // US-19: confere o valor real (já em 2 casas), nunca o bruto. Fora da
       // faixa, a medida é gravada do mesmo jeito, mas com valida falso.
-      const faixa = buscarFaixaFisica(sensor.tipo);
-      const valida = faixa ? dentroDaFaixa(valorCalibrado, faixa) : true;
+      const faixa = faixaDoSensor(sensor);
+      const valida = dentroDaFaixa(valorCalibrado, faixa);
 
       const resultado = await inserirMedidaIdempotente(
         {
@@ -216,7 +217,7 @@ export const processarEventoTelemetria = async (
             lido_em: lidoEm,
           });
         }
-        if (!valida && faixa) {
+        if (!valida) {
           invalidas.push({
             codigo: sensor.codigo,
             valorBruto: leitura.valor,

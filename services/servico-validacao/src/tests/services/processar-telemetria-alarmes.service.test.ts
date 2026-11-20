@@ -7,6 +7,7 @@ import * as avaliarRegrasService from "../../services/avaliar-regras.service";
 import { EventoTelemetriaDTO, SensorEventoRow } from "../../dto/evento-telemetria.dto";
 import { AlarmeRow } from "../../dto/alarme.dto";
 import logger from "../../utils/logger";
+import { faixaDoCatalogo } from "../helpers/catalogo";
 
 jest.mock("../../repositories/sensor.repository");
 jest.mock("../../repositories/medida.repository");
@@ -24,10 +25,11 @@ describe("processar-telemetria.service - avaliação das regras (US-22)", () => 
     id: `sensor-${codigo}`,
     estacao_id: "estacao-uuid-1",
     codigo,
-    fator: "1.000000",
-    ganho: "0.000000",
+    fator_conversao: "1.000000",
+    offset: "0.000000",
     status: "Ativo",
     tipo,
+    ...faixaDoCatalogo(tipo),
     municipio: "São José dos Campos",
     estacao_status: estacaoStatus,
   });
