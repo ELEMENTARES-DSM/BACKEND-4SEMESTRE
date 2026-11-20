@@ -30,12 +30,79 @@ describe("analise.routes - GET /analise/estacoes/:id/series (US-35)", () => {
     jest.clearAllMocks();
   });
 
-  it("deve retornar 401 quando requisição na rota privada não possui token", async () => {
-    // Dado: uma requisição sem header Authorization
-    // Quando: chama a rota autenticada /analise/estacoes/:id/series
-    const response = await request(app)
+  it("deve retornar 200 OK para requisição anônima nos períodos 24h e 7d", async () => {
+    // Dado: dados horários no banco para a estação consultada sem header Authorization
+    mockQuery
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "e0000000-0000-4000-8000-000000000001",
+            codigo: "EST-HIST-01",
+            municipio: "São José dos Campos",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ bucket_brt: "2026-06-06T10:00:00", media_valor: "22.50" }],
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "e0000000-0000-4000-8000-000000000001",
+            codigo: "EST-HIST-01",
+            municipio: "São José dos Campos",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ bucket_brt: "2026-06-06T11:00:00", media_valor: "24.00" }],
+      });
+
+    // Quando: faz requisições anônimas para 24h e 7d
+    const res24h = await request(app)
       .get("/analise/estacoes/EST-HIST-01/series")
       .query({ grandeza: "PM2.5", periodo: "24h" });
+
+    const res7d = await request(app)
+      .get("/analise/estacoes/EST-HIST-01/series")
+      .query({ grandeza: "PM2.5", periodo: "7d" });
+
+    // Então: ambas respondem 200 OK no formato do contrato OpenAPI
+    expect(res24h.status).toBe(200);
+    expect(res24h.body).toEqual({
+      estacaoId: "EST-HIST-01",
+      grandeza: "PM2.5",
+      periodo: "24h",
+      dados: [{ timestamp: "2026-06-06T10:00:00-03:00", valor: 22.5 }],
+    });
+
+    expect(res7d.status).toBe(200);
+    expect(res7d.body).toEqual({
+      estacaoId: "EST-HIST-01",
+      grandeza: "PM2.5",
+      periodo: "7d",
+      dados: [{ timestamp: "2026-06-06T11:00:00-03:00", valor: 24.0 }],
+    });
+  });
+
+  it("deve retornar 400 Bad Request para requisição anônima no período 30d", async () => {
+    // Dado: uma requisição sem header Authorization solicitando 30d (acima do limite de 7d para anônimo)
+    // Quando: chama /analise/estacoes/:id/series com periodo=30d
+    const response = await request(app)
+      .get("/analise/estacoes/EST-HIST-01/series")
+      .query({ grandeza: "PM2.5", periodo: "30d" });
+
+    // Então: responde 400 Bad Request
+    expect(response.status).toBe(400);
+  });
+
+  it("deve retornar 401 Unauthorized quando requisição possui token inválido", async () => {
+    // Dado: uma requisição com Bearer token inválido
+    // Quando: chama /analise/estacoes/:id/series
+    const response = await request(app)
+      .get("/analise/estacoes/EST-HIST-01/series")
+      .query({ grandeza: "PM2.5", periodo: "24h" })
+      .set("Authorization", "Bearer token-invalido");
 
     // Então: responde 401 Unauthorized
     expect(response.status).toBe(401);

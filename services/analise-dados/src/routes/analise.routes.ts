@@ -1,5 +1,5 @@
-import { Router, Request, Response, NextFunction } from "express";
-import { authOpcional, authenticate } from "../middlewares/auth.middleware";
+import { Router, Request, Response } from "express";
+import { authOpcional } from "../middlewares/auth.middleware";
 import { verificarPeriodo } from "../middlewares/periodo.middleware";
 import { verificarMunicipio } from "../middlewares/municipio.middleware";
 import { z } from "zod";
@@ -26,17 +26,7 @@ const querySeriesSchema = z.object({
   }),
 });
 
-function exigirAuthSePrivada(req: Request, res: Response, next: NextFunction) {
-  if (req.baseUrl.startsWith("/public")) {
-    return next();
-  }
-  return authenticate(req, res, next);
-}
-
-router.get(
-  "/estacoes/:id/series",
-  exigirAuthSePrivada,
-  async (req: Request, res: Response) => {
+router.get("/estacoes/:id/series", async (req: Request, res: Response) => {
     try {
       const validacaoQuery = querySeriesSchema.safeParse(req.query);
       if (!validacaoQuery.success) {
