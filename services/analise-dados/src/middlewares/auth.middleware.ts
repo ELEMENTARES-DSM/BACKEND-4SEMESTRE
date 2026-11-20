@@ -25,10 +25,20 @@ declare global {
   }
 }
 
-export function authenticate(req: Request, res: Response, next: NextFunction) {
+/**
+ * Middleware que permite requisições anônimas ou autenticadas via Bearer JWT.
+ * Se o header Authorization estiver ausente, a requisição segue com req.auth = undefined (Anônimo).
+ * Se o header for fornecido, valida o token e popula req.auth. Se for inválido, responde 401.
+ */
+export function authOpcional(req: Request, res: Response, next: NextFunction) {
   const authorization = req.headers.authorization;
 
-  if (!authorization || !authorization.startsWith("Bearer ")) {
+  if (!authorization) {
+    req.auth = undefined;
+    return next();
+  }
+
+  if (!authorization.startsWith("Bearer ")) {
     return res.status(401).json({
       erro: "Token não fornecido ou formato inválido.",
     });
@@ -86,6 +96,20 @@ export function authenticate(req: Request, res: Response, next: NextFunction) {
       erro: "Token inválido ou expirado.",
     });
   }
+}
+
+/**
+ * Middleware obrigatório para quando a rota exigir login.
+ */
+export function authenticate(req: Request, res: Response, next: NextFunction) {
+  authOpcional(req, res, () => {
+    if (!req.auth) {
+      return res.status(401).json({
+        erro: "Token não fornecido ou formato inválido.",
+      });
+    }
+    return next();
+  });
 }
 
 export function authorize(...papeisPermitidos: string[]) {

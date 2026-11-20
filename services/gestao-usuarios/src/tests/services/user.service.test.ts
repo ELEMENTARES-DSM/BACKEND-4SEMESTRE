@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import * as userService from "../../services/user.service";
 import * as userRepository from "../../repositories/user.repository";
 import * as papelRepository from "../../repositories/papel.repository";
+import * as historicoPapelRepository from "../../repositories/historico-papel.repository";
 import { AppError } from "../../middlewares/error-handler";
 import { Usuario } from "../../models/user.model";
 import { Papel } from "../../models/papel.model";
@@ -11,10 +12,12 @@ import { CreateUserDTO } from "../../dto/create-user.dto";
 // testes da regra de negócio do service, sem banco de dados.
 jest.mock("../../repositories/user.repository");
 jest.mock("../../repositories/papel.repository");
+jest.mock("../../repositories/historico-papel.repository");
 jest.mock("bcryptjs");
 
 const mockUserRepo = jest.mocked(userRepository);
 const mockPapelRepo = jest.mocked(papelRepository);
+const mockHistoricoRepo = jest.mocked(historicoPapelRepository);
 const mockHash = bcrypt.hash as jest.Mock;
 
 // ---------- fixtures ----------
@@ -483,6 +486,140 @@ describe("user.service", () => {
 
       expect(mockUserRepo.softDelete).toHaveBeenCalledWith("user-1");
       expect(mockUserRepo.hardDelete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("trocarPapel", () => {
+    const ADMIN_ID = "admin-uuid-123";
+
+    it("lança 404 quando o usuário não existe", async () => {
+      mockUserRepo.findById.mockResolvedValue(null);
+
+      await expectAppError(
+        userService.trocarPapel("invalido", { papel_id: PAPEL_ADMIN.id }, ADMIN_ID),
+        404,
+        "Usuário não encontrado"
+      );
+
+      expect(mockUserRepo.update).not.toHaveBeenCalled();
+      expect(mockHistoricoRepo.registrar).not.toHaveBeenCalled();
+    });
+
+    it("lança 400 quando o papel_id não existe", async () => {
+      mockUserRepo.findById.mockResolvedValue(makeUsuario());
+      mockPapelRepo.findById.mockResolvedValue(null);
+
+      await expectAppError(
+        userService.trocarPapel("user-1", { papel_id: "papel-inexistente" }, ADMIN_ID),
+        400,
+        "papel_id inválido: papel não encontrado"
+      );
+
+      expect(mockUserRepo.update).not.toHaveBeenCalled();
+      expect(mockHistoricoRepo.registrar).not.toHaveBeenCalled();
+    });
+
+    it("lança 400 ao tentar trocar para GESTOR_PUBLICO sem município", async () => {
+      mockUserRepo.findById.mockResolvedValue(makeUsuario({ municipio: null }));
+      mockPapelRepo.findById.mockResolvedValue(PAPEL_GESTOR);
+
+      await expectAppError(
+        userService.trocarPapel("user-1", { papel_id: PAPEL_GESTOR.id }, ADMIN_ID),
+        400,
+        "Usuário com papel GESTOR_PUBLICO exige município definido"
+      );
+
+      expect(mockUserRepo.update).not.toHaveBeenCalled();
+      expect(mockHistoricoRepo.registrar).not.toHaveBeenCalled();
+    });
+
+    it("troca para GESTOR_PUBLICO com sucesso quando município é fornecido no payload", async () => {
+      const usuarioOriginal = makeUsuario({ municipio: null, papel_id: PAPEL_PESQUISADOR.id });
+      mockUserRepo.findById.mockResolvedValue(usuarioOriginal);
+      mockPapelRepo.findById.mockResolvedValue(PAPEL_GESTOR);
+      mockUserRepo.update.mockResolvedValue({
+        ...usuarioOriginal,
+        papel_id: PAPEL_GESTOR.id,
+        municipio: "São José dos Campos",
+      });
+      mockHistoricoRepo.registrar.mockResolvedValue({
+        id: "hist-1",
+        usuario_id: "user-1",
+        papel_anterior_id: PAPEL_PESQUISADOR.id,
+        papel_novo_id: PAPEL_GESTOR.id,
+        alterado_por: ADMIN_ID,
+        criado_em: new Date(),
+      });
+
+      const resultado = await userService.trocarPapel(
+        "user-1",
+        { papel_id: PAPEL_GESTOR.id, municipio: "São José dos Campos" },
+        ADMIN_ID
+      );
+
+      expect(resultado.papel_id).toBe(PAPEL_GESTOR.id);
+      expect(resultado.municipio).toBe("São José dos Campos");
+      expect(mockUserRepo.update).toHaveBeenCalledWith("user-1", {
+        papel_id: PAPEL_GESTOR.id,
+        municipio: "São José dos Campos",
+      });
+      expect(mockHistoricoRepo.registrar).toHaveBeenCalledWith({
+        usuario_id: "user-1",
+        papel_anterior_id: PAPEL_PESQUISADOR.id,
+        papel_novo_id: PAPEL_GESTOR.id,
+        alterado_por: ADMIN_ID,
+      });
+    });
+
+    it("troca de papel e registra histórico corretamente", async () => {
+      const usuarioOriginal = makeUsuario({ papel_id: PAPEL_PESQUISADOR.id });
+      mockUserRepo.findById.mockResolvedValue(usuarioOriginal);
+      mockPapelRepo.findById.mockResolvedValue(PAPEL_ADMIN);
+      mockUserRepo.update.mockResolvedValue({
+        ...usuarioOriginal,
+        papel_id: PAPEL_ADMIN.id,
+      });
+      mockHistoricoRepo.registrar.mockResolvedValue({
+        id: "hist-2",
+        usuario_id: "user-1",
+        papel_anterior_id: PAPEL_PESQUISADOR.id,
+        papel_novo_id: PAPEL_ADMIN.id,
+        alterado_por: ADMIN_ID,
+        criado_em: new Date(),
+      });
+
+      const resultado = await userService.trocarPapel(
+        "user-1",
+        { papel_id: PAPEL_ADMIN.id },
+        ADMIN_ID
+      );
+
+      expect(resultado.papel_id).toBe(PAPEL_ADMIN.id);
+      expect(mockUserRepo.update).toHaveBeenCalledWith("user-1", {
+        papel_id: PAPEL_ADMIN.id,
+      });
+      expect(mockHistoricoRepo.registrar).toHaveBeenCalledWith({
+        usuario_id: "user-1",
+        papel_anterior_id: PAPEL_PESQUISADOR.id,
+        papel_novo_id: PAPEL_ADMIN.id,
+        alterado_por: ADMIN_ID,
+      });
+    });
+
+    it("não grava histórico se o papel for idêntico ao papel atual", async () => {
+      const usuarioOriginal = makeUsuario({ papel_id: PAPEL_ADMIN.id });
+      mockUserRepo.findById.mockResolvedValue(usuarioOriginal);
+      mockPapelRepo.findById.mockResolvedValue(PAPEL_ADMIN);
+      mockUserRepo.update.mockResolvedValue(usuarioOriginal);
+
+      const resultado = await userService.trocarPapel(
+        "user-1",
+        { papel_id: PAPEL_ADMIN.id },
+        ADMIN_ID
+      );
+
+      expect(resultado.papel_id).toBe(PAPEL_ADMIN.id);
+      expect(mockHistoricoRepo.registrar).not.toHaveBeenCalled();
     });
   });
 

@@ -55,6 +55,17 @@ export const updateStatus = async (req: Request, res: Response, next: NextFuncti
   }
 };
 
+export const trocarPapel = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const alteradoPorId = req.auth?.id as string;
+    const usuario = await userService.trocarPapel(req.params.id as string, req.body, alteradoPorId);
+    res.json(usuario);
+  } catch (err) {
+    next(err);
+  }
+};
+
+
 export const remove = async (req: Request, res: Response, next: NextFunction) => {
   try {
     await userService.remove(req.params.id as string);

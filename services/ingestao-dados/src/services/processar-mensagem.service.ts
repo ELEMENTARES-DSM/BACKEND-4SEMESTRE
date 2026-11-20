@@ -6,24 +6,17 @@ import {
   lerMensagem,
   listarRecebidas,
   marcarPendente,
+  marcarVisto,
   MensagemStaging,
 } from "../repositories/staging-valkey.repository";
-import {
-  buscarStagingPorEstacaoEUnixtime,
-  marcarStagingPublicada,
-} from "../repositories/staging.repository";
+import { atualizarSinalEstacao } from "../repositories/estacao.repository";
 import { ValidarPayloadService } from "./validar-payload.service";
-import { gravarAceita, gravarRejeitada } from "./gravar-staging.service";
 import { conferirEstacao } from "./validar-estacao.service";
 import { registrarRejeicao } from "./registro-rejeicao.service";
 import { registrarDuplicadaIgnorada } from "./registro-duplicada.service";
-import { gravacaoMetricsService } from "./gravacao-metrics.service";
-import {
-  publicarLeituraAtrasada,
-  solicitarProcessamentoPendentes,
-} from "./staging-publisher.service";
+import { solicitarProcessamentoPendentes } from "./staging-publisher.service";
 import { extrairEstacaoId } from "../utils/topico-estacao";
-import { ESTACAO_DESCONHECIDA } from "../validations/motivos-rejeicao";
+import { ESTACAO_DESCONHECIDA, PAYLOAD_MALFORMADO } from "../validations/motivos-rejeicao";
 import { logger } from "../utils/logger";
 
 export type ResultadoVerificacao = "pendente" | "encaminhada" | "recusada" | "duplicada";
@@ -182,7 +175,8 @@ export async function verificarMensagem(
 
   const validacao = validador.validar(mensagem);
   if (!validacao.sucesso || !validacao.payloadValidado) {
-    return recusar(staging, validacao.motivoRejeicao ?? "Payload inválido", agora(), mensagem, opcoes.foraDoValkey);
+    // Motivo sempre da lista MOTIVOS_REJEICAO: é ela que as métricas leem.
+    return recusar(staging, validacao.motivoRejeicao ?? PAYLOAD_MALFORMADO, agora(), mensagem);
   }
 
   // A conferência da estação vem depois do payload, como na ordem dos critérios.
@@ -195,35 +189,12 @@ export async function verificarMensagem(
     return recusar(staging, motivoEstacao, agora(), mensagem, opcoes.foraDoValkey);
   }
 
-  // Até a 40.04, a duplicata (TASK 13.01) é o índice único da staging_telemetria.
-  // Com o PostgreSQL fora não dá para saber: a leitura segue como aceita e o
-  // servico-validacao descarta a repetição pelo UNIQUE (sensor_id, unixtime).
-  const atrasada = leituraAtrasada(staging.recebidoEm, validacao.payloadValidado.timestamp);
-  const foraDoValkey = opcoes.foraDoValkey === true && atrasada;
-  const gravacao = foraDoValkey
-    ? await gravarAceita(mensagem, staging.id)
-    : await semTravarNoPostgres(
-      () => gravarAceita(mensagem, staging.id),
-      "gravar a aceita e o último sinal",
-      staging.id,
-    );
-  if (gravacao === "duplicata") {
-    if (!foraDoValkey) await encerrarSemPublicar(staging.id, "duplicada", agora());
-    registrarDuplicadaIgnorada({ estacaoId, timestamp: validacao.payloadValidado.timestamp });
-    if (atrasada) {
-      const unixtime = Math.floor(Date.parse(validacao.payloadValidado.timestamp) / 1000);
-      const original = await buscarStagingPorEstacaoEUnixtime(estacaoId, unixtime);
-      if (original?.payload_bruto === mensagem.payloadBruto) {
-        await publicarLeituraAtrasada({
-          staging_id: original.id,
-          estacao_uuid: estacaoId,
-          unixtime,
-          recebidoEm: new Date(staging.recebidoEm).toISOString(),
-          leituras: validacao.payloadValidado.leituras,
-        });
-        await marcarStagingPublicada(original.id);
-      }
-    }
+  // Duplicata (US-13) pela chave staging:visto no Valkey, mesmo com o PostgreSQL fora.
+  const { timestamp, nivel_bateria } = validacao.payloadValidado;
+  const unixtime = Math.floor(Date.parse(timestamp) / 1000);
+  if ((await marcarVisto(estacaoId, unixtime, staging.id, agora())) === "duplicada") {
+    await encerrarSemPublicar(staging.id, "duplicada", agora());
+    registrarDuplicadaIgnorada({ estacaoId, timestamp });
     return "duplicada";
   }
 
@@ -247,8 +218,14 @@ export async function verificarMensagem(
   }
 
   await marcarPendente(staging.id);
-  gravacaoMetricsService.incrementarGravada();
   solicitarProcessamentoPendentes();
+  // Último sinal (US-14) só depois de a publicação já ter sido pedida. Com o
+  // PostgreSQL fora, fica para a próxima leitura aceita.
+  await semTravarNoPostgres(
+    () => atualizarSinalEstacao({ estacaoId, ultimoPing: staging.recebidoEm, nivelBateria: nivel_bateria }),
+    "atualizar o último sinal",
+    staging.id,
+  );
   return "pendente";
 }
 
@@ -259,30 +236,16 @@ async function recusar(
   mensagem?: MensagemIngestaoInput,
   foraDoValkey = false,
 ): Promise<ResultadoVerificacao> {
-  // Sem UUID no tópico não há estação para a linha da staging_telemetria.
-  if (mensagem) {
-    if (foraDoValkey) {
-      await gravarRejeitada(mensagem, motivoRecusa, staging.id);
-    } else {
-      await semTravarNoPostgres(
-        () => gravarRejeitada(mensagem, motivoRecusa, staging.id),
-        "gravar a recusada",
-        staging.id,
-      );
-    }
-  }
-  if (!foraDoValkey) await encerrarSemPublicar(staging.id, "recusada", agora, motivoRecusa);
-  gravacaoMetricsService.incrementarRejeitadaGravada();
+  await encerrarSemPublicar(staging.id, "recusada", agora, motivoRecusa);
   registrarRejeicao(motivoRecusa, mensagem?.estacaoId ?? staging.topico);
   return "recusada";
 }
 
 /**
- * US-40 · Cenário 4: até a 40.04 a staging_telemetria e o último sinal ainda
- * ficam no PostgreSQL. Falha ali vai para o log e não trava o Valkey nem a
- * publicação.
+ * US-40 · Cenário 4: o último sinal fica no PostgreSQL. Falha ali vai para o
+ * log e não trava o Valkey nem a publicação.
  */
-async function semTravarNoPostgres<T>(
+export async function semTravarNoPostgres<T>(
   gravar: () => Promise<T>,
   acao: string,
   stagingId: string,
