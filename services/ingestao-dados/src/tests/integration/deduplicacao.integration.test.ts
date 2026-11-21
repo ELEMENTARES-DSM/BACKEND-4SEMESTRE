@@ -19,8 +19,7 @@ import { gravarEVerificar, usarValkeyDeTeste } from "./helpers/valkey";
 // US-13 (TASK 40.04): duplicata por estação e horário na chave
 // staging:visto:{estacao}:{unixtime} do Valkey, com SET NX GET PXAT de verdade.
 // O PostgreSQL de teste só tem a tabela estacoes, num schema isolado.
-const integration =
-  process.env.STAGING_TEST_DATABASE_URL && process.env.VALKEY_TEST_URL ? describe : describe.skip;
+const integration = describe;
 
 const AGORA = new Date("2026-11-16T10:00:00.000Z");
 const segundos = (iso: string): number => Math.floor(Date.parse(iso) / 1000);

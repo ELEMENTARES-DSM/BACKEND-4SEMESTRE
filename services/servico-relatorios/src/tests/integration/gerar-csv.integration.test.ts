@@ -15,7 +15,7 @@ import {
 } from "./helpers/banco-relatorios";
 
 // TASK 31.02 com PostgreSQL real. Execute com RELATORIOS_TEST_DATABASE_URL.
-const integration = process.env.RELATORIOS_TEST_DATABASE_URL ? describe : describe.skip;
+const integration = describe;
 
 // Saída lenta e com buffer pequeno, para o `write` devolver false e o serviço esperar o `drain`.
 function saidaLenta(): { saida: Writable; texto: () => Promise<string> } {

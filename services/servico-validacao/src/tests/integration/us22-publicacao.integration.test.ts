@@ -22,9 +22,8 @@ import { conectarAdmin, esperar, limparFilas, publicarEvento } from "./helpers/r
 
 // US-22 (TASK 22.03) com PostgreSQL e RabbitMQ reais. Execute com
 // VALIDACAO_TEST_DATABASE_URL e RABBITMQ_TEST_URL apontando para instâncias de teste.
-const databaseUrl = process.env.VALIDACAO_TEST_DATABASE_URL;
 const rabbitUrl = process.env.RABBITMQ_TEST_URL;
-const integration = databaseUrl && rabbitUrl ? describe : describe.skip;
+const integration = describe;
 
 integration("US-22 - publicação de alarme.disparado (PostgreSQL e RabbitMQ)", () => {
   const schema = `validacao_us22p_${randomUUID().replaceAll("-", "")}`;

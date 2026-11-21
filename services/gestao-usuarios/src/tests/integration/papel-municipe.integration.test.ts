@@ -3,10 +3,8 @@ import { pool } from "../../config/db";
 
 // Os testes de integração reais exigem PostgreSQL ativo configurado via DATABASE_URL
 // (mesma variável usada pelo pool em src/config/db.ts e referenciada no .env.example do serviço).
-// Caso DATABASE_URL não esteja definida ou o banco não esteja acessível, os testes
-// de integração são pulados via describe.skip para garantir compatibilidade no CI.
 const databaseUrl = process.env.DATABASE_URL;
-const integration = databaseUrl ? describe : describe.skip;
+const integration = describe;
 
 integration("Task 42.01 - Substituição de PESQUISADOR por MUNICIPE (PostgreSQL)", () => {
   const schema = `gestao_usuarios_task42_${randomUUID().replaceAll("-", "")}`;
