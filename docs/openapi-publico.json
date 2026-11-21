@@ -3,16 +3,12 @@
   "info": {
     "title": "Pulso Urbano — API Pública",
     "version": "1.0.0",
-    "description": "Especificação pública da plataforma Pulso Urbano (Squad Elementares — FATEC SJC). Contém exclusivamente as operações abertas a munícipes, cidadãos e consultas públicas (login, autocadastro, séries históricas, últimas leituras, IQAr, exportação de CSV, status das estações por município e alarmes ativos). Operações administrativas e de gestão são restritas e documentadas no manual interno da Tecsus."
+    "description": "Especificação pública da plataforma Pulso Urbano (Squad Elementares — FATEC SJC). Contém exclusivamente as operações abertas a munícipes, cidadãos e consultas públicas (login, autocadastro, séries históricas, últimas leituras, IQAr, status das estações por município e exportação de medições em JSON/CSV). Operações administrativas e de gestão são restritas e documentadas no manual interno da Tecsus.\n\n### Automação diária de download CSV (exemplo com cron às 08:00)\nO repositório inclui scripts prontos em `scripts/exemplo-download-csv.sh` (Bash) e `scripts/exemplo-download-csv.js` (Node.js) que fazem login em `POST /auth/login`, obtêm o token Bearer JWT e baixam o CSV do dia anterior em `GET /relatorios/medicoes?formato=csv&inicio=AAAA-MM-DD&fim=AAAA-MM-DD`:\n\n```cron\n0 8 * * * API_URL=http://localhost EMAIL=ana.silva@exemplo.com SENHA=... /caminho/para/scripts/exemplo-download-csv.sh >> /var/log/pulso_csv.log 2>&1\n```"
   },
   "servers": [
     {
-      "url": "http://localhost:8080",
-      "description": "API Gateway Nginx local"
-    },
-    {
       "url": "http://localhost",
-      "description": "Servidor de produção / desenvolvimento direto"
+      "description": "API Gateway Nginx local"
     }
   ],
   "tags": [
@@ -26,26 +22,24 @@
     },
     {
       "name": "Dados Ambientais",
-      "description": "Séries históricas, últimas leituras, IQAr e download de CSV com controle de limites de período e cotas"
+      "description": "Séries históricas, últimas leituras e IQAr (acesso público por município ou autenticado com limites de período e cotas)"
+    },
+    {
+      "name": "Relatórios e CSV",
+      "description": "Exportação de medições em JSON e CSV para munícipes, pesquisadores e demais perfis autenticados"
     },
     {
       "name": "Estações",
-      "description": "Consulta pública do status operacional das estações meteorológicas por município"
-    },
-    {
-      "name": "Alarmes",
-      "description": "Consulta pública de alarmes e avisos ambientais abertos"
+      "description": "Consulta pública de municípios atendidos e status operacional das estações"
     }
   ],
   "paths": {
     "/auth/login": {
       "post": {
-        "tags": [
-          "Autenticação"
-        ],
+        "tags": ["Autenticação"],
         "operationId": "loginUsuario",
         "summary": "Realizar login e obter token JWT",
-        "description": "Autentica um usuário cadastrado (munícipe, gestor ou administrador) e emite um token Bearer JWT (HS256) com validade de 8 horas.",
+        "description": "Autentica um usuário cadastrado (munícipe, pesquisador, gestor ou administrador) e emite um token Bearer JWT (HS256) com validade de 8 horas.",
         "security": [],
         "requestBody": {
           "required": true,
@@ -103,15 +97,26 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Conta inativa.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "message": "Acesso revogado. Conta inativa."
+                }
+              }
+            }
           }
         }
       }
     },
     "/usuarios/cadastro": {
       "post": {
-        "tags": [
-          "Munícipes"
-        ],
+        "tags": ["Munícipes"],
         "operationId": "cadastrarMunicipe",
         "summary": "Autocadastro de munícipe",
         "description": "Permite que qualquer cidadão crie uma conta pública própria vinculada ao papel canônico MUNICIPE. Exige aceite expresso do aviso de privacidade. Protegido por rate limiter de até 5 cadastros por hora por IP.",
@@ -150,7 +155,7 @@
             }
           },
           "400": {
-            "description": "Dados inválidos (senha fraca ou ausência do aceite de privacidade).",
+            "description": "Dados inválidos (senha fora do padrão, e-mail inválido ou ausência do aceite de privacidade).",
             "content": {
               "application/json": {
                 "schema": {
@@ -182,37 +187,25 @@
         }
       }
     },
-    "/analise/estacoes/{id}/series": {
+    "/analise/publico/{municipio}/estacoes/{codigo}/series": {
       "get": {
-        "tags": [
-          "Dados Ambientais"
-        ],
-        "operationId": "obterSeriesHistoricas",
-        "summary": "Obter séries históricas da estação",
-        "description": "Retorna leituras temporais agrupadas. Suporta requisições com ou sem token: sem login permite até 7 dias; MUNICIPE autenticado permite até 30 dias (debitando da cota semanal/mensal); GESTOR_PUBLICO e ADMINISTRADOR são ilimitados.",
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {}
-        ],
+        "tags": ["Dados Ambientais"],
+        "operationId": "obterSeriesPublicas",
+        "summary": "Obter séries históricas da estação (Público)",
+        "description": "Versão pública da consulta de séries históricas sem exigência de autenticação, filtrada por município e restrita a estações ativas (limite máximo de até 7 dias para acesso anônimo; acima disso retorna 400).",
+        "security": [],
         "parameters": [
           {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "description": "UUID da estação meteorológica",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "example": "11111111-2222-3333-4444-555555555555"
+            "$ref": "#/components/parameters/MunicipioParam"
+          },
+          {
+            "$ref": "#/components/parameters/EstacaoCodigoParam"
           },
           {
             "name": "grandeza",
             "in": "query",
-            "required": false,
-            "description": "Grandeza desejada (ex: PM25, PM10, Temperatura)",
+            "required": true,
+            "description": "Grandeza que será consultada (ex.: PM25, PM10, Temperatura).",
             "schema": {
               "type": "string",
               "example": "PM25"
@@ -221,10 +214,168 @@
           {
             "name": "periodo",
             "in": "query",
-            "required": false,
-            "description": "Período desejado (ex: 24h, 7d, 30d)",
+            "required": true,
+            "description": "Período da série histórica (para acesso anônimo, o limite máximo é 7d).",
             "schema": {
               "type": "string",
+              "enum": ["24h", "7d", "30d"],
+              "example": "24h"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Séries históricas recuperadas com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeriesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Parâmetros inválidos ou período superior ao limite permitido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Estação não encontrada ou indisponível no município informado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analise/publico/{municipio}/estacoes/{codigo}/ultimas-leituras": {
+      "get": {
+        "tags": ["Dados Ambientais"],
+        "operationId": "obterUltimasLeiturasPublicas",
+        "summary": "Obter últimas leituras da estação (Público)",
+        "description": "Retorna as últimas leituras calibradas de uma estação ativa pertencente ao município informado, sem necessidade de autenticação.",
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/MunicipioParam"
+          },
+          {
+            "$ref": "#/components/parameters/EstacaoCodigoParam"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Últimas leituras recuperadas com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UltimasLeiturasResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Estação não encontrada ou indisponível no município informado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analise/publico/{municipio}/iqar": {
+      "get": {
+        "tags": ["Dados Ambientais"],
+        "operationId": "obterIqarPublico",
+        "summary": "Obter IQAr por município (Público)",
+        "description": "Retorna o Índice de Qualidade do Ar (IQAr) filtrado por município e estações ativas, sem necessidade de autenticação.",
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/MunicipioParam"
+          },
+          {
+            "name": "estacaoId",
+            "in": "query",
+            "required": false,
+            "description": "Identificador ou código opcional de uma estação ativa pertencente ao município informado.",
+            "schema": {
+              "type": "string",
+              "example": "EST-001"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "IQAr recuperado com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IqarResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Estação não encontrada ou indisponível no município informado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analise/estacoes/{id}/series": {
+      "get": {
+        "tags": ["Dados Ambientais"],
+        "operationId": "obterSeriesHistoricas",
+        "summary": "Obter séries históricas da estação",
+        "description": "Retorna as séries históricas agrupadas (5 min para 24h, 1h para 7d, 1 dia para 30d). Sem login permite até 7 dias; MUNICIPE autenticado permite até 30 dias com cota de 2.000 requisições/semana e 6.000 requisições/mês; PESQUISADOR até 365 dias; GESTOR_PUBLICO e ADMINISTRADOR são ilimitados.",
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EstacaoIdParam"
+          },
+          {
+            "name": "grandeza",
+            "in": "query",
+            "required": true,
+            "description": "Grandeza desejada (ex.: PM25, PM10, O3).",
+            "schema": {
+              "type": "string",
+              "example": "PM25"
+            }
+          },
+          {
+            "name": "periodo",
+            "in": "query",
+            "required": true,
+            "description": "Período desejado.",
+            "schema": {
+              "type": "string",
+              "enum": ["24h", "7d", "30d"],
               "example": "24h"
             }
           }
@@ -234,17 +385,17 @@
             "description": "Série histórica recuperada com sucesso.",
             "headers": {
               "X-Cota-Semana-Restante": {
-                "description": "Saldo restante da cota semanal do usuário (quando autenticado)",
+                "description": "Saldo restante da cota semanal do usuário (quando autenticado).",
                 "schema": {
-                  "type": "string",
-                  "example": "1999"
+                  "type": "integer",
+                  "example": 1999
                 }
               },
               "X-Cota-Mes-Restante": {
-                "description": "Saldo restante da cota mensal do usuário (quando autenticado)",
+                "description": "Saldo restante da cota mensal do usuário (quando autenticado).",
                 "schema": {
-                  "type": "string",
-                  "example": "5999"
+                  "type": "integer",
+                  "example": 5999
                 }
               }
             },
@@ -257,7 +408,27 @@
             }
           },
           "400": {
-            "description": "Período solicitado excede o limite permitido para o perfil atual.",
+            "description": "Parâmetros inválidos ou período solicitado excede o limite permitido para o perfil atual.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token inválido ou expirado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Estação não encontrada.",
             "content": {
               "application/json": {
                 "schema": {
@@ -281,34 +452,39 @@
     },
     "/analise/estacoes/{id}/ultimas-leituras": {
       "get": {
-        "tags": [
-          "Dados Ambientais"
-        ],
+        "tags": ["Dados Ambientais"],
         "operationId": "obterUltimasLeituras",
-        "summary": "Obter últimas leituras dos sensores da estação",
-        "description": "Retorna o último valor calibrado de cada sensor ativo da estação indicada.",
+        "summary": "Obter últimas leituras dos sensores da estação (Autenticado)",
+        "description": "Retorna o último valor calibrado de cada sensor ativo da estação indicada. Requer token Bearer JWT; debita da cota do perfil.",
         "security": [
           {
             "BearerAuth": []
-          },
-          {}
+          }
         ],
         "parameters": [
           {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "description": "UUID da estação",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "example": "11111111-2222-3333-4444-555555555555"
+            "$ref": "#/components/parameters/EstacaoIdParam"
           }
         ],
         "responses": {
           "200": {
             "description": "Últimas leituras recuperadas com sucesso.",
+            "headers": {
+              "X-Cota-Semana-Restante": {
+                "description": "Saldo restante da cota semanal.",
+                "schema": {
+                  "type": "integer",
+                  "example": 1999
+                }
+              },
+              "X-Cota-Mes-Restante": {
+                "description": "Saldo restante da cota mensal.",
+                "schema": {
+                  "type": "integer",
+                  "example": 5999
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -316,92 +492,19 @@
                 }
               }
             }
-          }
-        }
-      }
-    },
-    "/analise/iqar": {
-      "get": {
-        "tags": [
-          "Dados Ambientais"
-        ],
-        "operationId": "obterIqar",
-        "summary": "Obter Índice de Qualidade do Ar (IQAr)",
-        "description": "Retorna o IQAr calculado segundo as faixas oficiais de qualidade do ar.",
-        "security": [
-          {
-            "BearerAuth": []
           },
-          {}
-        ],
-        "responses": {
-          "200": {
-            "description": "Índice de qualidade do ar recuperado com sucesso.",
+          "401": {
+            "description": "Token ausente, inválido ou expirado.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/IqarResponse"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/analise/exportar/csv": {
-      "get": {
-        "tags": [
-          "Dados Ambientais"
-        ],
-        "operationId": "exportarCsvDados",
-        "summary": "Download de série temporal em formato CSV",
-        "description": "Exporta as medições da estação em formato CSV. Suporta automação via scripts diários com token de Munícipe. Requisições autenticadas debitam da cota do perfil e registram auditoria.",
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {}
-        ],
-        "parameters": [
-          {
-            "name": "periodo",
-            "in": "query",
-            "required": false,
-            "description": "Período da exportação (ex: 24h, 7d, 30d)",
-            "schema": {
-              "type": "string",
-              "example": "24h"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Arquivo CSV retornado com sucesso.",
-            "headers": {
-              "Content-Disposition": {
-                "description": "attachment; filename=\"dados.csv\"",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "X-Cota-Semana-Restante": {
-                "description": "Saldo restante da cota semanal",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "content": {
-              "text/csv": {
-                "schema": {
-                  "type": "string"
-                },
-                "example": "estacao;periodo;timestamp;valor\n1;24h;2026-11-17T08:00:00.000Z;15.5\n"
               }
             }
           },
-          "400": {
-            "description": "Período solicitado superior ao limite do perfil.",
+          "404": {
+            "description": "Estação não encontrada.",
             "content": {
               "application/json": {
                 "schema": {
@@ -411,7 +514,7 @@
             }
           },
           "429": {
-            "description": "Cota semanal ou mensal esgotada.",
+            "description": "Cota semanal ou mensal excedida.",
             "content": {
               "application/json": {
                 "schema": {
@@ -423,26 +526,273 @@
         }
       }
     },
-    "/estacoes/publico/municipios": {
+    "/analise/estacoes/{id}/iqar": {
       "get": {
-        "tags": [
-          "Estações"
+        "tags": ["Dados Ambientais"],
+        "operationId": "obterIqarEstacao",
+        "summary": "Obter Índice de Qualidade do Ar (IQAr) da estação (Autenticado)",
+        "description": "Calcula o IQAr da estação com base na média móvel das últimas 24 horas de leituras válidas de PM2.5, segundo as faixas oficiais brasileiras (CONAMA nº 506/2024 / CETESB). Requer token Bearer JWT.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
         ],
-        "operationId": "listarMunicipiosAtendidos",
-        "summary": "Listar municípios com estações monitoradas",
-        "description": "Retorna a relação de municípios cadastrados que possuem estações meteorológicas ativas.",
-        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EstacaoIdParam"
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Lista de municípios.",
+            "description": "IQAr recuperado com sucesso.",
+            "headers": {
+              "X-Cota-Semana-Restante": {
+                "description": "Saldo restante da cota semanal.",
+                "schema": {
+                  "type": "integer",
+                  "example": 1999
+                }
+              },
+              "X-Cota-Mes-Restante": {
+                "description": "Saldo restante da cota mensal.",
+                "schema": {
+                  "type": "integer",
+                  "example": 5999
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "example": "São José dos Campos"
-                  }
+                  "$ref": "#/components/schemas/IqarResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido ou expirado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Estação não encontrada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Cota semanal ou mensal excedida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceededResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/relatorios/medicoes": {
+      "get": {
+        "tags": ["Relatórios e CSV"],
+        "operationId": "exportarMedicoes",
+        "summary": "Listar medições em JSON ou baixar em CSV",
+        "description": "Devolve as medições do município no período, com filtros opcionais de estação e grandeza. `formato=json` (padrão) retorna página com total; `formato=csv` retorna o período inteiro em arquivo CSV (UTF-8 com BOM, separador `;`, vírgula decimal, horário de Brasília). MUNICIPE, PESQUISADOR e ADMINISTRADOR podem informar `municipio` na query (ou usar o município do token). Suporta automação via scripts diários (`scripts/exemplo-download-csv.sh` e `scripts/exemplo-download-csv.js`).",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "inicio",
+            "in": "query",
+            "required": false,
+            "description": "Primeiro dia do período (AAAA-MM-DD, horário de Brasília). Padrão: ontem.",
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "example": "2026-11-06"
+            }
+          },
+          {
+            "name": "fim",
+            "in": "query",
+            "required": false,
+            "description": "Último dia do período, incluído inteiro (AAAA-MM-DD, horário de Brasília). Padrão: hoje. Máximo de 31 dias.",
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "example": "2026-11-06"
+            }
+          },
+          {
+            "name": "estacao",
+            "in": "query",
+            "required": false,
+            "description": "Códigos das estações separados por vírgula. Sem ele, todas as estações do município.",
+            "schema": {
+              "type": "string",
+              "example": "EST-001,EST-002"
+            }
+          },
+          {
+            "name": "grandeza",
+            "in": "query",
+            "required": false,
+            "description": "Grandezas medidas separadas por vírgula. Sem ele, todas.",
+            "schema": {
+              "type": "string",
+              "example": "Temperatura,Umidade Relativa"
+            }
+          },
+          {
+            "name": "municipio",
+            "in": "query",
+            "required": false,
+            "description": "Município cadastrado da estação. Se omitido, usa o município do token.",
+            "schema": {
+              "type": "string",
+              "example": "São José dos Campos"
+            }
+          },
+          {
+            "name": "formato",
+            "in": "query",
+            "required": false,
+            "description": "`json` (padrão) ou `csv`.",
+            "schema": {
+              "type": "string",
+              "enum": ["json", "csv"],
+              "default": "json",
+              "example": "csv"
+            }
+          },
+          {
+            "name": "pagina",
+            "in": "query",
+            "required": false,
+            "description": "Página do JSON (a partir de 1). Ignorada quando `formato=csv`.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "porPagina",
+            "in": "query",
+            "required": false,
+            "description": "Medições por página no JSON. Ignorado quando `formato=csv`.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5000,
+              "default": 500
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Medições do período em JSON ou arquivo CSV.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Sempre `no-store`.",
+                "schema": {
+                  "type": "string",
+                  "example": "no-store"
+                }
+              },
+              "Content-Disposition": {
+                "description": "Presente quando `formato=csv`, informando o nome sugerido do arquivo.",
+                "schema": {
+                  "type": "string",
+                  "example": "attachment; filename=\"pulso-urbano_medicoes_sao-jose-dos-campos_2026-11-06_2026-11-06.csv\""
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListaMedicoes"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string",
+                  "description": "UTF-8 com BOM, separador `;`, fim de linha CRLF e vírgula decimal."
+                },
+                "example": "lido_em;estacao_codigo;estacao_nome;municipio;sensor_codigo;grandeza;unidade;valor;valor_bruto;valida\r\n06/11/2026 11:05;EST-001;Centro;São José dos Campos;T-01;Temperatura;°C;23,4;24,9;Sim\r\n"
+              }
+            }
+          },
+          "400": {
+            "description": "Filtro inválido ou município não informado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroRelatorioResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido ou expirado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroRelatorioResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Perfil sem acesso às medições.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroRelatorioResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Município não encontrado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroRelatorioResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/estacoes/publico/municipios": {
+      "get": {
+        "tags": ["Estações"],
+        "operationId": "listarMunicipiosAtendidos",
+        "summary": "Listar municípios com estações monitoradas",
+        "description": "Retorna a lista de municípios distintos que possuem estações meteorológicas cadastradas, sem necessidade de autenticação (não debita cota).",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Lista de municípios retornada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MunicipiosPublicoResponse"
                 }
               }
             }
@@ -452,58 +802,23 @@
     },
     "/estacoes/publico/{municipio}/status": {
       "get": {
-        "tags": [
-          "Estações"
-        ],
+        "tags": ["Estações"],
         "operationId": "obterStatusEstacoesMunicipio",
         "summary": "Obter status público das estações do município",
-        "description": "Retorna o status operacional das estações meteorológicas instaladas no município indicado (não debita cota de requisições).",
+        "description": "Retorna o resumo quantitativo (total, ativas, com falha e inativas) e a lista de estações do município informado sem necessidade de autenticação (não debita cota).",
         "security": [],
         "parameters": [
           {
-            "name": "municipio",
-            "in": "path",
-            "required": true,
-            "description": "Nome do município",
-            "schema": {
-              "type": "string"
-            },
-            "example": "São José dos Campos"
+            "$ref": "#/components/parameters/MunicipioParam"
           }
         ],
         "responses": {
           "200": {
-            "description": "Status das estações do município.",
+            "description": "Resumo de status público retornado com sucesso.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/StatusEstacoesMunicipioResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/alertas/alarmes/ativos": {
-      "get": {
-        "tags": [
-          "Alarmes"
-        ],
-        "operationId": "obterAlarmesAtivosPublico",
-        "summary": "Listar alarmes ambientais ativos",
-        "description": "Consulta pública de avisos e alarmes ambientais atualmente abertos para acompanhamento da população (não debita cota de requisições).",
-        "security": [],
-        "responses": {
-          "200": {
-            "description": "Lista de alarmes ambientais ativos.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/AlarmePublicoResponse"
-                  }
                 }
               }
             }
@@ -521,13 +836,42 @@
         "description": "Token JWT de autenticação emitido no endpoint /auth/login"
       }
     },
+    "parameters": {
+      "EstacaoIdParam": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "description": "Identificador ou código da estação meteorológica.",
+        "schema": {
+          "type": "string",
+          "example": "estacao-01"
+        }
+      },
+      "EstacaoCodigoParam": {
+        "name": "codigo",
+        "in": "path",
+        "required": true,
+        "description": "Código ou identificador de uma estação ativa pertencente ao município.",
+        "schema": {
+          "type": "string",
+          "example": "EST-001"
+        }
+      },
+      "MunicipioParam": {
+        "name": "municipio",
+        "in": "path",
+        "required": true,
+        "description": "Nome do município (ex.: 'São José dos Campos').",
+        "schema": {
+          "type": "string",
+          "example": "São José dos Campos"
+        }
+      }
+    },
     "schemas": {
       "LoginRequest": {
         "type": "object",
-        "required": [
-          "email",
-          "senha"
-        ],
+        "required": ["email", "senha"],
         "properties": {
           "email": {
             "type": "string",
@@ -543,10 +887,7 @@
       },
       "LoginResponse": {
         "type": "object",
-        "required": [
-          "token",
-          "usuario"
-        ],
+        "required": ["token", "usuario"],
         "properties": {
           "token": {
             "type": "string",
@@ -554,11 +895,7 @@
           },
           "usuario": {
             "type": "object",
-            "required": [
-              "id",
-              "nome",
-              "papel"
-            ],
+            "required": ["id", "nome", "papel"],
             "properties": {
               "id": {
                 "type": "string",
@@ -583,12 +920,7 @@
       },
       "CadastroMunicipeRequest": {
         "type": "object",
-        "required": [
-          "nome",
-          "email",
-          "senha",
-          "aceite_privacidade"
-        ],
+        "required": ["nome", "email", "senha", "aceite_privacidade"],
         "properties": {
           "nome": {
             "type": "string",
@@ -599,22 +931,24 @@
           "email": {
             "type": "string",
             "format": "email",
+            "maxLength": 150,
             "example": "ana.silva@exemplo.com"
           },
           "senha": {
             "type": "string",
+            "format": "password",
             "minLength": 8,
+            "maxLength": 72,
             "example": "SenhaForte@2026"
           },
           "municipio": {
             "type": "string",
+            "maxLength": 100,
             "example": "São José dos Campos"
           },
           "aceite_privacidade": {
             "type": "boolean",
-            "enum": [
-              true
-            ],
+            "enum": [true],
             "example": true
           }
         }
@@ -627,7 +961,8 @@
           "email",
           "papel_id",
           "esta_ativo",
-          "criado_em"
+          "criado_em",
+          "atualizado_em"
         ],
         "properties": {
           "id": {
@@ -641,6 +976,7 @@
           },
           "email": {
             "type": "string",
+            "format": "email",
             "example": "ana.silva@exemplo.com"
           },
           "papel_id": {
@@ -656,7 +992,16 @@
             "type": "boolean",
             "example": true
           },
+          "aceite_privacidade_em": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
           "criado_em": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "atualizado_em": {
             "type": "string",
             "format": "date-time"
           }
@@ -664,15 +1009,11 @@
       },
       "SeriesResponse": {
         "type": "object",
-        "required": [
-          "estacao_id",
-          "pontos"
-        ],
+        "required": ["estacaoId", "grandeza", "periodo", "dados"],
         "properties": {
-          "estacao_id": {
+          "estacaoId": {
             "type": "string",
-            "format": "uuid",
-            "example": "11111111-2222-3333-4444-555555555555"
+            "example": "estacao-01"
           },
           "grandeza": {
             "type": "string",
@@ -680,24 +1021,23 @@
           },
           "periodo": {
             "type": "string",
+            "enum": ["24h", "7d", "30d"],
             "example": "24h"
           },
-          "pontos": {
+          "dados": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": [
-                "timestamp",
-                "valor"
-              ],
+              "required": ["timestamp", "valor"],
               "properties": {
                 "timestamp": {
                   "type": "string",
-                  "format": "date-time"
+                  "format": "date-time",
+                  "example": "2026-06-06T10:00:00-03:00"
                 },
                 "valor": {
                   "type": "number",
-                  "example": 15.5
+                  "example": 25.4
                 }
               }
             }
@@ -706,14 +1046,11 @@
       },
       "UltimasLeiturasResponse": {
         "type": "object",
-        "required": [
-          "estacao_id",
-          "leituras"
-        ],
+        "required": ["estacaoId", "leituras"],
         "properties": {
-          "estacao_id": {
+          "estacaoId": {
             "type": "string",
-            "format": "uuid"
+            "example": "estacao-01"
           },
           "leituras": {
             "type": "array",
@@ -721,25 +1058,26 @@
               "type": "object",
               "required": [
                 "grandeza",
-                "valor",
-                "unidade"
+                "valorCalibrado",
+                "unidade",
+                "tempoRelativo"
               ],
               "properties": {
                 "grandeza": {
                   "type": "string",
                   "example": "PM25"
                 },
-                "valor": {
+                "valorCalibrado": {
                   "type": "number",
-                  "example": 12.4
+                  "example": 18.2
                 },
                 "unidade": {
                   "type": "string",
                   "example": "µg/m³"
                 },
-                "tempo_relativo": {
+                "tempoRelativo": {
                   "type": "string",
-                  "example": "há 2 minutos"
+                  "example": "há 5 min"
                 }
               }
             }
@@ -749,16 +1087,35 @@
       "IqarResponse": {
         "type": "object",
         "required": [
+          "estacaoId",
           "indice",
-          "classificacao",
-          "cor"
+          "status",
+          "rotuloFaixa",
+          "mensagem",
+          "municipio"
         ],
         "properties": {
+          "estacaoId": {
+            "type": "string",
+            "example": "EST-HIST-01"
+          },
           "indice": {
-            "type": "integer",
-            "example": 45
+            "oneOf": [
+              {
+                "type": "number",
+                "example": 15
+              },
+              {
+                "type": "string",
+                "example": "Sem dados suficientes"
+              }
+            ]
           },
           "classificacao": {
+            "type": "string",
+            "example": "Boa"
+          },
+          "status": {
             "type": "string",
             "example": "Boa"
           },
@@ -766,32 +1123,169 @@
             "type": "string",
             "example": "#00E400"
           },
+          "rotuloFaixa": {
+            "type": "string",
+            "example": "Boa"
+          },
+          "mensagem": {
+            "type": "string",
+            "example": "Qualidade do ar considerada boa."
+          },
           "municipio": {
             "type": "string",
             "example": "São José dos Campos"
           }
         }
       },
-      "StatusEstacoesMunicipioResponse": {
+      "Medicao": {
+        "type": "object",
+        "required": [
+          "lidoEm",
+          "estacaoCodigo",
+          "estacaoNome",
+          "municipio",
+          "sensorCodigo",
+          "grandeza",
+          "unidade",
+          "valor",
+          "valorBruto",
+          "valida"
+        ],
+        "properties": {
+          "lidoEm": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-11-06T14:05:00Z"
+          },
+          "estacaoCodigo": {
+            "type": "string",
+            "example": "EST-001"
+          },
+          "estacaoNome": {
+            "type": "string",
+            "example": "Centro"
+          },
+          "municipio": {
+            "type": "string",
+            "example": "São José dos Campos"
+          },
+          "sensorCodigo": {
+            "type": "string",
+            "nullable": true,
+            "example": "T-01"
+          },
+          "grandeza": {
+            "type": "string",
+            "example": "Temperatura"
+          },
+          "unidade": {
+            "type": "string",
+            "example": "°C"
+          },
+          "valor": {
+            "type": "number",
+            "example": 23.4
+          },
+          "valorBruto": {
+            "type": "number",
+            "example": 24.9
+          },
+          "valida": {
+            "type": "boolean",
+            "example": true
+          }
+        }
+      },
+      "ListaMedicoes": {
         "type": "object",
         "required": [
           "municipio",
-          "estacoes"
+          "inicio",
+          "fim",
+          "pagina",
+          "porPagina",
+          "total",
+          "medicoes"
         ],
         "properties": {
           "municipio": {
             "type": "string",
             "example": "São José dos Campos"
           },
+          "inicio": {
+            "type": "string",
+            "format": "date",
+            "example": "2026-11-06"
+          },
+          "fim": {
+            "type": "string",
+            "format": "date",
+            "example": "2026-11-06"
+          },
+          "pagina": {
+            "type": "integer",
+            "example": 1
+          },
+          "porPagina": {
+            "type": "integer",
+            "example": 500
+          },
+          "total": {
+            "type": "integer",
+            "example": 1440
+          },
+          "medicoes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Medicao"
+            }
+          }
+        }
+      },
+      "MunicipiosPublicoResponse": {
+        "type": "object",
+        "required": ["municipios"],
+        "properties": {
+          "municipios": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "example": "São José dos Campos"
+            }
+          }
+        }
+      },
+      "StatusEstacoesMunicipioResponse": {
+        "type": "object",
+        "required": ["resumo", "estacoes"],
+        "properties": {
+          "resumo": {
+            "type": "object",
+            "required": ["total", "ativas", "com_falha", "inativas"],
+            "properties": {
+              "total": {
+                "type": "integer",
+                "example": 3
+              },
+              "ativas": {
+                "type": "integer",
+                "example": 2
+              },
+              "com_falha": {
+                "type": "integer",
+                "example": 0
+              },
+              "inativas": {
+                "type": "integer",
+                "example": 1
+              }
+            }
+          },
           "estacoes": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": [
-                "id",
-                "nome",
-                "status"
-              ],
+              "required": ["id", "nome", "status_operacional"],
               "properties": {
                 "id": {
                   "type": "string",
@@ -801,7 +1295,7 @@
                   "type": "string",
                   "example": "Estação Centro"
                 },
-                "status": {
+                "status_operacional": {
                   "type": "string",
                   "example": "Ativa"
                 }
@@ -810,53 +1304,9 @@
           }
         }
       },
-      "AlarmePublicoResponse": {
-        "type": "object",
-        "required": [
-          "id",
-          "severidade",
-          "situacao",
-          "municipio",
-          "criado_em"
-        ],
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "severidade": {
-            "type": "string",
-            "enum": [
-              "ATENCAO",
-              "ALERTA",
-              "CRITICO"
-            ],
-            "example": "ALERTA"
-          },
-          "situacao": {
-            "type": "string",
-            "enum": [
-              "aberto",
-              "normalizado"
-            ],
-            "example": "aberto"
-          },
-          "municipio": {
-            "type": "string",
-            "example": "São José dos Campos"
-          },
-          "criado_em": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
       "QuotaExceededResponse": {
         "type": "object",
-        "required": [
-          "erro",
-          "renovaEm"
-        ],
+        "required": ["erro", "renovaEm"],
         "properties": {
           "erro": {
             "type": "string",
@@ -877,12 +1327,24 @@
           }
         }
       },
+      "ErroRelatorioResponse": {
+        "type": "object",
+        "required": ["erro"],
+        "properties": {
+          "erro": {
+            "type": "string",
+            "example": "Município não encontrado."
+          }
+        }
+      },
       "ErrorResponse": {
         "type": "object",
-        "required": [
-          "message"
-        ],
+        "required": ["message"],
         "properties": {
+          "statusCode": {
+            "type": "integer",
+            "example": 400
+          },
           "message": {
             "type": "string",
             "example": "Mensagem descritiva do erro."
