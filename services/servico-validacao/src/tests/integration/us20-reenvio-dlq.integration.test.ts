@@ -25,9 +25,8 @@ import {
 
 // TASK 20.03 com PostgreSQL, RabbitMQ e o consumidor reais. Execute com
 // VALIDACAO_TEST_DATABASE_URL e RABBITMQ_TEST_URL apontando para instâncias de teste.
-const databaseUrl = process.env.VALIDACAO_TEST_DATABASE_URL;
 const rabbitUrl = process.env.RABBITMQ_TEST_URL;
-const integration = databaseUrl && rabbitUrl ? describe : describe.skip;
+const integration = describe;
 
 integration("US-20 - reenvio de eventos da DLQ (PostgreSQL e RabbitMQ)", () => {
   const schema = `validacao_reenvio_${randomUUID().replaceAll("-", "")}`;

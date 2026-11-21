@@ -7,8 +7,7 @@ import { cadastrarGrandeza, cadastrarSensor, prepararSchemaAlarmes } from "./hel
 // US-39 (ELEM-266): o limite da regra é conferido contra a faixa da grandeza no
 // catálogo, por JOIN. Execute com ALERTAS_TEST_DATABASE_URL apontando para uma
 // instância de teste.
-const databaseUrl = process.env.ALERTAS_TEST_DATABASE_URL;
-const integration = databaseUrl ? describe : describe.skip;
+const integration = describe;
 
 integration("US-39 - limite da regra de alerta contra a faixa do catálogo (PostgreSQL)", () => {
   const schema = `alertas_us39_${randomUUID().replaceAll("-", "")}`;

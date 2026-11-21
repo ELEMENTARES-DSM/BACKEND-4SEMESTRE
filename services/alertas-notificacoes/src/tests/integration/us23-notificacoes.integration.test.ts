@@ -11,8 +11,7 @@ import { cadastrarUsuario, prepararSchemaNotificacoes } from "./helpers/banco-no
 
 // US-23 (TASK 23.01) com PostgreSQL real. Execute com ALERTAS_TEST_DATABASE_URL
 // apontando para uma instância de teste.
-const databaseUrl = process.env.ALERTAS_TEST_DATABASE_URL;
-const integration = databaseUrl ? describe : describe.skip;
+const integration = describe;
 
 integration("US-23 - notificacoes e gestores ativos (PostgreSQL)", () => {
   const schema = `alertas_us23_${randomUUID().replaceAll("-", "")}`;

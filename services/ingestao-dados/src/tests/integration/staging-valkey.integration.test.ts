@@ -33,9 +33,7 @@ import { esperar, esperarValkeyPronto } from "./helpers/valkey";
 // serviço fala com o Valkey e com o PostgreSQL por proxies TCP: derrubar o
 // proxy simula o container parado, religar simula ele voltando.
 const { STAGING_TEST_DATABASE_URL, VALKEY_TEST_URL, MQTT_TEST_URL, RABBITMQ_TEST_URL } = process.env;
-const integration = STAGING_TEST_DATABASE_URL && VALKEY_TEST_URL && MQTT_TEST_URL && RABBITMQ_TEST_URL
-  ? describe
-  : describe.skip;
+const integration = describe;
 
 const BANCO_VALKEY = 4;
 // O middleware lê o JWT_SECRET na hora de cada requisição.
