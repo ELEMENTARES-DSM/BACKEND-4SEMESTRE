@@ -114,6 +114,8 @@ void setup() {
 
   uid = WiFi.macAddress();
   uid.replace(":", "");
+  // Minúsculas: o tópico MQTT diferencia maiúsculas de minúsculas e o cadastro guarda minúsculas.
+  uid.toLowerCase();
   topico = "pulso/estacoes/" + uid + "/telemetria";
 
   mqttClient.setServer(mqtt_server, 1883);

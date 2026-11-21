@@ -113,7 +113,19 @@ if [ "$queda_banco" -gt 0 ]; then
     })).then((lista) => console.log(JSON.stringify(Object.fromEntries(lista))))
       .catch((e) => { console.error(e.message); process.exit(1); });
   ' ${estacoes//,/ }) || erro "não consegui ler os sensores das estações de teste no gestao-estacoes."
-  sensores_env=(-e "LOTE_SENSORES_JSON=$sensores_json")
+  # Os tópicos usam o MAC da estação: ele também é lido agora, pelo mesmo motivo.
+  macs_json=$(docker compose exec -T gestao-estacoes node -e '
+    Promise.all(process.argv.slice(1).map(async (id) => {
+      const r = await fetch(`http://127.0.0.1:3000/api/v1/internal/estacoes/${id}`, {
+        headers: { "X-Internal-Token": process.env.INTERNAL_TOKEN },
+      });
+      if (!r.ok) throw new Error(`estação ${id}: HTTP ${r.status}`);
+      const estacao = await r.json();
+      return [id, estacao.mac_address];
+    })).then((lista) => console.log(JSON.stringify(Object.fromEntries(lista))))
+      .catch((e) => { console.error(e.message); process.exit(1); });
+  ' ${estacoes//,/ }) || erro "não consegui ler o MAC das estações de teste no gestao-estacoes."
+  sensores_env=(-e "LOTE_SENSORES_JSON=$sensores_json" -e "LOTE_MACS_JSON=$macs_json")
 fi
 
 n=0

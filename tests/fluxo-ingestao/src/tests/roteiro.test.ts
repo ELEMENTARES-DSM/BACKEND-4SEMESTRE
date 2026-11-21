@@ -12,6 +12,7 @@ import {
 } from "../grandeza-nova/roteiro.js";
 
 const ESTACAO = "f1000000-0000-4000-8000-000000000010";
+const MAC = "a0a0a000000a";
 
 describe("payloadTelemetria e topicoTelemetria (US-39)", () => {
   it("monta o payload da placa com uma leitura e o horário em ISO", () => {
@@ -24,7 +25,7 @@ describe("payloadTelemetria e topicoTelemetria (US-39)", () => {
   });
 
   it("publica no tópico da estação", () => {
-    assert.equal(topicoTelemetria(ESTACAO), `pulso/estacoes/${ESTACAO}/telemetria`);
+    assert.equal(topicoTelemetria(MAC), `pulso/estacoes/${MAC}/telemetria`);
   });
 });
 

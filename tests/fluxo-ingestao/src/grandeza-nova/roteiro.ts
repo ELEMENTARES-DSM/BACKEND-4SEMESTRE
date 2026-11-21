@@ -13,8 +13,9 @@ export interface EventoDlqRecusado {
   motivo: string;
 }
 
-export const topicoTelemetria = (estacaoId: string): string =>
-  `pulso/estacoes/${estacaoId}/telemetria`;
+/** Tópico da estação, pelo MAC (o identificador da placa no broker). */
+export const topicoTelemetria = (macAddress: string): string =>
+  `pulso/estacoes/${macAddress}/telemetria`;
 
 /** Payload que a placa publica: uma leitura de um sensor, no horário dado. */
 export function payloadTelemetria(sensor: string, valor: number, unixtime: number): string {
