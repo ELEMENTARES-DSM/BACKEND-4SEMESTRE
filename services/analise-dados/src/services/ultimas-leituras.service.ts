@@ -41,15 +41,31 @@ export class UltimasLeiturasService {
   async obterUltimasLeituras(params: {
     estacaoId: string;
     usuario?: AuthPayload;
+    municipio?: string;
+    apenasAtivas?: boolean;
   }): Promise<UltimasLeiturasResponse> {
-    const { estacaoId, usuario } = params;
+    const { estacaoId, usuario, municipio, apenasAtivas } = params;
+
+    const condicoesEstacao = ["(id::text = $1 OR UPPER(codigo) = UPPER($1))"];
+    const valoresEstacao: string[] = [estacaoId.trim()];
+
+    if (municipio !== undefined) {
+      valoresEstacao.push(municipio.trim());
+      condicoesEstacao.push(
+        `UPPER(municipio) = UPPER($${valoresEstacao.length})`,
+      );
+    }
+
+    if (apenasAtivas) {
+      condicoesEstacao.push("status = 'Ativa'");
+    }
 
     const estacaoResult = await pool.query<EstacaoRow>(
       `SELECT id, codigo, municipio
        FROM estacoes
-       WHERE id::text = $1 OR UPPER(codigo) = UPPER($1)
+       WHERE ${condicoesEstacao.join(" AND ")}
        LIMIT 1`,
-      [estacaoId.trim()],
+      valoresEstacao,
     );
 
     const estacao = estacaoResult.rows[0];

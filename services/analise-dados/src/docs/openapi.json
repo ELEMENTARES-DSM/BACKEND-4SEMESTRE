@@ -212,22 +212,25 @@
         }
       }
     },
-    "/public/analise/estacoes/{id}/series": {
+    "/analise/publico/{municipio}/estacoes/{codigo}/series": {
       "get": {
         "tags": ["Público"],
         "operationId": "getPublicEstacaoSeries",
         "summary": "Obter séries históricas da estação (Público)",
-        "description": "Versão pública da consulta de séries históricas, sem necessidade de autenticação (limite máximo de até 7 dias; acima disso retorna 400). Os agrupamentos são de 5 minutos para 24h e 1 hora para 7d.",
+        "description": "Versão pública da consulta de séries históricas sem exigência de autenticação, filtrada por município e restrita a estações ativas (limite máximo de até 7 dias para acesso anônimo; acima disso retorna 400). Os agrupamentos são de 5 minutos para 24h e 1 hora para 7d.",
         "security": [],
         "parameters": [
           {
-            "$ref": "#/components/parameters/EstacaoId"
+            "$ref": "#/components/parameters/MunicipioParam"
+          },
+          {
+            "$ref": "#/components/parameters/EstacaoCodigoParam"
           },
           {
             "name": "grandeza",
             "in": "query",
             "required": true,
-            "description": "Grandeza que será consultada. Exemplos: PM25, PM10 e O3.",
+            "description": "Grandeza que será consultada. Exemplos: PM25, PM10 e Temperatura.",
             "schema": {
               "type": "string",
               "example": "PM25"
@@ -237,7 +240,7 @@
             "name": "periodo",
             "in": "query",
             "required": true,
-            "description": "Período da série histórica.",
+            "description": "Período da série histórica (para acesso anônimo, o limite máximo é de 7 dias).",
             "schema": {
               "type": "string",
               "enum": ["24h", "7d", "30d"],
@@ -264,16 +267,19 @@
         }
       }
     },
-    "/public/analise/estacoes/{id}/ultimas-leituras": {
+    "/analise/publico/{municipio}/estacoes/{codigo}/ultimas-leituras": {
       "get": {
         "tags": ["Público"],
         "operationId": "getPublicEstacaoUltimasLeituras",
         "summary": "Obter últimas leituras da estação (Público)",
-        "description": "Versão pública da consulta de últimas leituras, sem necessidade de autenticação.",
+        "description": "Versão pública da consulta de últimas leituras válidas de uma estação ativa pertencente ao município informado, sem necessidade de autenticação.",
         "security": [],
         "parameters": [
           {
-            "$ref": "#/components/parameters/EstacaoId"
+            "$ref": "#/components/parameters/MunicipioParam"
+          },
+          {
+            "$ref": "#/components/parameters/EstacaoCodigoParam"
           }
         ],
         "responses": {
@@ -295,16 +301,37 @@
         }
       }
     },
-    "/public/analise/iqar": {
+    "/analise/publico/{municipio}/iqar": {
       "get": {
         "tags": ["Público"],
         "operationId": "getPublicIqar",
-        "summary": "Obter IQAr (Público)",
-        "description": "Versão pública da consulta do Índice de Qualidade do Ar, sem necessidade de autenticação.",
+        "summary": "Obter IQAr por município (Público)",
+        "description": "Versão pública da consulta do Índice de Qualidade do Ar filtrada por município e estações ativas, sem necessidade de autenticação.",
         "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/MunicipioParam"
+          },
+          {
+            "name": "estacaoId",
+            "in": "query",
+            "required": false,
+            "description": "Identificador ou código opcional de uma estação ativa pertencente ao município informado.",
+            "schema": {
+              "type": "string",
+              "example": "EST-001"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "$ref": "#/components/responses/IqarSuccess"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/EstacaoNotFound"
           },
           "429": {
             "$ref": "#/components/responses/TooManyRequests"
@@ -333,6 +360,26 @@
         "schema": {
           "type": "string",
           "example": "estacao-01"
+        }
+      },
+      "EstacaoCodigoParam": {
+        "name": "codigo",
+        "in": "path",
+        "required": true,
+        "description": "Código ou identificador de uma estação ativa pertencente ao município.",
+        "schema": {
+          "type": "string",
+          "example": "EST-001"
+        }
+      },
+      "MunicipioParam": {
+        "name": "municipio",
+        "in": "path",
+        "required": true,
+        "description": "Nome do município para filtro dos dados públicos.",
+        "schema": {
+          "type": "string",
+          "example": "São José dos Campos"
         }
       }
     },
@@ -564,7 +611,7 @@
         }
       },
       "EstacaoNotFound": {
-        "description": "Estação não encontrada ou indisponível para consulta no município do Gestor. A resposta não diferencia os dois casos.",
+        "description": "Estação não encontrada ou indisponível para consulta no município informado. A resposta não diferencia os dois casos.",
         "content": {
           "application/json": {
             "schema": {
@@ -641,10 +688,7 @@
       },
       "QuotaExceededResponse": {
         "type": "object",
-        "required": [
-          "erro",
-          "renovaEm"
-        ],
+        "required": ["erro", "renovaEm"],
         "properties": {
           "erro": {
             "type": "string",
