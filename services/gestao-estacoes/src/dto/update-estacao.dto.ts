@@ -1,4 +1,5 @@
 export interface UpdateEstacaoDTO {
+  mac_address?: string;
   nome?: string;
   latitude?: number;
   longitude?: number;

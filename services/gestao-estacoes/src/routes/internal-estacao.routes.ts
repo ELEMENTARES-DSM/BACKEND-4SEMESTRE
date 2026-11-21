@@ -9,6 +9,13 @@ const router = Router();
 
 router.use(internalTokenMiddleware);
 
+// Usada pelo simulador de estações: dados da estação, inclusive o MAC do tópico.
+router.get(
+  "/:uuid",
+  validate(estacaoUuidParamSchema, "params"),
+  estacaoController.obterInterno,
+);
+
 router.patch(
   "/:uuid/inativar",
   validate(estacaoUuidParamSchema, "params"),

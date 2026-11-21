@@ -143,10 +143,10 @@ export const listarDetectados = async (
   usuario: UserContext,
   agora: () => Date = () => new Date()
 ) => {
-  await garantirPosseDaEstacao(estacaoId, usuario);
+  const estacao = await garantirPosseDaEstacao(estacaoId, usuario);
 
   const [mensagens, registrados] = await Promise.all([
-    lerMensagensDoStaging(estacaoId),
+    lerMensagensDoStaging(estacao.mac_address),
     sensorRepository.findCodigosDaEstacao(estacaoId),
   ]);
 
@@ -158,9 +158,12 @@ export const listarDetectados = async (
   );
 };
 
-const lerMensagensDoStaging = async (estacaoId: string) => {
+const lerMensagensDoStaging = async (macAddress: string | null) => {
+  // Estação sem MAC não tem tópico: nada pode ter chegado por ela.
+  if (macAddress === null) return [];
+
   try {
-    return await stagingValkey.listarMensagensVerificadas(estacaoId);
+    return await stagingValkey.listarMensagensVerificadas(macAddress);
   } catch (erro) {
     console.error("Falha ao ler o staging no Valkey", erro);
     throw new AppError(

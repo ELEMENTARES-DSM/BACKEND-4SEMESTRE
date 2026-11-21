@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { Pool } from "pg";
 import request from "supertest";
+import { macAleatorio } from "./ambiente";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -35,6 +36,7 @@ afterAll(async () => {
 
 test("cadastra e consulta uma estação, persistindo os dados no PostgreSQL", async () => {
   const payload = {
+    mac_address: macAleatorio(),
     codigo,
     nome: "Estação de integração",
     municipio: "São José dos Campos",
@@ -90,6 +92,7 @@ describe("PATCH /api/v1/internal/estacoes/:uuid/inativar", () => {
 
   test("responde 200 e grava a estação como Inativa no banco de dados", async () => {
     const payload = {
+      mac_address: macAleatorio(),
       codigo: codigoInativacao,
       nome: "Estação para inativação interna",
       municipio: "São José dos Campos",

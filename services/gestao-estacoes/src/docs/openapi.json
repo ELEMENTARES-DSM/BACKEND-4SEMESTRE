@@ -1329,6 +1329,11 @@
             "format": "uuid",
             "example": "1c80274a-7c56-45aa-b397-2f89fa6c7fd9"
           },
+          "mac_address": {
+            "type": ["string", "null"],
+            "description": "MAC da placa em 12 hex minúsculos. Null só em estações anteriores à migração que não receberam MAC.",
+            "example": "aabbccddeeff"
+          },
           "codigo": {
             "type": "string",
             "example": "EST-001"
@@ -1614,8 +1619,13 @@
       },
       "CreateEstacaoInput": {
         "type": "object",
-        "required": ["codigo", "nome", "latitude", "longitude"],
+        "required": ["mac_address", "codigo", "nome", "latitude", "longitude"],
         "properties": {
+          "mac_address": {
+            "type": "string",
+            "description": "MAC da placa, com ou sem separador (':' ou '-'). Guardado em 12 hex minúsculos; é o identificador do tópico pulso/estacoes/<mac>/telemetria. Único entre as estações.",
+            "example": "aa:bb:cc:dd:ee:ff"
+          },
           "codigo": {
             "type": "string",
             "minLength": 1,

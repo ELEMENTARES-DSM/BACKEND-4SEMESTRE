@@ -182,3 +182,16 @@ export const statusPublicoPorMunicipio = async (
   }
 };
 
+// Rota interna (X-Internal-Token): o simulador precisa do MAC para publicar.
+export const obterInterno = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const estacao = await estacaoService.findById(req.params.uuid as string);
+    return res.json(estacao);
+  } catch (err) {
+    next(err);
+  }
+};

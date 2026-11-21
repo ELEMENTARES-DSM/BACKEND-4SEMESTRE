@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { Pool } from "pg";
 import { createClient } from "redis";
@@ -8,6 +8,11 @@ import { createClient } from "redis";
  * scripts/test-integration.sh (npm test na raiz), que sobe o PostgreSQL e a
  * API em contêineres descartáveis.
  */
+/** MAC aleatório no formato do cadastro (12 hex minúsculos), para estações de teste. */
+export function macAleatorio(): string {
+  return randomBytes(6).toString("hex");
+}
+
 export function exigir(nome: string): string {
   const valor = process.env[nome];
   if (!valor) throw new Error(`${nome} ausente. Execute npm test na raiz do projeto.`);

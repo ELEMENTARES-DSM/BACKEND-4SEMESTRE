@@ -49,7 +49,7 @@ beforeAll(async () => {
 beforeEach(() => {
   jest.clearAllMocks();
   estacoes.findById.mockResolvedValue({
-    id: ESTACAO_ID, codigo: "EST-001", nome: "Estação", municipio: "São José dos Campos",
+    id: ESTACAO_ID, mac_address: "aabbccdd0001", codigo: "EST-001", nome: "Estação", municipio: "São José dos Campos",
   });
   staging.listarMensagensVerificadas.mockResolvedValue([mensagemDaEstacao]);
   sensores.findCodigosDaEstacao.mockResolvedValue([]);
@@ -89,7 +89,7 @@ describe("GET /estacoes/estacoes/:estacaoId/sensores/detectados (US-39)", () => 
     expect(res.body).toEqual([
       { codigo: "PM25", total: 1, ultimo_valor: 12, ultima_leitura_em: recebidoEm },
     ]);
-    expect(staging.listarMensagensVerificadas).toHaveBeenCalledWith(ESTACAO_ID);
+    expect(staging.listarMensagensVerificadas).toHaveBeenCalledWith("aabbccdd0001");
   });
 
   it("deve tirar da resposta o código que a estação já tem cadastrado", async () => {

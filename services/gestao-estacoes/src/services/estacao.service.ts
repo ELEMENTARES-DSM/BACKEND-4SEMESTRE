@@ -18,6 +18,8 @@ export const create = async (data: CreateEstacaoDTO): Promise<Estacoes> => {
     );
   }
 
+  await garantirMacLivre(data.mac_address);
+
   if (
     data.latitude < -90 ||
     data.latitude > 90 ||
@@ -28,6 +30,7 @@ export const create = async (data: CreateEstacaoDTO): Promise<Estacoes> => {
   }
 
   return estacaoRepository.create({
+    mac_address: data.mac_address,
     codigo: data.codigo,
     nome: data.nome,
     municipio: data.municipio,
@@ -35,6 +38,14 @@ export const create = async (data: CreateEstacaoDTO): Promise<Estacoes> => {
     longitude: data.longitude,
     status: data.status ?? "Ativa",
   });
+};
+
+// O MAC identifica a estação física no tópico MQTT: não pode repetir em duas estações.
+const garantirMacLivre = async (macAddress: string, idAtual?: string) => {
+  const outra = await estacaoRepository.findByMac(macAddress);
+  if (outra && outra.id !== idAtual) {
+    throw new AppError("MAC já cadastrado em outra estação", 409);
+  }
 };
 
 export const findAll = async (
@@ -90,6 +101,10 @@ export const update = async (
       (data.longitude < -180 || data.longitude > 180))
   ) {
     throw new AppError("Coordenadas geográficas fora dos limites válidos", 400);
+  }
+
+  if (data.mac_address !== undefined) {
+    await garantirMacLivre(data.mac_address, id);
   }
 
   const atualizado = await estacaoRepository.update(id, data);
