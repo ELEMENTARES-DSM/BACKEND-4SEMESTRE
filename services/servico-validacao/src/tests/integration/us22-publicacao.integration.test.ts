@@ -22,9 +22,8 @@ import { conectarAdmin, esperar, limparFilas, publicarEvento } from "./helpers/r
 
 // US-22 (TASK 22.03) com PostgreSQL e RabbitMQ reais. Execute com
 // VALIDACAO_TEST_DATABASE_URL e RABBITMQ_TEST_URL apontando para instâncias de teste.
-const databaseUrl = process.env.VALIDACAO_TEST_DATABASE_URL;
 const rabbitUrl = process.env.RABBITMQ_TEST_URL;
-const integration = databaseUrl && rabbitUrl ? describe : describe.skip;
+const integration = describe;
 
 integration("US-22 - publicação de alarme.disparado (PostgreSQL e RabbitMQ)", () => {
   const schema = `validacao_us22p_${randomUUID().replaceAll("-", "")}`;
@@ -121,12 +120,12 @@ integration("US-22 - publicação de alarme.disparado (PostgreSQL e RabbitMQ)", 
   it("telemetria entregue de novo não publica o alarme outra vez", async () => {
     await cadastrarRegra(pool, { sensorId: pm25, operador: ">=", limite: "50.00" });
     await iniciarConsumidor();
-    const original = evento(52.3);
+    const original = evento(52.3, Math.floor(Date.now() / 1000) - 60);
 
     publicarEvento(admin.channel, original);
     await esperar(async () => (await contarNaFila()) === 1, "primeiro evento");
     publicarEvento(admin.channel, original);
-    publicarEvento(admin.channel, evento(10, Math.floor(Date.now() / 1000)));
+    publicarEvento(admin.channel, evento(10, original.unixtime + 60));
     await esperar(async () => (await contarMedidas()) === 2, "evento seguinte processado");
 
     expect(await contarNaFila()).toBe(1);

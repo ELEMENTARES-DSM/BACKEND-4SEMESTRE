@@ -2,9 +2,8 @@ import { randomUUID } from "node:crypto";
 import { pool } from "../../config/db";
 
 // Os testes de integração exigem PostgreSQL ativo configurado via DATABASE_URL
-// Caso DATABASE_URL não esteja definida, os testes são pulados via describe.skip
 const databaseUrl = process.env.DATABASE_URL;
-const integration = databaseUrl ? describe : describe.skip;
+const integration = describe;
 
 integration("Task 42.02 - Cadastro do Munícipe (PostgreSQL)", () => {
   const schema = `gestao_usuarios_task4202_${randomUUID().replaceAll("-", "")}`;

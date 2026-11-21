@@ -2,7 +2,7 @@ import { conectarValkey, desconectarValkey, getValkeyClient } from "../../config
 import { COTAS_POR_PERFIL, obterAnoMes, obterAnoSemanaIso } from "../../config/cotas";
 import { verificarEDebitarCota } from "../../services/cota.service";
 
-const integration = process.env.REDIS_URL ? describe : describe.skip;
+const integration = describe;
 type ClienteBruto = { get(c: string): Promise<string | null>; set(c: string, v: string): Promise<unknown>; del(c: string): Promise<unknown> };
 
 integration("cota.valkey (US-42)", () => {

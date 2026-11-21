@@ -19,7 +19,7 @@ import { esperar, usarValkeyDeTeste } from "../../integration/helpers/valkey";
 
 // US-40 · publicação a partir do Valkey com RabbitMQ e Valkey de teste em container.
 const rabbitUrl = process.env.RABBITMQ_TEST_URL;
-const integration = rabbitUrl && process.env.VALKEY_TEST_URL ? describe : describe.skip;
+const integration = describe;
 
 const MAC = "aabbccddeeff";
 const ESTACAO = "8723c462-e79c-4e58-9751-eef8868a5312";
