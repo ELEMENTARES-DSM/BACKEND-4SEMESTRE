@@ -126,15 +126,20 @@
         }
       }
     },
-    "/analise/iqar": {
+    "/analise/estacoes/{id}/iqar": {
       "get": {
         "tags": ["Análise"],
-        "operationId": "getIqar",
-        "summary": "Obter Índice de Qualidade do Ar (IQAr)",
-        "description": "Retorna o IQAr, incluindo a cor e o rótulo correspondente à faixa oficial de qualidade do ar. Quando não houver dados suficientes, retorna o texto 'Sem dados suficientes'.",
+        "operationId": "getEstacaoIqar",
+        "summary": "Obter Índice de Qualidade do Ar (IQAr) da estação",
+        "description": "Calcula o IQAr da estação com base na média móvel das últimas 24 horas de leituras válidas de PM2.5, usando as faixas oficiais brasileiras (CONAMA nº 506/2024 / MMA e CETESB: Boa <= 15, Moderada <= 50, Ruim <= 75, Muito Ruim <= 125, Péssima > 125 µg/m³). Sem 24 horas de histórico válido, retorna 'Sem dados suficientes'. Gestores públicos só acessam estações do próprio município (404 para outros municípios).",
         "security": [
           {
             "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EstacaoId"
           }
         ],
         "responses": {
@@ -147,6 +152,9 @@
           "403": {
             "$ref": "#/components/responses/Forbidden"
           },
+          "404": {
+            "$ref": "#/components/responses/EstacaoNotFound"
+          },
           "429": {
             "$ref": "#/components/responses/TooManyRequests"
           },
@@ -156,22 +164,73 @@
         }
       }
     },
-    "/public/analise/estacoes/{id}/series": {
+    "/analise/iqar": {
+      "get": {
+        "tags": ["Análise"],
+        "operationId": "getIqar",
+        "summary": "Obter Índice de Qualidade do Ar (IQAr) por query de estação",
+        "description": "Atalho compatível para consulta do IQAr passando o parâmetro de query `estacaoId`. Sem `estacaoId`, responde 400 orientando o uso de `/analise/estacoes/{id}/iqar`.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "estacaoId",
+            "in": "query",
+            "required": true,
+            "description": "UUID ou código da estação.",
+            "schema": {
+              "type": "string",
+              "example": "EST-HIST-01"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/IqarSuccess"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/EstacaoNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/analise/publico/{municipio}/estacoes/{codigo}/series": {
       "get": {
         "tags": ["Público"],
         "operationId": "getPublicEstacaoSeries",
         "summary": "Obter séries históricas da estação (Público)",
-        "description": "Versão pública da consulta de séries históricas, sem necessidade de autenticação (limite máximo de até 7 dias; acima disso retorna 400). Os agrupamentos são de 5 minutos para 24h e 1 hora para 7d.",
+        "description": "Versão pública da consulta de séries históricas sem exigência de autenticação, filtrada por município e restrita a estações ativas (limite máximo de até 7 dias para acesso anônimo; acima disso retorna 400). Os agrupamentos são de 5 minutos para 24h e 1 hora para 7d.",
         "security": [],
         "parameters": [
           {
-            "$ref": "#/components/parameters/EstacaoId"
+            "$ref": "#/components/parameters/MunicipioParam"
+          },
+          {
+            "$ref": "#/components/parameters/EstacaoCodigoParam"
           },
           {
             "name": "grandeza",
             "in": "query",
             "required": true,
-            "description": "Grandeza que será consultada. Exemplos: PM25, PM10 e O3.",
+            "description": "Grandeza que será consultada. Exemplos: PM25, PM10 e Temperatura.",
             "schema": {
               "type": "string",
               "example": "PM25"
@@ -181,7 +240,7 @@
             "name": "periodo",
             "in": "query",
             "required": true,
-            "description": "Período da série histórica.",
+            "description": "Período da série histórica (para acesso anônimo, o limite máximo é de 7 dias).",
             "schema": {
               "type": "string",
               "enum": ["24h", "7d", "30d"],
@@ -208,16 +267,19 @@
         }
       }
     },
-    "/public/analise/estacoes/{id}/ultimas-leituras": {
+    "/analise/publico/{municipio}/estacoes/{codigo}/ultimas-leituras": {
       "get": {
         "tags": ["Público"],
         "operationId": "getPublicEstacaoUltimasLeituras",
         "summary": "Obter últimas leituras da estação (Público)",
-        "description": "Versão pública da consulta de últimas leituras, sem necessidade de autenticação.",
+        "description": "Versão pública da consulta de últimas leituras válidas de uma estação ativa pertencente ao município informado, sem necessidade de autenticação.",
         "security": [],
         "parameters": [
           {
-            "$ref": "#/components/parameters/EstacaoId"
+            "$ref": "#/components/parameters/MunicipioParam"
+          },
+          {
+            "$ref": "#/components/parameters/EstacaoCodigoParam"
           }
         ],
         "responses": {
@@ -239,16 +301,37 @@
         }
       }
     },
-    "/public/analise/iqar": {
+    "/analise/publico/{municipio}/iqar": {
       "get": {
         "tags": ["Público"],
         "operationId": "getPublicIqar",
-        "summary": "Obter IQAr (Público)",
-        "description": "Versão pública da consulta do Índice de Qualidade do Ar, sem necessidade de autenticação.",
+        "summary": "Obter IQAr por município (Público)",
+        "description": "Versão pública da consulta do Índice de Qualidade do Ar filtrada por município e estações ativas, sem necessidade de autenticação.",
         "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/MunicipioParam"
+          },
+          {
+            "name": "estacaoId",
+            "in": "query",
+            "required": false,
+            "description": "Identificador ou código opcional de uma estação ativa pertencente ao município informado.",
+            "schema": {
+              "type": "string",
+              "example": "EST-001"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "$ref": "#/components/responses/IqarSuccess"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/EstacaoNotFound"
           },
           "429": {
             "$ref": "#/components/responses/TooManyRequests"
@@ -277,6 +360,26 @@
         "schema": {
           "type": "string",
           "example": "estacao-01"
+        }
+      },
+      "EstacaoCodigoParam": {
+        "name": "codigo",
+        "in": "path",
+        "required": true,
+        "description": "Código ou identificador de uma estação ativa pertencente ao município.",
+        "schema": {
+          "type": "string",
+          "example": "EST-001"
+        }
+      },
+      "MunicipioParam": {
+        "name": "municipio",
+        "in": "path",
+        "required": true,
+        "description": "Nome do município para filtro dos dados públicos.",
+        "schema": {
+          "type": "string",
+          "example": "São José dos Campos"
         }
       }
     },
@@ -427,18 +530,25 @@
               "comDados": {
                 "summary": "IQAr calculado",
                 "value": {
+                  "estacaoId": "EST-HIST-01",
+                  "indice": 15,
+                  "classificacao": "Boa",
                   "status": "Boa",
                   "cor": "#00E400",
                   "rotuloFaixa": "Boa",
-                  "mensagem": "Qualidade do ar considerada boa."
+                  "mensagem": "Qualidade do ar considerada boa.",
+                  "municipio": "São José dos Campos"
                 }
               },
               "semDados": {
                 "summary": "Dados insuficientes",
                 "value": {
+                  "estacaoId": "EST-REC-02",
+                  "indice": "Sem dados suficientes",
                   "status": "Sem dados suficientes",
                   "rotuloFaixa": "Sem dados suficientes",
-                  "mensagem": "Não há dados suficientes para calcular o IQAr."
+                  "mensagem": "Não há dados suficientes para calcular o IQAr.",
+                  "municipio": "São José dos Campos"
                 }
               }
             }
@@ -501,7 +611,7 @@
         }
       },
       "EstacaoNotFound": {
-        "description": "Estação não encontrada ou indisponível para consulta no município do Gestor. A resposta não diferencia os dois casos.",
+        "description": "Estação não encontrada ou indisponível para consulta no município informado. A resposta não diferencia os dois casos.",
         "content": {
           "application/json": {
             "schema": {
@@ -578,10 +688,7 @@
       },
       "QuotaExceededResponse": {
         "type": "object",
-        "required": [
-          "erro",
-          "renovaEm"
-        ],
+        "required": ["erro", "renovaEm"],
         "properties": {
           "erro": {
             "type": "string",
@@ -682,8 +789,25 @@
       },
       "IqarResponse": {
         "type": "object",
-        "required": ["status", "rotuloFaixa", "mensagem"],
+        "required": ["estacaoId", "indice", "status", "rotuloFaixa", "mensagem", "municipio"],
         "properties": {
+          "estacaoId": {
+            "type": "string",
+            "description": "Identificador ou código da estação consultada.",
+            "example": "EST-HIST-01"
+          },
+          "indice": {
+            "oneOf": [
+              { "type": "integer", "example": 15 },
+              { "type": "string", "example": "Sem dados suficientes" }
+            ],
+            "description": "Média arredondada de PM2.5 nas últimas 24h ou 'Sem dados suficientes'."
+          },
+          "classificacao": {
+            "type": "string",
+            "description": "Faixa oficial do IQAr (Boa, Moderada, Ruim, Muito Ruim ou Péssima), presente quando há dados suficientes.",
+            "example": "Boa"
+          },
           "status": {
             "type": "string",
             "description": "Situação do IQAr ou indicação de dados insuficientes.",
@@ -702,6 +826,11 @@
           "mensagem": {
             "type": "string",
             "example": "Qualidade do ar considerada boa."
+          },
+          "municipio": {
+            "type": "string",
+            "description": "Município ao qual a estação pertence.",
+            "example": "São José dos Campos"
           }
         }
       }
