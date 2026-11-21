@@ -12,13 +12,6 @@ on:
       - "docs/**/*.svg"
   pull_request:
     branches: ["develop", "main"]
-    paths-ignore:
-      - "**/*.md"
-      - ".devcontainer/**"
-      - "docs/**/*.md"
-      - "docs/**/*.txt"
-      - "docs/**/*.png"
-      - "docs/**/*.svg"
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -59,8 +52,8 @@ jobs:
           fi
 
           # 1. Validação do nome da branch
-          if [[ ! "$HEAD_REF" =~ ^(feature|feat|fix|docs|hotfix)/ELEM-[0-9]+-.* ]] && [[ ! "$HEAD_REF" =~ ^release/[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Nome de branch inválido: '$HEAD_REF'. Esperado: (feature|feat|fix|docs|hotfix)/ELEM-<num>-<descricao> ou release/<x.y.z>."
+          if [[ ! "$HEAD_REF" =~ ^(feature|feat|fix|docs|hotfix|chore|refactor|test)/ELEM-[0-9]+-.* ]] && [[ ! "$HEAD_REF" =~ ^release/[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Nome de branch inválido: '$HEAD_REF'. Esperado: (feature|feat|fix|docs|hotfix|chore|refactor|test)/ELEM-<num>-<descricao> ou release/<x.y.z>."
             ERROS=1
           fi
 
@@ -208,6 +201,7 @@ jobs:
     needs: [detectar-mudancas]
     if: needs.detectar-mudancas.outputs.has_services == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     strategy:
       fail-fast: false
@@ -257,6 +251,34 @@ jobs:
       - name: Rodar Testes Unitários com Cobertura (${{ matrix.service }})
         run: npm test
 
+      - name: Publicar resumo de cobertura no PR (${{ matrix.service }})
+        if: always()
+        env:
+          SERVICE: ${{ matrix.service }}
+        run: |
+          if [ -f coverage/coverage-summary.json ]; then
+            node -e '
+              const fs = require("fs");
+              const data = JSON.parse(fs.readFileSync("coverage/coverage-summary.json", "utf8")).total;
+              const svc = process.env.SERVICE;
+              const fmt = (m) => `${m.pct.toFixed(2)}% (${m.covered}/${m.total})`;
+              const md = [
+                `### Cobertura de Testes — \`${svc}\``,
+                "",
+                "| Métrica | Cobertura | Mínimo | Status |",
+                "|---|---:|---:|:---:|",
+                `| Statements | ${fmt(data.statements)} | 70% | ${data.statements.pct >= 70 ? "✅" : "❌"} |`,
+                `| Branches | ${fmt(data.branches)} | 70% | ${data.branches.pct >= 70 ? "✅" : "❌"} |`,
+                `| Functions | ${fmt(data.functions)} | 70% | ${data.functions.pct >= 70 ? "✅" : "❌"} |`,
+                `| Lines | ${fmt(data.lines)} | 70% | ${data.lines.pct >= 70 ? "✅" : "❌"} |`,
+                "",
+              ].join("\n");
+              if (process.env.GITHUB_STEP_SUMMARY) {
+                fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md);
+              }
+            '
+          fi
+
       - name: Fazer o Build (${{ matrix.service }})
         run: npm run build
 
@@ -283,8 +305,12 @@ jobs:
         run: npm run docs:validate
 
   testes-integracao:
-    needs: [detectar-mudancas]
-    if: needs.detectar-mudancas.outputs.integration == 'true' || needs.detectar-mudancas.outputs.run_all == 'true'
+    needs: [detectar-mudancas, validar-servicos]
+    if: >-
+      always() &&
+      needs.detectar-mudancas.result == 'success' &&
+      (needs.validar-servicos.result == 'success' || needs.validar-servicos.result == 'skipped') &&
+      (needs.detectar-mudancas.outputs.integration == 'true' || needs.detectar-mudancas.outputs.run_all == 'true')
     runs-on: ubuntu-latest
 
     services:

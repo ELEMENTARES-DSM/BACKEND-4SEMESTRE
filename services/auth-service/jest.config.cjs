@@ -21,6 +21,7 @@ module.exports = {
     "!src/database/migrations/**",
     "!src/docs/**",
   ],
+  coverageReporters: ["text", "json-summary"],
   coverageThreshold: {
     global: {
       lines: 70,
