@@ -32,6 +32,7 @@ export interface MunicipiosPublicoResponse {
 }
 export interface Estacoes{
   id: string;
+  mac_address: string | null;
   codigo: string;
   nome: string;
   municipio: string;

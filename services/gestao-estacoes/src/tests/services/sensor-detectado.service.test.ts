@@ -19,7 +19,8 @@ const estacoes = jest.mocked(estacaoRepository);
 const staging = jest.mocked(stagingValkey);
 
 const ESTACAO_ID = "11111111-1111-4111-8111-111111111111";
-const estacao = { id: ESTACAO_ID, municipio: "São José dos Campos" } as Estacao;
+const MAC_ESTACAO = "aabbccdd0001";
+const estacao = { id: ESTACAO_ID, mac_address: MAC_ESTACAO, municipio: "São José dos Campos" } as Estacao;
 const gestor = { papel: "GESTOR_PUBLICO", municipio: "São José dos Campos" };
 const gestorDeOutroMunicipio = { papel: "GESTOR_PUBLICO", municipio: "Jacareí" };
 const admin = { papel: "ADMINISTRADOR", municipio: "Jacareí" };
@@ -61,7 +62,7 @@ describe("sensor.service: códigos detectados no staging do Valkey (US-39)", () 
     await sensorService.listarDetectados(ESTACAO_ID, gestor, agora);
 
     // Então
-    expect(staging.listarMensagensVerificadas).toHaveBeenCalledWith(ESTACAO_ID);
+    expect(staging.listarMensagensVerificadas).toHaveBeenCalledWith(MAC_ESTACAO);
     expect(sensores.findCodigosDaEstacao).toHaveBeenCalledWith(ESTACAO_ID);
   });
 

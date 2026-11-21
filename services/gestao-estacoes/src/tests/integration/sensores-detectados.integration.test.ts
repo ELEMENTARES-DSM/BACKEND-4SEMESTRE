@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import request from "supertest";
-import { abrirBancoDeTeste, abrirValkeyDeTeste, exigir, tokenDe } from "../../../tests/integration/ambiente";
+import { abrirBancoDeTeste, abrirValkeyDeTeste, exigir, macAleatorio, tokenDe } from "../../../tests/integration/ambiente";
 
 const api = request(exigir("TEST_API_URL"));
 const pool: Pool = abrirBancoDeTeste();
@@ -12,6 +12,8 @@ const codigosEstacoes = [`IT-DET-A-${sufixo}`, `IT-DET-B-${sufixo}`, `IT-DET-C-$
 let estacaoA = "";
 let estacaoB = "";
 let estacaoSemMensagens = "";
+// MAC de cada estação de teste: o tópico do staging é pulso/estacoes/<mac>/telemetria.
+const macs = new Map<string, string>();
 let valkey: Awaited<ReturnType<typeof abrirValkeyDeTeste>>;
 // Chaves criadas por este arquivo: o Valkey de teste é o mesmo que a API lê.
 const chavesCriadas: string[] = [];
@@ -21,12 +23,14 @@ const minutosAtras = (minutos: number) => new Date(inicio - minutos * 60 * 1000)
 const diasAtras = (dias: number) => new Date(inicio - dias * 24 * 60 * 60 * 1000);
 
 const criarEstacao = async (codigo: string): Promise<string> => {
+  const mac = macAleatorio();
   const res = await api
     .post("/estacoes")
     .auth(token, { type: "bearer" })
-    .send({ codigo, nome: "Estação dos códigos detectados", municipio: "São José dos Campos", latitude: -23.18, longitude: -45.88 })
+    .send({ mac_address: mac, codigo, nome: "Estação dos códigos detectados", municipio: "São José dos Campos", latitude: -23.18, longitude: -45.88 })
     .timeout(5000)
     .expect(201);
+  macs.set(res.body.id, mac);
   return res.body.id;
 };
 
@@ -54,7 +58,7 @@ const mensagem = async (
   quando: Date,
   leituras: unknown,
   status = "encaminhada",
-  topico = `pulso/estacoes/${estacaoUuid}/telemetria`,
+  topico = `pulso/estacoes/${macs.get(estacaoUuid)}/telemetria`,
 ) => {
   const chave = `staging:msg:${randomUUID()}`;
   chavesCriadas.push(chave);
@@ -156,7 +160,7 @@ describe("GET /estacoes/estacoes/:id/sensores/detectados contra o Valkey e o Pos
     const chaveQuebrada = `staging:msg:${randomUUID()}`;
     chavesCriadas.push(chaveQuebrada);
     await valkey.hSet(chaveQuebrada, {
-      topico: `pulso/estacoes/${estacaoA}/telemetria`,
+      topico: `pulso/estacoes/${macs.get(estacaoA)}/telemetria`,
       conteudo: "{quebrado",
       recebidoEm: minutosAtras(3).toISOString(),
       status: "encaminhada",
@@ -173,7 +177,7 @@ describe("GET /estacoes/estacoes/:id/sensores/detectados contra o Valkey e o Pos
   it("deve contar a mensagem pendente e a de tópico com o UUID em maiúsculas", async () => {
     // Dado
     await mensagem(estacaoA, minutosAtras(2), [{ sensor: "PENDENTE-01", valor: 5 }], "pendente");
-    await mensagem(estacaoA, minutosAtras(1), [{ sensor: "MAIUSCULAS-01", valor: 6 }], "encaminhada", `pulso/estacoes/${estacaoA.toUpperCase()}/telemetria`);
+    await mensagem(estacaoA, minutosAtras(1), [{ sensor: "MAIUSCULAS-01", valor: 6 }], "encaminhada", `pulso/estacoes/${macs.get(estacaoA)?.toUpperCase()}/telemetria`);
 
     // Quando
     const res = await detectados(estacaoA);

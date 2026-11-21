@@ -38,13 +38,15 @@ const AGORA = new Date("2026-11-16T10:00:00.000Z");
 const relogio = () => AGORA;
 const ESTACAO_A = "00000000-0000-4000-8000-00000000000a";
 const ESTACAO_B = "00000000-0000-4000-8000-00000000000b";
-const topico = (estacao: string): string => `pulso/estacoes/${estacao}/telemetria`;
+const MAC_A = "aabbccddee0a";
+const MAC_B = "aabbccddee0b";
+const topico = (mac: string): string => `pulso/estacoes/${mac}/telemetria`;
 const payloadValido = '{ "timestamp": "2026-10-14T12:00:00Z", "leituras": [{"sensor":"temperatura","valor":25}] }';
 
 function staging(dados: Partial<MensagemStaging> = {}): MensagemStaging {
   return {
     id: "11111111-1111-4111-8111-111111111111",
-    topico: topico(ESTACAO_A),
+    topico: topico(MAC_A),
     payloadBruto: payloadValido,
     recebidoEm: "2026-10-14T12:00:05.000Z",
     status: "recebida",
@@ -55,7 +57,11 @@ function staging(dados: Partial<MensagemStaging> = {}): MensagemStaging {
 beforeEach(() => {
   jest.mocked(gravarBruta).mockResolvedValue("id-gerado");
   jest.mocked(listarRecebidas).mockResolvedValue([]);
-  jest.mocked(conferirEstacao).mockResolvedValue(undefined);
+  // Conferência padrão: cada MAC resolve para a sua estação.
+  jest.mocked(conferirEstacao).mockImplementation(async (mac) => ({
+    ok: true,
+    estacaoId: mac === MAC_B ? ESTACAO_B : ESTACAO_A,
+  }));
   jest.mocked(marcarVisto).mockResolvedValue("nova");
   jest.mocked(atualizarSinalEstacao).mockResolvedValue(true);
   jest.spyOn(logger, "warn").mockImplementation(() => undefined);
@@ -64,7 +70,7 @@ beforeEach(() => {
 
 describe("receberMensagem", () => {
   const bruta: MensagemBruta = {
-    topico: topico(ESTACAO_A),
+    topico: topico(MAC_A),
     payloadBruto: "  conteúdo {não é json} ",
     recebidoEm: "2026-10-14T12:00:05.000Z",
   };
@@ -122,7 +128,7 @@ describe("verificarMensagem", () => {
       expect(encerrarSemPublicar).toHaveBeenCalledWith(mensagem.id, "recusada", AGORA, "Nível de bateria fora de 0 a 100");
       expect(marcarPendente).not.toHaveBeenCalled();
       expect(solicitarProcessamentoPendentes).not.toHaveBeenCalled();
-      expect(registrarRejeicao).toHaveBeenCalledWith("Nível de bateria fora de 0 a 100", ESTACAO_A);
+      expect(registrarRejeicao).toHaveBeenCalledWith("Nível de bateria fora de 0 a 100", MAC_A);
     });
 
     it("deve marcar recusada só no Valkey, sem marcar visto nem mexer no último sinal, quando o conteúdo não é JSON", async () => {
@@ -170,14 +176,14 @@ describe("verificarMensagem", () => {
       await verificarMensagem(mensagem, relogio);
 
       // Então (Assert)
-      expect(conferirEstacao).toHaveBeenCalledWith(ESTACAO_A, "2026-10-14T12:00:00Z", mensagem.recebidoEm);
+      expect(conferirEstacao).toHaveBeenCalledWith(MAC_A, "2026-10-14T12:00:00Z", mensagem.recebidoEm);
     });
 
     it.each(["Estação desconhecida", "Estação inativa", "Timestamp fora da faixa"])(
       "deve recusar com o motivo devolvido pela conferência quando ela recusa: %s",
       async (motivo) => {
         // Dado (Arrange)
-        jest.mocked(conferirEstacao).mockResolvedValue(motivo);
+        jest.mocked(conferirEstacao).mockResolvedValue({ ok: false, motivo });
         const mensagem = staging();
 
         // Quando (Act)
@@ -186,7 +192,7 @@ describe("verificarMensagem", () => {
         // Então (Assert)
         expect(resultado).toBe("recusada");
         expect(encerrarSemPublicar).toHaveBeenCalledWith(mensagem.id, "recusada", AGORA, motivo);
-        expect(registrarRejeicao).toHaveBeenCalledWith(motivo, ESTACAO_A);
+        expect(registrarRejeicao).toHaveBeenCalledWith(motivo, MAC_A);
         expect(marcarVisto).not.toHaveBeenCalled();
         expect(atualizarSinalEstacao).not.toHaveBeenCalled();
       },
@@ -199,7 +205,7 @@ describe("verificarMensagem", () => {
 
       // Então (Assert)
       expect(conferirEstacao).not.toHaveBeenCalled();
-      expect(registrarRejeicao).toHaveBeenCalledWith("Payload malformado", ESTACAO_A);
+      expect(registrarRejeicao).toHaveBeenCalledWith("Payload malformado", MAC_A);
     });
   });
 
@@ -213,7 +219,7 @@ describe("verificarMensagem", () => {
 
       // Então (Assert)
       expect(resultado).toBe("pendente");
-      expect(marcarPendente).toHaveBeenCalledWith(mensagem.id);
+      expect(marcarPendente).toHaveBeenCalledWith(mensagem.id, ESTACAO_A);
       expect(registrarRejeicao).not.toHaveBeenCalled();
       expect(registrarDuplicadaIgnorada).not.toHaveBeenCalled();
     });
@@ -340,7 +346,7 @@ describe("verificarMensagem", () => {
 
       // Então (Assert)
       expect(resultado).toBe("pendente");
-      expect(marcarPendente).toHaveBeenCalledWith(mensagem.id);
+      expect(marcarPendente).toHaveBeenCalledWith(mensagem.id, ESTACAO_A);
       expect(solicitarProcessamentoPendentes).toHaveBeenCalled();
       expect(registrarDuplicadaIgnorada).not.toHaveBeenCalled();
       expect(logger.error).toHaveBeenCalledWith(
@@ -418,17 +424,17 @@ describe("verificarRecebidas", () => {
   describe("US-40 · fila de verificação: uma mensagem não trava as outras", () => {
     it("deve manter recebida e seguir para as outras estações quando a conferência falha para uma estação", async () => {
       // Dado (Arrange)
-      fila(staging({ id: "a1", topico: topico(ESTACAO_A) }), staging({ id: "b1", topico: topico(ESTACAO_B) }));
+      fila(staging({ id: "a1", topico: topico(MAC_A) }), staging({ id: "b1", topico: topico(MAC_B) }));
       jest.mocked(conferirEstacao).mockImplementation(async (id) => {
-        if (id === ESTACAO_A) throw new Error("Banco indisponível");
-        return undefined;
+        if (id === MAC_A) throw new Error("Banco indisponível");
+        return { ok: true, estacaoId: ESTACAO_B };
       });
 
       // Quando (Act)
       await verificarRecebidas();
 
       // Então (Assert)
-      expect(jest.mocked(marcarPendente).mock.calls).toEqual([["b1"]]);
+      expect(jest.mocked(marcarPendente).mock.calls).toEqual([["b1", ESTACAO_B]]);
       expect(encerrarSemPublicar).not.toHaveBeenCalled();
       expect(logger.warn).toHaveBeenCalledWith(
         "Verificação adiada para a próxima rodada",
@@ -439,30 +445,30 @@ describe("verificarRecebidas", () => {
     it("deve adiar as mensagens seguintes da mesma estação quando uma dela fica adiada", async () => {
       // Dado (Arrange)
       fila(
-        staging({ id: "a1", topico: topico(ESTACAO_A) }),
-        staging({ id: "a2", topico: topico(ESTACAO_A) }),
-        staging({ id: "b1", topico: topico(ESTACAO_B) }),
+        staging({ id: "a1", topico: topico(MAC_A) }),
+        staging({ id: "a2", topico: topico(MAC_A) }),
+        staging({ id: "b1", topico: topico(MAC_B) }),
       );
-      jest.mocked(conferirEstacao).mockRejectedValueOnce(new Error("Banco indisponível")).mockResolvedValue(undefined);
+      jest.mocked(conferirEstacao).mockRejectedValueOnce(new Error("Banco indisponível"));
 
       // Quando (Act)
       await verificarRecebidas();
 
       // Então (Assert)
-      expect(jest.mocked(marcarPendente).mock.calls).toEqual([["b1"]]);
+      expect(jest.mocked(marcarPendente).mock.calls).toEqual([["b1", ESTACAO_B]]);
     });
 
     it("deve verificar a mensagem adiada na rodada seguinte quando o PostgreSQL volta", async () => {
       // Dado (Arrange)
       fila(staging({ id: "a1" }));
-      jest.mocked(conferirEstacao).mockRejectedValueOnce(new Error("Banco indisponível")).mockResolvedValue(undefined);
+      jest.mocked(conferirEstacao).mockRejectedValueOnce(new Error("Banco indisponível"));
       await verificarRecebidas();
 
       // Quando (Act)
       await verificarRecebidas();
 
       // Então (Assert)
-      expect(marcarPendente).toHaveBeenCalledWith("a1");
+      expect(marcarPendente).toHaveBeenCalledWith("a1", ESTACAO_A);
     });
 
     it("deve pular o id quando a mensagem não existe mais no Valkey", async () => {

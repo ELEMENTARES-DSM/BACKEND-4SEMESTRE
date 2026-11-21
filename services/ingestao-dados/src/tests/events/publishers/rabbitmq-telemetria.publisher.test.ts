@@ -12,13 +12,15 @@ import { montarEvento, RabbitMqTelemetriaPublisher } from "../../../events/publi
 // Unitário: Valkey (repository), RabbitMQ (conexão e canal falsos) e relógio mockados.
 jest.mock("../../../repositories/staging-valkey.repository");
 
+const MAC = "aabbccddeeff";
 const ESTACAO = "8723c462-e79c-4e58-9751-eef8868a5312";
 const AGORA = new Date("2026-11-16T10:00:00.000Z");
 
 function mensagem(id: string, valor = 23): MensagemStaging {
   return {
     id,
-    topico: `pulso/estacoes/${ESTACAO}/telemetria`,
+    topico: `pulso/estacoes/${MAC}/telemetria`,
+    estacaoId: ESTACAO,
     payloadBruto: `{"timestamp":"2026-11-16T09:59:00Z","nivel_bateria":80,"leituras":[{"sensor":"TMP","valor":${valor},"extra":1}]}`,
     recebidoEm: "2026-11-16T09:59:01.000Z",
     status: "pendente",
@@ -36,7 +38,26 @@ type MockChannel = EventEmitter & {
 };
 
 describe("montarEvento", () => {
-  it("deve montar staging_id, estação do tópico, unixtime e só sensor e valor das leituras quando recebe a mensagem do Valkey", () => {
+  it("deve lançar erro quando a mensagem não tem estação resolvida (antes da troca para MAC)", () => {
+    // Dado (Arrange)
+    const sem = { ...mensagem("id-1"), estacaoId: undefined };
+
+    // Quando (Act) / Então (Assert)
+    expect(() => montarEvento(sem)).toThrow("mensagem id-1 sem estação resolvida");
+  });
+
+  it("deve usar o UUID do tópico antigo quando a mensagem é de antes da troca para MAC e não tem estação gravada", () => {
+    // Dado (Arrange)
+    const antiga = { ...mensagem("id-2"), topico: `pulso/estacoes/${ESTACAO.toUpperCase()}/telemetria`, estacaoId: undefined };
+
+    // Quando (Act)
+    const evento = montarEvento(antiga);
+
+    // Então (Assert)
+    expect(evento.estacao_uuid).toBe(ESTACAO);
+  });
+
+  it("deve montar staging_id, estação resolvida, unixtime e só sensor e valor das leituras quando recebe a mensagem do Valkey", () => {
     // Dado (Arrange)
     const pendente = mensagem("id-1");
 

@@ -14,7 +14,7 @@ import {
 } from "../../services/processar-mensagem.service";
 import { configurarPublisherStaging } from "../../services/staging-publisher.service";
 import { logger } from "../../utils/logger";
-import { cadastrarEstacao, criarTabelaEstacoes } from "./helpers/estacoes";
+import { cadastrarEstacao, criarTabelaEstacoes, macDaEstacao } from "./helpers/estacoes";
 import { esperar, usarValkeyDeTeste } from "./helpers/valkey";
 
 // TASK 11.05: mensagem publicada no MQTT percorre o fluxo inteiro da ingestão
@@ -23,7 +23,7 @@ import { esperar, usarValkeyDeTeste } from "./helpers/valkey";
 // publicação no RabbitMQ é só observada.
 const integration = describe;
 
-const topicoDe = (uuid: string) => `pulso/estacoes/${uuid}/telemetria`;
+const topicoDe = (uuid: string) => `pulso/estacoes/${macDaEstacao(uuid)}/telemetria`;
 
 integration("TASK 11.05 · fluxo MQTT → Valkey → verificação", () => {
   const schema = `fluxo_mqtt_test_${randomUUID().replaceAll("-", "")}`;

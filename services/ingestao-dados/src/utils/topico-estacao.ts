@@ -1,10 +1,11 @@
 export const TOPICO_ASSINATURA = "pulso/estacoes/+/telemetria";
 
-const TOPICO_TELEMETRIA =
-  /^pulso\/estacoes\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/telemetria$/i;
+// O tópico identifica a estação pelo MAC físico (12 hex, sem separador).
+const TOPICO_TELEMETRIA = /^pulso\/estacoes\/([0-9a-f]{12})\/telemetria$/i;
 
-// Devolve o UUID da estação se o tópico segue pulso/estacoes/<uuid>/telemetria.
-export function extrairEstacaoId(topico: string): string | null {
+// Devolve o MAC da estação em minúsculas se o tópico segue pulso/estacoes/<mac>/telemetria.
+// O firmware pode publicar em maiúsculas; a comparação com o cadastro é sempre em minúsculas.
+export function extrairMacDoTopico(topico: string): string | null {
   const resultado = TOPICO_TELEMETRIA.exec(topico);
-  return resultado ? resultado[1] : null;
+  return resultado ? resultado[1].toLowerCase() : null;
 }

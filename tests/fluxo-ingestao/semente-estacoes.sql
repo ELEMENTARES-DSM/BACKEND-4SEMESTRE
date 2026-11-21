@@ -2,9 +2,10 @@
 -- Município próprio, para não se misturar com os dados do time; fator_conversao 1 e
 -- offset 0, para o valor real ser o valor enviado. Pode rodar mais de uma vez.
 
-INSERT INTO estacoes (id, codigo, nome, municipio, latitude, longitude, status)
+INSERT INTO estacoes (id, mac_address, codigo, nome, municipio, latitude, longitude, status)
 SELECT
     ('f1000000-0000-4000-8000-0000000000' || lpad(n::text, 2, '0'))::uuid,
+    'a0a0a0' || lpad(to_hex(n), 6, '0'),
     'TF-' || lpad(n::text, 2, '0'),
     'Estação do teste de fluxo ' || lpad(n::text, 2, '0'),
     'Teste Fluxo',

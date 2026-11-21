@@ -37,10 +37,10 @@ export function criarClienteMqtt(): MqttClient {
 
 export function publicar(
   client: MqttClient,
-  estacaoId: string,
+  macAddress: string,
   payload: unknown,
 ): Promise<void> {
-  const topico = `pulso/estacoes/${estacaoId}/telemetria`;
+  const topico = `pulso/estacoes/${macAddress}/telemetria`;
   // Texto pronto é enviado como está (permite enviar payload malformado).
   const mensagem =
     typeof payload === "string" ? payload : JSON.stringify(payload);

@@ -10,6 +10,8 @@ export interface LeituraLote {
 
 export interface MensagemLote {
   estacao_uuid: string;
+  /** MAC enviado no tópico da mensagem (ausente em manifestos antigos). */
+  estacao_mac?: string;
   timestamp: string;
   unixtime: number;
   leituras: LeituraLote[];

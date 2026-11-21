@@ -13,7 +13,7 @@ import {
 } from "../../repositories/staging-valkey.repository";
 import { verificarMensagem } from "../../services/processar-mensagem.service";
 import { logger } from "../../utils/logger";
-import { cadastrarEstacao, criarTabelaEstacoes } from "./helpers/estacoes";
+import { cadastrarEstacao, criarTabelaEstacoes, macDaEstacao } from "./helpers/estacoes";
 import { gravarEVerificar, usarValkeyDeTeste } from "./helpers/valkey";
 
 // US-13 (TASK 40.04): duplicata por estação e horário na chave
@@ -32,7 +32,7 @@ integration("US-13 · duplicata pela chave staging:visto no Valkey", () => {
     timestamp: string,
     extras: Partial<MensagemBruta> = {},
   ): MensagemBruta => ({
-    topico: `pulso/estacoes/${estacaoId}/telemetria`,
+    topico: `pulso/estacoes/${macDaEstacao(estacaoId)}/telemetria`,
     recebidoEm: "2026-10-15T00:00:05Z",
     payloadBruto: `{ "timestamp":"${timestamp}", "leituras":[{"sensor":"temperatura","valor":25}] }`,
     ...extras,

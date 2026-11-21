@@ -1,6 +1,23 @@
 import { z } from "zod";
+import { normalizarMac } from "../utils/mac";
+
+// O MAC chega com ou sem separador e sai normalizado (12 hex minúsculos).
+const macAddressSchema = z
+  .string({ message: "MAC é obrigatório" })
+  .transform((valor, ctx) => {
+    const mac = normalizarMac(valor);
+    if (mac === null) {
+      ctx.addIssue({
+        code: "custom",
+        message: "MAC inválido: use 12 hexadecimais, com ou sem ':' ou '-'",
+      });
+      return z.NEVER;
+    }
+    return mac;
+  });
 
 export const createEstacaoSchema = z.object({
+  mac_address: macAddressSchema,
   codigo: z
     .string()
     .min(1, "Código é obrigatório")
@@ -31,6 +48,7 @@ export const createEstacaoSchema = z.object({
 });
 
 export const updateEstacaoSchema = z.object({
+  mac_address: macAddressSchema.optional(),
   nome: z.string().min(2).max(120).optional(),
   municipio: z.string().min(1).max(100).optional(),
   latitude: z.number().min(-90).max(90).optional(),

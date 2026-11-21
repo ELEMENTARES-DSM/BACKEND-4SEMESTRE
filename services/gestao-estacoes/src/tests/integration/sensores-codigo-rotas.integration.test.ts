@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import request from "supertest";
-import { abrirBancoDeTeste, exigir, tokenDe } from "../../../tests/integration/ambiente";
+import { abrirBancoDeTeste, exigir, tokenDe, macAleatorio } from "../../../tests/integration/ambiente";
 
 const api = request(exigir("TEST_API_URL"));
 const pool: Pool = abrirBancoDeTeste();
@@ -15,7 +15,7 @@ const criarEstacao = async (codigo: string): Promise<string> => {
   const res = await api
     .post("/estacoes")
     .auth(token, { type: "bearer" })
-    .send({ codigo, nome: "Estação do código", municipio: "São José dos Campos", latitude: -23.18, longitude: -45.88 })
+    .send({ mac_address: macAleatorio(), codigo, nome: "Estação do código", municipio: "São José dos Campos", latitude: -23.18, longitude: -45.88 })
     .timeout(5000)
     .expect(201);
   ids.push(res.body.id);

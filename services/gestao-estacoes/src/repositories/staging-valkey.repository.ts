@@ -24,9 +24,9 @@ export interface MensagemVerificada {
   recebidoEm: string;
 }
 
-/** O UUID do tópico é aceito em maiúsculas ou minúsculas pela ingestão. */
-const topicoDaEstacao = (estacaoId: string): string =>
-  `pulso/estacoes/${estacaoId}/telemetria`.toLowerCase();
+/** O MAC do tópico é aceito em maiúsculas ou minúsculas pela ingestão. */
+const topicoDaEstacao = (macAddress: string): string =>
+  `pulso/estacoes/${macAddress}/telemetria`.toLowerCase();
 
 /**
  * Mensagens verificadas de uma estação que ainda estão no staging (a
@@ -37,10 +37,10 @@ const topicoDaEstacao = (estacaoId: string): string =>
  * estação pedida. Se o Valkey estiver fora, o erro sobe para quem chamou.
  */
 export const listarMensagensVerificadas = async (
-  estacaoId: string
+  macAddress: string
 ): Promise<MensagemVerificada[]> => {
   const cliente = await valkey();
-  const topico = topicoDaEstacao(estacaoId);
+  const topico = topicoDaEstacao(macAddress);
   const jaVistas = new Set<string>();
   const mensagens: MensagemVerificada[] = [];
   let cursor = 0;

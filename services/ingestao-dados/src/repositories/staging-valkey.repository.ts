@@ -27,6 +27,8 @@ export interface MensagemStaging extends MensagemBruta {
   id: string;
   status: StatusStaging;
   motivo?: string;
+  /** UUID interno da estação, gravado na verificação (ausente antes da verificação). */
+  estacaoId?: string;
 }
 
 /**
@@ -63,6 +65,7 @@ export async function lerMensagem(id: string): Promise<MensagemStaging | null> {
     recebidoEm: campos.recebidoEm,
     status: campos.status as StatusStaging,
     motivo: campos.motivo,
+    estacaoId: campos.estacao_id,
   };
 }
 
@@ -109,11 +112,14 @@ export async function marcarVisto(
   return anterior === null || anterior === id ? "nova" : "duplicada";
 }
 
-/** Aceita: entra no fim da lista de publicação. */
-export async function marcarPendente(id: string): Promise<void> {
+/**
+ * Aceita: guarda o UUID interno da estação e entra no fim da lista de publicação.
+ * O publicador usa esse UUID; não precisa reinterpretar o tópico.
+ */
+export async function marcarPendente(id: string, estacaoId: string): Promise<void> {
   await valkey()
     .multi()
-    .hSet(chaveMensagem(id), { status: "pendente" })
+    .hSet(chaveMensagem(id), { status: "pendente", estacao_id: estacaoId })
     .rPush(LISTA_PENDENTES, id)
     .lRem(LISTA_RECEBIDAS, 1, id)
     .exec();
