@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { pool } from "../../config/db";
 
 const databaseUrl = process.env.DATABASE_URL;
-const integration = databaseUrl ? describe : describe.skip;
+const integration = describe;
 
 integration("Task 42.03 - Troca de Papel e Histórico (PostgreSQL)", () => {
   const schema = `gestao_usuarios_task4203_${randomUUID().replaceAll("-", "")}`;

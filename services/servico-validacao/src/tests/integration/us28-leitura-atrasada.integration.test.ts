@@ -19,9 +19,8 @@ import { conectarAdmin, esperar, limparFilas, publicarEvento } from "./helpers/r
 
 // US-28: leituras antigas entram no histórico, mas não abrem nem normalizam alarmes.
 // Execute com VALIDACAO_TEST_DATABASE_URL e RABBITMQ_TEST_URL.
-const databaseUrl = process.env.VALIDACAO_TEST_DATABASE_URL;
 const rabbitUrl = process.env.RABBITMQ_TEST_URL;
-const integration = databaseUrl && rabbitUrl ? describe : describe.skip;
+const integration = describe;
 
 integration("US-28 - leitura atrasada sem avaliação de regras", () => {
   const schema = `validacao_us28_${randomUUID().replaceAll("-", "")}`;

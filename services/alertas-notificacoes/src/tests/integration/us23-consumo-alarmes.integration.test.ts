@@ -16,9 +16,8 @@ import { cadastrarUsuario, prepararSchemaNotificacoes } from "./helpers/banco-no
 
 // US-23 (TASK 23.02) com PostgreSQL e RabbitMQ reais. Execute com
 // ALERTAS_TEST_DATABASE_URL e RABBITMQ_TEST_URL apontando para instâncias de teste.
-const databaseUrl = process.env.ALERTAS_TEST_DATABASE_URL;
 const rabbitUrl = process.env.RABBITMQ_TEST_URL;
-const integration = databaseUrl && rabbitUrl ? describe : describe.skip;
+const integration = describe;
 
 async function esperar(condicao: () => Promise<boolean>, descricao: string, limiteMs = 10000) {
   const inicio = Date.now();

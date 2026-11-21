@@ -6,8 +6,7 @@ import { cadastrarSensor, gravarAlarme, prepararSchemaAlarmes } from "./helpers/
 
 // US-24 (TASK 24.01) pelas rotas reais, com PostgreSQL real. Execute com
 // ALERTAS_TEST_DATABASE_URL apontando para uma instância de teste.
-const databaseUrl = process.env.ALERTAS_TEST_DATABASE_URL;
-const integration = databaseUrl ? describe : describe.skip;
+const integration = describe;
 
 integration("US-24 - consulta de alarmes (PostgreSQL)", () => {
   const schema = `alertas_us24_${randomUUID().replaceAll("-", "")}`;
