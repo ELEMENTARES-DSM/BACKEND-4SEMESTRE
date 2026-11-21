@@ -1,18 +1,19 @@
 export interface ConfigMqtt {
   brokerUrl: string;
-  usuario: string;
-  senha: string;
+  // Opcionais: desde a US-29 o broker aceita conexão sem credencial.
+  usuario?: string;
+  senha?: string;
   qos: 1 | 2;
 }
 
 export function carregarConfigMqtt(env: NodeJS.ProcessEnv = process.env): ConfigMqtt {
   const brokerUrl = env.MQTT_BROKER_URL;
-  const usuario = env.MQTT_USER;
-  const senha = env.MQTT_PASSWORD;
+  const usuario = env.MQTT_USER || undefined;
+  const senha = env.MQTT_PASSWORD || undefined;
   const qos = Number(env.MQTT_QOS ?? "1");
 
-  if (!brokerUrl || !usuario || !senha) {
-    throw new Error("MQTT_BROKER_URL, MQTT_USER e MQTT_PASSWORD são obrigatórios");
+  if (!brokerUrl) {
+    throw new Error("MQTT_BROKER_URL é obrigatório");
   }
 
   if (qos !== 1 && qos !== 2) {

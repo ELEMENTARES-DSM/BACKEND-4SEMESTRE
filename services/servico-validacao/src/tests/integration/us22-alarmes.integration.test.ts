@@ -223,7 +223,7 @@ integration("US-22 - avaliar regras e registrar alarme (PostgreSQL e RabbitMQ)",
       estacaoId: estacao,
       codigo: "PM10-01",
       tipo: "PM10",
-      fator: "1.1",
+      fator_conversao: "1.1",
     });
     await cadastrarRegra(pool, { sensorId: calibrado, operador: ">=", limite: "50" });
 

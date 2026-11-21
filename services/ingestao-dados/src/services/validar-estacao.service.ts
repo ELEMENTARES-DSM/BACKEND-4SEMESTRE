@@ -13,8 +13,8 @@ type CadastroEstacao = { status: string; criado_em: Date };
 
 // US-40 · Cenário 4: último cadastro lido com sucesso de cada estação, usado só
 // quando a consulta ao PostgreSQL falha, para o banco fora não parar a recepção.
-// ponytail: Map sem limite nem validade; são dezenas de estações e o cadastro
-// muda pouco. Limitar ou expirar se o número de estações crescer muito.
+// O Map não tem limite nem validade: são dezenas de estações e o cadastro muda
+// pouco. Limitar ou expirar se o número de estações crescer muito.
 const ultimoCadastro = new Map<string, CadastroEstacao>();
 
 export function limparCadastrosConhecidos(): void {

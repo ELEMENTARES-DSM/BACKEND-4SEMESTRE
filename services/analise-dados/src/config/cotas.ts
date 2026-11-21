@@ -8,11 +8,6 @@ export const COTAS_POR_PERFIL: Record<string, CotaConfig | null> = {
     semanal: 2000,
     mensal: 6000,
   },
-  // PESQUISADOR mantido na tipagem caso seja recebido em compatibilidade legada
-  PESQUISADOR: {
-    semanal: 10000,
-    mensal: 30000,
-  },
   GESTOR_PUBLICO: null,
   ADMINISTRADOR: null,
 };

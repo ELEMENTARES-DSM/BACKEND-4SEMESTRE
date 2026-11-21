@@ -15,6 +15,7 @@ import { calibrarValor } from "../../services/calibracao.service";
 import { obterSaude } from "../../controllers/health.controller";
 import * as dbModule from "../../config/db";
 import logger from "../../utils/logger";
+import { faixaDoCatalogo } from "../helpers/catalogo";
 import {
   EventoTelemetriaDTO,
   MedidaRow,
@@ -165,10 +166,11 @@ describe("US-17 (Task 17.1) — Cenários 1 a 13 de ponta a ponta", () => {
       id: "11111111-1111-4111-8111-111111111111",
       estacao_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       codigo: "TEMP-01",
-      fator: "1.005000",
-      ganho: "-0.025000",
+      fator_conversao: "1.005000",
+      offset: "-0.025000",
       status: "Ativo",
       tipo: "Temperatura",
+      ...faixaDoCatalogo("Temperatura"),
       municipio: "São José dos Campos",
       estacao_status: "Ativa",
     });
@@ -176,10 +178,11 @@ describe("US-17 (Task 17.1) — Cenários 1 a 13 de ponta a ponta", () => {
       id: "22222222-2222-4222-8222-222222222222",
       estacao_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       codigo: "UMID-01",
-      fator: "1.000000",
-      ganho: "0.000000",
+      fator_conversao: "1.000000",
+      offset: "0.000000",
       status: "Ativo",
       tipo: "Umidade Relativa",
+      ...faixaDoCatalogo("Umidade Relativa"),
       municipio: "São José dos Campos",
       estacao_status: "Ativa",
     });
@@ -231,7 +234,7 @@ describe("US-17 (Task 17.1) — Cenários 1 a 13 de ponta a ponta", () => {
     await consumidor.encerrar();
   });
 
-  it("Cenário 2: Calibra (bruto * fator) + ganho em BigInt escala 6 com arredondamento HALF_UP para 2 casas", () => {
+  it("Cenário 2: Calibra (bruto * fator_conversao) + offset em BigInt escala 6 com arredondamento HALF_UP para 2 casas", () => {
     // 35.85 * 1.005 + (-0.025) = 36.02925 - 0.025 = 36.00425 -> 36.00
     expect(calibrarValor(35.85, "1.005000", "-0.025000")).toBe("36.00");
     // Empate positivo 2.345 -> 2.35 (HALF_UP)
@@ -408,15 +411,16 @@ describe("US-17 (Task 17.1) — Cenários 1 a 13 de ponta a ponta", () => {
     expect(selectsSensores[0]).toContain("JOIN estacoes e ON e.id = s.estacao_id");
     expect(selectsSensores[0]).toContain("e.municipio");
 
-    // Altera fator/ganho do sensor no banco e envia novo evento: como não há cache, usa os novos parâmetros imediatamente
+    // Altera fator_conversao/offset do sensor no banco e envia novo evento: como não há cache, usa os novos parâmetros imediatamente
     fakeDb.adicionarSensor({
       id: "11111111-1111-4111-8111-111111111111",
       estacao_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       codigo: "TEMP-01",
-      fator: "2.000000",
-      ganho: "1.000000",
+      fator_conversao: "2.000000",
+      offset: "1.000000",
       status: "Ativo",
       tipo: "Temperatura",
+      ...faixaDoCatalogo("Temperatura"),
       municipio: "São José dos Campos",
       estacao_status: "Ativa",
     });

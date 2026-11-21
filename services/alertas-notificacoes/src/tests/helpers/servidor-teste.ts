@@ -34,7 +34,19 @@ export async function subir(app: { listen: (porta: number, cb: () => void) => Se
     return { status: resposta.status, corpo: await resposta.json() };
   };
 
+  const post = async (caminho: string, corpo: unknown, usuario?: UsuarioToken) => {
+    const resposta = await fetch(`${base}${caminho}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(usuario ? { Authorization: `Bearer ${token(usuario)}` } : {}),
+      },
+      body: JSON.stringify(corpo),
+    });
+    return { status: resposta.status, corpo: await resposta.json() };
+  };
+
   const fechar = () => new Promise<void>((resolve) => servidor.close(() => resolve()));
 
-  return { get, fechar };
+  return { get, post, fechar };
 }

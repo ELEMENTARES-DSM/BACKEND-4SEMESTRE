@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from "express";
 import { verificarEDebitarCota } from "../services/cota.service";
 
+export const ROTAS_ISENTAS: string[] = [];
+
 /**
  * Middleware para aplicação de cotas e registro de rastro (auditoria)
  * em todas as requisições autenticadas às rotas de dados.
@@ -17,7 +19,7 @@ export async function aplicarCotaEAuditar(
 
   const { id: usuarioId, papel, municipio } = req.auth;
   const rota = req.originalUrl || req.url;
-  const periodo = typeof req.query.periodo === "string" ? req.query.periodo : "24h";
+  const periodo = typeof req.query.periodo === "string" ? req.query.periodo : null;
 
   // Registro de rastro em log estruturado (Requisito US-42 / Cenário 7)
   console.log(
@@ -32,10 +34,8 @@ export async function aplicarCotaEAuditar(
     })
   );
 
-  // Rotas de status de estações e alarmes ativos não debitam cota
-  const rotaLower = rota.toLowerCase();
-  const isRotaIsenta =
-    rotaLower.includes("/status") || rotaLower.includes("/alarmes");
+  const caminho = (req.path || rota.split("?")[0]).toLowerCase();
+  const isRotaIsenta = ROTAS_ISENTAS.includes(caminho);
 
   if (isRotaIsenta) {
     return next();
@@ -64,8 +64,9 @@ export async function aplicarCotaEAuditar(
 
     return next();
   } catch (err) {
-    // Falhas de infraestrutura no valkey não devem interromper o serviço
     console.error("[Cota] Erro ao verificar cota no Valkey:", err);
-    return next();
+    return res.status(503).json({
+      erro: "Controle de cotas indisponível no momento. Tente novamente em instantes.",
+    });
   }
 }

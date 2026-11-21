@@ -17,7 +17,7 @@ export function getValkeyClient(): ValkeyClientInterface {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const redis = require("redis");
       const url = process.env.REDIS_URL || process.env.VALKEY_URL || "redis://localhost:6379";
-      const nativeClient = redis.createClient({ url });
+      const nativeClient = redis.createClient({ url, disableOfflineQueue: true });
       nativeClient.on("error", (err: Error) => {
         console.warn("[Valkey] Aviso de conexão:", err?.message || err);
       });
