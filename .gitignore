@@ -28,6 +28,7 @@ mosquitto/credenciais/
 
 # Node
 node_modules/
+coverage/
 
 # Playwright
 /test-results/

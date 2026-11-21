@@ -21,8 +21,7 @@ import { esperar, usarValkeyDeTeste } from "./helpers/valkey";
 // (Valkey, validação, estação, duplicata e último sinal) com Valkey e
 // PostgreSQL de teste. O broker é o aedes em memória, isolado por arquivo; a
 // publicação no RabbitMQ é só observada.
-const integration =
-  process.env.STAGING_TEST_DATABASE_URL && process.env.VALKEY_TEST_URL ? describe : describe.skip;
+const integration = describe;
 
 const topicoDe = (uuid: string) => `pulso/estacoes/${macDaEstacao(uuid)}/telemetria`;
 

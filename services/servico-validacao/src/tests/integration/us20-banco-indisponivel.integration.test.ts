@@ -29,7 +29,7 @@ import { ProxyTcp } from "./helpers/proxy-tcp";
 // por um proxy TCP. Execute com VALIDACAO_TEST_DATABASE_URL e RABBITMQ_TEST_URL.
 const databaseUrl = process.env.VALIDACAO_TEST_DATABASE_URL;
 const rabbitUrl = process.env.RABBITMQ_TEST_URL;
-const integration = databaseUrl && rabbitUrl ? describe : describe.skip;
+const integration = describe;
 
 integration("US-20 - banco indisponível no consumo (PostgreSQL e RabbitMQ)", () => {
   const schema = `validacao_us20_${randomUUID().replaceAll("-", "")}`;

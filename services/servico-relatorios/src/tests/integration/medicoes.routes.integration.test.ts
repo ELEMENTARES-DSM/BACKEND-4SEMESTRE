@@ -16,7 +16,7 @@ import {
 } from "./helpers/banco-relatorios";
 
 // TASK 31.03 de ponta a ponta: rota HTTP, token e PostgreSQL real. Execute com RELATORIOS_TEST_DATABASE_URL.
-const integration = process.env.RELATORIOS_TEST_DATABASE_URL ? describe : describe.skip;
+const integration = describe;
 
 const SJC = "São José dos Campos";
 const emBrasilia = (dataHora: string) => Date.parse(`${dataHora}:00-03:00`) / 1000;
