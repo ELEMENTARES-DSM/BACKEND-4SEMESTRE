@@ -1330,7 +1330,7 @@
             "example": "1c80274a-7c56-45aa-b397-2f89fa6c7fd9"
           },
           "mac_address": {
-            "type": ["string", "null"],
+            "type": "string", "nullable": true,
             "description": "MAC da placa em 12 hex minúsculos. Null só em estações anteriores à migração que não receberam MAC.",
             "example": "aabbccddeeff"
           },
