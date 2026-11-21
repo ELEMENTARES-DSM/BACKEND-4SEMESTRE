@@ -222,6 +222,52 @@ jobs:
         if: failure()
         run: docker compose logs mosquitto
 
+  validar-infra:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fazer o Checkout do código
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Validar Docker Compose, Nginx e Dockerfiles alterados
+        env:
+          BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'HEAD~1' }}
+        run: bash scripts/validate-infra.sh
+
+  seguranca-e-licencas:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fazer o Checkout do código
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Varredura de segredos (Gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.0.4
+        with:
+          node-version: "24.x"
+
+      - name: Checar licenças de produção por serviço
+        run: |
+          for dir in services/*; do
+            if [ -f "$dir/package.json" ]; then
+              echo "==> Verificando licenças em $dir"
+              (
+                cd "$dir"
+                npm ci
+                npx --yes license-checker-rseidelsohn --summary --production --failOn "GPL-2.0;GPL-3.0;AGPL-3.0;LGPL-2.1;LGPL-3.0;SSPL-1.0"
+              )
+            fi
+          done
+
   teste-fluxo-ingestao:
     runs-on: ubuntu-latest
 
