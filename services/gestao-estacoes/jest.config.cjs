@@ -1,17 +1,25 @@
 module.exports = {
+  preset: "ts-jest",
   testEnvironment: "node",
-  roots: ["<rootDir>/src/tests"],
-  testMatch: ["**/*.test.ts"],
-  // Os testes de src/tests/integration precisam de banco: rodam em npm run test:integration.
-  testPathIgnorePatterns: ["/node_modules/", "<rootDir>/src/tests/integration/"],
+  roots: ["<rootDir>/src"],
+  testMatch: ["**/*.spec.ts", "**/*.test.ts"],
+  testPathIgnorePatterns: [
+    "/node_modules/",
+    "\\.integration\\.(test|spec)\\.ts$",
+    "<rootDir>/src/tests/integration/",
+  ],
   clearMocks: true,
   collectCoverageFrom: [
-    "src/services/public-estacoes.service.ts",
-    "src/routes/public-estacao.routes.ts",
-    "src/services/tipo-sensor.service.ts",
-    "src/validations/tipo-sensor.validation.ts",
-    "src/services/sensor.service.ts",
-    "src/validations/sensor.validation.ts",
+    "src/services/**/*.ts",
+    "src/validations/**/*.ts",
+    "src/utils/**/*.ts",
+    "src/middlewares/**/*.ts",
+    "!src/server.ts",
+    "!src/app.ts",
+    "!src/config/**",
+    "!src/db/migrations/**",
+    "!src/database/migrations/**",
+    "!src/docs/**",
   ],
   coverageThreshold: {
     global: {

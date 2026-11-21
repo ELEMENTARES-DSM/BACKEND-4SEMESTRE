@@ -60,13 +60,13 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Rodar Linter (${{ matrix.service }})
-        run: npm run lint --if-present
+        run: npm run lint
 
-      - name: Rodar Testes (${{ matrix.service }})
-        run: npm test --if-present
+      - name: Rodar Testes Unitários (${{ matrix.service }})
+        run: npm test
 
       - name: Fazer o Build (${{ matrix.service }})
-        run: npm run build --if-present
+        run: npm run build
 
       - name: 📢 Pull Requests
         if: always() && github.event_name == 'pull_request'
