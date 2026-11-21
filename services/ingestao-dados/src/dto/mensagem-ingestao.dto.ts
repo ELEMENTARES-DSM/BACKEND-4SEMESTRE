@@ -6,7 +6,8 @@ export interface MensagemBruta {
 }
 
 export interface MensagemIngestaoInput extends MensagemBruta {
-  estacaoId: string;
+  /** MAC da estação, extraído do tópico (12 hex minúsculos). */
+  macAddress: string;
 }
 
 export interface LeituraItem {

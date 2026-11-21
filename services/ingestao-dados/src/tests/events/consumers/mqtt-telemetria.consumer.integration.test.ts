@@ -7,6 +7,7 @@ import {
   OpcoesConsumidorMqtt,
 } from "../../../events/consumers/mqtt-telemetria.consumer";
 import { MqttStatusService } from "../../../services/mqtt-status.service";
+import { macDaEstacao } from "../../integration/helpers/estacoes";
 
 // Broker MQTT em memória (aedes) e clientes reais do mqtt.js: testa o protocolo de verdade,
 // sem Docker. Cobre sessão persistente e reconexão, que o cliente falso não consegue provar.
@@ -16,7 +17,7 @@ const UUID_A = "8723c462-e79c-4e58-9751-eef8868a5312";
 const UUID_B = "e30a57e3-0d33-4f9e-86b2-6cb1690a7891";
 const UUID_C = "5f0c1d2e-3a4b-4c5d-8e6f-7a8b9c0d1e2f";
 
-const topicoDe = (uuid: string) => `pulso/estacoes/${uuid}/telemetria`;
+const topicoDe = (uuid: string) => `pulso/estacoes/${macDaEstacao(uuid)}/telemetria`;
 
 interface BrokerDeTeste {
   broker: ReturnType<typeof createBroker>;

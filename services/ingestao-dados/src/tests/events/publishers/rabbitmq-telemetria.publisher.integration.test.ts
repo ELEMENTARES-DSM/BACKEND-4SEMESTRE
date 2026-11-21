@@ -21,6 +21,7 @@ import { esperar, usarValkeyDeTeste } from "../../integration/helpers/valkey";
 const rabbitUrl = process.env.RABBITMQ_TEST_URL;
 const integration = rabbitUrl && process.env.VALKEY_TEST_URL ? describe : describe.skip;
 
+const MAC = "aabbccddeeff";
 const ESTACAO = "8723c462-e79c-4e58-9751-eef8868a5312";
 
 integration("US-40 · publicador de telemetria.bruta a partir do Valkey", () => {
@@ -32,11 +33,11 @@ integration("US-40 · publicador de telemetria.bruta a partir do Valkey", () => 
 
   async function novaPendente(segundo: number): Promise<string> {
     const id = await gravarBruta({
-      topico: `pulso/estacoes/${ESTACAO}/telemetria`,
+      topico: `pulso/estacoes/${MAC}/telemetria`,
       payloadBruto: `{"timestamp":"2026-11-16T10:00:${String(segundo).padStart(2, "0")}Z","leituras":[{"sensor":"TMP","valor":${segundo}}]}`,
       recebidoEm: new Date().toISOString(),
     });
-    await marcarPendente(id);
+    await marcarPendente(id, ESTACAO);
     return id;
   }
 

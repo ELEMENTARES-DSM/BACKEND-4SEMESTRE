@@ -8,17 +8,17 @@ describe("buscarEstacaoParaValidacao", () => {
     jest.restoreAllMocks();
   });
 
-  it("deve devolver o status e o criado_em lendo só a tabela estacoes quando a estação existe", async () => {
+  it("deve devolver o UUID, o status e o criado_em, buscando pelo MAC na tabela estacoes, quando a estação existe", async () => {
     // Dado (Arrange)
     const criado_em = new Date("2026-01-01T00:00:00Z");
-    const consulta = jest.spyOn(pool, "query").mockResolvedValue({ rows: [{ status: "Inativa", criado_em }] } as never);
+    const consulta = jest.spyOn(pool, "query").mockResolvedValue({ rows: [{ id: "uuid-123", status: "Inativa", criado_em }] } as never);
 
     // Quando (Act)
-    const estacao = await buscarEstacaoParaValidacao("estacao-123");
+    const estacao = await buscarEstacaoParaValidacao("aabbccddeeff");
 
     // Então (Assert)
-    expect(estacao).toEqual({ status: "Inativa", criado_em });
-    expect(consulta.mock.calls[0]).toEqual(["SELECT status, criado_em FROM estacoes WHERE id = $1", ["estacao-123"]]);
+    expect(estacao).toEqual({ id: "uuid-123", status: "Inativa", criado_em });
+    expect(consulta.mock.calls[0]).toEqual(["SELECT id, status, criado_em FROM estacoes WHERE mac_address = $1", ["aabbccddeeff"]]);
   });
 
   it("deve devolver null quando a estação não existe", async () => {

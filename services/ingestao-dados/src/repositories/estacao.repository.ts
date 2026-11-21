@@ -7,15 +7,16 @@ export interface AtualizarSinalEstacaoInput {
 }
 
 /**
- * Status do cadastro da estação ("Ativa", "Inativa" ou "Com Falha"), ou null
- * quando o UUID não existe. A ingestão só lê a tabela estacoes (US-12).
+ * Cadastro da estação dono do MAC do tópico: UUID interno, status ("Ativa",
+ * "Inativa" ou "Com Falha") e data de cadastro, ou null se o MAC não existe.
+ * A ingestão só lê a tabela estacoes (US-12).
  */
 export async function buscarEstacaoParaValidacao(
-  estacaoId: string,
-): Promise<{ status: string; criado_em: Date } | null> {
-  const res = await pool.query<{ status: string; criado_em: Date }>(
-    "SELECT status, criado_em FROM estacoes WHERE id = $1",
-    [estacaoId],
+  macAddress: string,
+): Promise<{ id: string; status: string; criado_em: Date } | null> {
+  const res = await pool.query<{ id: string; status: string; criado_em: Date }>(
+    "SELECT id, status, criado_em FROM estacoes WHERE mac_address = $1",
+    [macAddress],
   );
   return res.rows[0] ?? null;
 }

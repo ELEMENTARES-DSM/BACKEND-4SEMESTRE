@@ -6,7 +6,6 @@ import {
   MensagemStaging,
   proximaPendente,
 } from "../../repositories/staging-valkey.repository";
-import { extrairEstacaoId } from "../../utils/topico-estacao";
 
 export const EXCHANGE_TELEMETRIA_BRUTA = "telemetria.bruta";
 export const FILA_VALIDACAO_TELEMETRIA = "validacao.telemetria";
@@ -30,15 +29,26 @@ export interface EventoTelemetriaBruta {
   leituras: Array<{ sensor: string; valor: number }>;
 }
 
+// Mensagem aceita antes da troca para MAC: o tópico ainda traz o UUID da estação.
+const TOPICO_LEGADO_UUID =
+  /^pulso\/estacoes\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/telemetria$/i;
+
 /** Evento de telemetria.bruta a partir da mensagem do Valkey, já verificada (US-12/US-28). */
 export function montarEvento(mensagem: MensagemStaging): EventoTelemetriaBruta {
+  // Gravado na verificação. Para mensagens que já estavam na fila no deploy, o
+  // UUID sai do tópico antigo; sem nenhum dos dois não há estação e o evento não sai.
+  const estacaoUuid =
+    mensagem.estacaoId ?? TOPICO_LEGADO_UUID.exec(mensagem.topico)?.[1]?.toLowerCase();
+  if (!estacaoUuid) {
+    throw new Error(`mensagem ${mensagem.id} sem estação resolvida`);
+  }
   const payload = JSON.parse(mensagem.payloadBruto) as {
     timestamp: string;
     leituras: Array<{ sensor: string; valor: number }>;
   };
   return {
     staging_id: mensagem.id,
-    estacao_uuid: extrairEstacaoId(mensagem.topico) as string,
+    estacao_uuid: estacaoUuid,
     unixtime: Math.floor(Date.parse(payload.timestamp) / 1000),
     leituras: payload.leituras.map(({ sensor, valor }) => ({ sensor, valor })),
   };
