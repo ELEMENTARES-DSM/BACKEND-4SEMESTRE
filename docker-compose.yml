@@ -211,6 +211,8 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
       JWT_SECRET: ${JWT_SECRET}
+      # REDIS_URL aponta para o Valkey (nome mantido por compatibilidade)
+      REDIS_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
     volumes:
       - ./services/analise-dados/src:/app/src
       - ./services/analise-dados/tsconfig.json:/app/tsconfig.json
@@ -219,6 +221,8 @@ services:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      valkey:
         condition: service_healthy
     networks:
       - app-network

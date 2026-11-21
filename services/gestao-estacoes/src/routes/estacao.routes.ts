@@ -15,7 +15,7 @@ router.use(authMiddleware);
 
 router.get(
   "/status",
-  checkRole(["ADMINISTRADOR", "GESTOR_PUBLICO"]),
+  checkRole(["ADMINISTRADOR", "GESTOR_PUBLICO", "MUNICIPE"]),
   estacaoController.status
 );
 
