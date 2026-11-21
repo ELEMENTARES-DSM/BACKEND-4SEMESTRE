@@ -10,6 +10,9 @@ export RABBITMQ_USER="${RABBITMQ_USER:-ci}"
 export RABBITMQ_PASSWORD="${RABBITMQ_PASSWORD:-ci}"
 export VALKEY_PASSWORD="${VALKEY_PASSWORD:-ci-descartavel}"
 export JWT_SECRET="${JWT_SECRET:-ci-secret}"
+export JWT_EXPIRES_IN="${JWT_EXPIRES_IN:-1h}"
+export INTERNAL_TOKEN="${INTERNAL_TOKEN:-ci-internal-token}"
+export SIM_ESTACAO_IDS="${SIM_ESTACAO_IDS:-estacao-1}"
 export DOCKERHUB_USER="${DOCKERHUB_USER:-ci-local}"
 export SMTP_HOST="${SMTP_HOST:-mailpit}"
 export SMTP_PORT="${SMTP_PORT:-1025}"
@@ -23,7 +26,8 @@ docker compose -f docker-compose.yml config --quiet
 
 echo "==> Validando docker-compose.prod.yml e presença do serviço valkey"
 docker compose -f docker-compose.prod.yml config --quiet
-if ! docker compose -f docker-compose.prod.yml config --services | grep -qx "valkey"; then
+PROD_SERVICES="$(docker compose -f docker-compose.prod.yml config --services)"
+if ! grep -qx "valkey" <<< "$PROD_SERVICES"; then
   echo "ERRO: serviço 'valkey' ausente em docker-compose.prod.yml" >&2
   exit 1
 fi

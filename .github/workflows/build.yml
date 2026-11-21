@@ -46,20 +46,27 @@ jobs:
           echo "Branch de origem: $HEAD_REF -> destino: $BASE_REF"
           echo "Título do PR: $PR_TITLE"
 
+          RE_RELEASE='^release/[0-9]+\.[0-9]+\.[0-9]+$'
+          RE_BRANCH='^(feature|feat|fix|docs|hotfix|chore|refactor|test)/ELEM-[0-9]+-.*'
+          RE_PR_TITLE='^ELEM-[0-9]+ (feat|fix|docs|test|refactor|chore|style): .+'
+          RE_MERGE='^Merge '
+          RE_ELEM='ELEM-[0-9]+'
+          RE_EXCECAO='^(docs|chore)(\([^)]+\))?: .+'
+
           IS_RELEASE_PR=false
-          if [[ "$HEAD_REF" =~ ^release/[0-9]+\.[0-9]+\.[0-9]+$ ]] && [[ "$BASE_REF" == "main" ]]; then
+          if [[ "$HEAD_REF" =~ $RE_RELEASE ]] && [[ "$BASE_REF" == "main" ]]; then
             IS_RELEASE_PR=true
           fi
 
           # 1. Validação do nome da branch
-          if [[ ! "$HEAD_REF" =~ ^(feature|feat|fix|docs|hotfix|chore|refactor|test)/ELEM-[0-9]+-.* ]] && [[ ! "$HEAD_REF" =~ ^release/[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ ! "$HEAD_REF" =~ $RE_BRANCH ]] && [[ ! "$HEAD_REF" =~ $RE_RELEASE ]]; then
             echo "::error::Nome de branch inválido: '$HEAD_REF'. Esperado: (feature|feat|fix|docs|hotfix|chore|refactor|test)/ELEM-<num>-<descricao> ou release/<x.y.z>."
             ERROS=1
           fi
 
           # 2. Validação do título do PR
           if [[ "$IS_RELEASE_PR" == "false" ]]; then
-            if [[ ! "$PR_TITLE" =~ ^ELEM-[0-9]+\ (feat|fix|docs|test|refactor|chore|style):\ .+ ]]; then
+            if [[ ! "$PR_TITLE" =~ $RE_PR_TITLE ]]; then
               echo "::error::Título de PR inválido: '$PR_TITLE'. Esperado: 'ELEM-<num> <tipo>: <descrição>'."
               ERROS=1
             fi
@@ -68,13 +75,13 @@ jobs:
           # 3. Validação dos commits do PR (aceita exceções docs: e chore: sem ticket e commits de merge)
           while IFS= read -r msg; do
             [[ -z "$msg" ]] && continue
-            if [[ "$msg" =~ ^Merge\  ]]; then
+            if [[ "$msg" =~ $RE_MERGE ]]; then
               continue
             fi
-            if [[ "$msg" =~ ELEM-[0-9]+ ]]; then
+            if [[ "$msg" =~ $RE_ELEM ]]; then
               continue
             fi
-            if [[ "$msg" =~ ^(docs|chore)(\([^)]+\))?:\ .+ ]]; then
+            if [[ "$msg" =~ $RE_EXCECAO ]]; then
               continue
             fi
             echo "::error::Commit sem chave ELEM-XX (e fora das exceções docs:/chore:): '$msg'"
@@ -395,6 +402,13 @@ jobs:
           npm ci
           npm run test:integration -- --verbose
 
+      - name: Aplicar migrations base (gestao-estacoes e servico-validacao)
+        run: |
+          npm --prefix services/gestao-estacoes ci
+          npm --prefix services/gestao-estacoes run migrate -- up
+          npm --prefix services/servico-validacao ci
+          npm --prefix services/servico-validacao run migrate -- up
+
       - name: Rodar testes de integração (analise-dados)
         working-directory: ./services/analise-dados
         run: |
@@ -515,11 +529,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Varredura de segredos (Gitleaks)
+      - name: Varredura de segredos (Gitleaks CLI)
         if: github.event_name == 'pull_request'
-        uses: gitleaks/gitleaks-action@83373cf2f8c4db6e24b41c1a9b086bb9619e9cd3 # v2.3.7
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          docker run --rm \
+            -u "$(id -u):$(id -g)" \
+            -v "$PWD:/repo" \
+            -w /repo \
+            ghcr.io/gitleaks/gitleaks:v8.24.2 \
+            git --log-opts="${BASE_SHA}..${HEAD_SHA}" --redact --verbose
 
       - name: Configurar Node.js (checagem de licenças na promoção para main)
         if: github.base_ref == 'main' || github.ref_name == 'main'
