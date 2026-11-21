@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buscarSensoresDaEstacao, lerConfigApi, lerSensoresDeJson } from "../sensores.api.js";
+import { buscarMacDaEstacao, buscarSensoresDaEstacao, lerConfigApi, lerMacsDeJson, lerSensoresDeJson } from "../sensores.api.js";
 import { daApi } from "./fixtures.js";
 
 const ESTACAO = "11111111-1111-4111-8111-111111111111";
@@ -155,5 +155,46 @@ describe("lerSensoresDeJson (LOTE_SENSORES_JSON, US-39)", () => {
     assert.throws(() => lerSensoresDeJson("null"), /deve ser um objeto/);
     assert.throws(() => lerSensoresDeJson(JSON.stringify({ [ESTACAO]: "nada" })), /Resposta inesperada/);
     assert.throws(() => lerSensoresDeJson("{"), SyntaxError);
+  });
+});
+
+describe("buscarMacDaEstacao (MAC do tópico)", () => {
+  it("lê o mac_address da rota interna da estação com o token interno", async () => {
+    const chamadas: Chamada[] = [];
+    const mac = await buscarMacDaEstacao(ESTACAO, config, fetchFalso({ corpo: { id: ESTACAO, mac_address: "aabbccddeeff" } }, chamadas));
+
+    assert.equal(mac, "aabbccddeeff");
+    assert.equal(chamadas[0].url, `http://gestao-estacoes:3000/api/v1/internal/estacoes/${ESTACAO}`);
+    assert.equal(chamadas[0].token, "token-do-teste");
+  });
+
+  it("recusa estação sem MAC, dizendo qual é", async () => {
+    await assert.rejects(
+      buscarMacDaEstacao(ESTACAO, config, fetchFalso({ corpo: { id: ESTACAO, mac_address: null } })),
+      /sem MAC cadastrado/,
+    );
+  });
+
+  it("recusa resposta de erro do gestao-estacoes", async () => {
+    await assert.rejects(
+      buscarMacDaEstacao(ESTACAO, config, fetchFalso({ status: 404, corpo: {} })),
+      /respondeu 404/,
+    );
+  });
+});
+
+describe("lerMacsDeJson (LOTE_MACS_JSON)", () => {
+  it("lê o mapa uuid → mac", () => {
+    const macs = lerMacsDeJson(JSON.stringify({ [ESTACAO]: "aabbccddeeff" }));
+
+    assert.equal(macs.get(ESTACAO), "aabbccddeeff");
+  });
+
+  it("recusa MAC fora do formato de 12 hex minúsculos", () => {
+    assert.throws(() => lerMacsDeJson(JSON.stringify({ [ESTACAO]: "AA:BB:CC:DD:EE:FF" })), /MAC inválido/);
+  });
+
+  it("recusa JSON que não é um objeto", () => {
+    assert.throws(() => lerMacsDeJson("[]"), /objeto/);
   });
 });

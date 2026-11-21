@@ -14,7 +14,7 @@ import { conferirEstacao } from "./validar-estacao.service";
 import { registrarRejeicao } from "./registro-rejeicao.service";
 import { registrarDuplicadaIgnorada } from "./registro-duplicada.service";
 import { solicitarProcessamentoPendentes } from "./staging-publisher.service";
-import { extrairEstacaoId } from "../utils/topico-estacao";
+import { extrairMacDoTopico } from "../utils/topico-estacao";
 import { ESTACAO_DESCONHECIDA, PAYLOAD_MALFORMADO } from "../validations/motivos-rejeicao";
 import { logger } from "../utils/logger";
 
@@ -114,13 +114,13 @@ export async function verificarMensagem(
   staging: MensagemStaging,
   agora: () => Date = () => new Date(),
 ): Promise<ResultadoVerificacao> {
-  const estacaoId = extrairEstacaoId(staging.topico);
-  if (!estacaoId) {
+  const macAddress = extrairMacDoTopico(staging.topico);
+  if (!macAddress) {
     return recusar(staging, ESTACAO_DESCONHECIDA, agora());
   }
 
   const mensagem: MensagemIngestaoInput = {
-    estacaoId,
+    macAddress,
     topico: staging.topico,
     payloadBruto: staging.payloadBruto,
     recebidoEm: staging.recebidoEm,
@@ -133,14 +133,15 @@ export async function verificarMensagem(
   }
 
   // A conferência da estação vem depois do payload, como na ordem dos critérios.
-  const motivoEstacao = await conferirEstacao(
-    estacaoId,
+  const conferencia = await conferirEstacao(
+    macAddress,
     validacao.payloadValidado.timestamp,
     staging.recebidoEm,
   );
-  if (motivoEstacao !== undefined) {
-    return recusar(staging, motivoEstacao, agora(), mensagem);
+  if (!conferencia.ok) {
+    return recusar(staging, conferencia.motivo, agora(), mensagem);
   }
+  const estacaoId = conferencia.estacaoId;
 
   // Duplicata (US-13) pela chave staging:visto no Valkey, mesmo com o PostgreSQL fora.
   const { timestamp, nivel_bateria } = validacao.payloadValidado;
@@ -151,7 +152,7 @@ export async function verificarMensagem(
     return "duplicada";
   }
 
-  await marcarPendente(staging.id);
+  await marcarPendente(staging.id, estacaoId);
   solicitarProcessamentoPendentes();
   // Último sinal (US-14) só depois de a publicação já ter sido pedida. Com o
   // PostgreSQL fora, fica para a próxima leitura aceita.
@@ -170,7 +171,7 @@ async function recusar(
   mensagem?: MensagemIngestaoInput,
 ): Promise<ResultadoVerificacao> {
   await encerrarSemPublicar(staging.id, "recusada", agora, motivoRecusa);
-  registrarRejeicao(motivoRecusa, mensagem?.estacaoId ?? staging.topico);
+  registrarRejeicao(motivoRecusa, mensagem?.macAddress ?? staging.topico);
   return "recusada";
 }
 

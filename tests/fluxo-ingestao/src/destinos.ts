@@ -9,9 +9,10 @@ const PREFIXO_MENSAGEM = "staging:msg:";
 
 type ClienteValkey = Pick<ReturnType<typeof createClient>, "scanIterator" | "hmGet">;
 
-/** UUID da estação no tópico pulso/estacoes/{uuid}/telemetria. */
-export function estacaoDoTopico(topico: string | null | undefined): string | null {
-  return /^pulso\/estacoes\/([^/]+)\/telemetria$/.exec(topico ?? "")?.[1] ?? null;
+/** MAC da estação no tópico pulso/estacoes/{mac}/telemetria (minúsculas). */
+export function macDoTopico(topico: string | null | undefined): string | null {
+  const mac = /^pulso\/estacoes\/([^/]+)\/telemetria$/.exec(topico ?? "")?.[1];
+  return mac ? mac.toLowerCase() : null;
 }
 
 /**
@@ -22,6 +23,10 @@ export function estacaoDoTopico(topico: string | null | undefined): string | nul
  */
 export async function lerValkey(cliente: ClienteValkey, manifesto: MensagemLote[]): Promise<MensagemStaging[]> {
   const estacoes = new Set(manifesto.map((m) => m.estacao_uuid));
+  // MAC → UUID da estação, pelo manifesto (cada linha leva o MAC enviado no tópico).
+  const uuidPorMac = new Map(
+    manifesto.flatMap((m) => (m.estacao_mac ? [[m.estacao_mac.toLowerCase(), m.estacao_uuid] as const] : [])),
+  );
   const chaves: string[] = [];
   for await (const chave of cliente.scanIterator({ MATCH: `${PREFIXO_MENSAGEM}*`, COUNT: 1000 })) {
     chaves.push(chave);
@@ -36,7 +41,7 @@ export async function lerValkey(cliente: ClienteValkey, manifesto: MensagemLote[
       const [topico, conteudo, status, motivo] = campos[i];
       return {
         id: chave.slice(PREFIXO_MENSAGEM.length),
-        estacao_uuid: estacaoDoTopico(topico),
+        estacao_uuid: uuidPorMac.get(macDoTopico(topico) ?? "") ?? null,
         status: status ?? "",
         motivo: motivo ?? null,
         payload_bruto: conteudo ?? "",

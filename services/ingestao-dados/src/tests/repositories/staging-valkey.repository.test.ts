@@ -26,6 +26,7 @@ type Comando = [string, ...unknown[]];
 
 const AGORA = new Date("2026-11-16T10:00:00.000Z");
 const SETE_DIAS_DEPOIS = new Date("2026-11-23T10:00:00.000Z");
+const ESTACAO_UUID = "8723c462-e79c-4e58-9751-eef8868a5312";
 
 let comandos: Comando[];
 let cliente: Record<string, jest.Mock>;
@@ -241,11 +242,11 @@ describe("marcarPendente", () => {
   it("deve entrar no fim de staging:pendentes, sair da verificação e não expirar quando a mensagem é aceita", async () => {
     // Dado (Arrange)
     // Quando (Act)
-    await marcarPendente("id-1");
+    await marcarPendente("id-1", ESTACAO_UUID);
 
     // Então (Assert)
     expect(comandos).toEqual([
-      ["hSet", chaveMensagem("id-1"), { status: "pendente" }],
+      ["hSet", chaveMensagem("id-1"), { status: "pendente", estacao_id: ESTACAO_UUID }],
       ["rPush", LISTA_PENDENTES, "id-1"],
       ["lRem", LISTA_RECEBIDAS, 1, "id-1"],
     ]);

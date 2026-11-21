@@ -46,6 +46,8 @@ const MQTT_SENHA = exigir("SIMULADOR_PASSWORD");
 const RAIZ = exigir("BACKEND_RAIZ");
 const GATEWAY = (process.env.GATEWAY_URL ?? "http://localhost").replace(/\/+$/, "");
 const ESTACAO = process.env.E2E_ESTACAO ?? "f1000000-0000-4000-8000-000000000010";
+// MAC da estação de teste: o tópico da placa usa o MAC. Carregado no início do teste.
+let macDaEstacao = "";
 
 const GRANDEZA = "Direção do Vento";
 const CODIGO_NOVO = "DIR-E2E";
@@ -89,7 +91,7 @@ function publicarMqtt(sensor: string, valor: number, unixtime: number): void {
     [
       "compose", "--project-directory", RAIZ, "exec", "-T", "mosquitto",
       "mosquitto_pub", "-h", "127.0.0.1", "-p", "1883", "-u", MQTT_USER, "-P", MQTT_SENHA,
-      "-t", topicoTelemetria(ESTACAO), "-q", "1", "-m", payloadTelemetria(sensor, valor, unixtime),
+      "-t", topicoTelemetria(macDaEstacao), "-q", "1", "-m", payloadTelemetria(sensor, valor, unixtime),
     ],
     { encoding: "utf-8" },
   );
@@ -266,6 +268,15 @@ const passos: Array<[string, () => Promise<void>]> = [
 ];
 
 async function main(): Promise<number> {
+  const { rows: macs } = await pool.query<{ mac_address: string | null }>(
+    "SELECT mac_address FROM estacoes WHERE id = $1",
+    [ESTACAO],
+  );
+  if (!macs[0]?.mac_address) {
+    throw new Error(`Estação ${ESTACAO} sem MAC cadastrado: o tópico da placa não tem como ser montado.`);
+  }
+  macDaEstacao = macs[0].mac_address;
+
   await limpar();
   let falhou = false;
 

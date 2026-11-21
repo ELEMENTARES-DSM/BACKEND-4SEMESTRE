@@ -2,7 +2,7 @@ import { ValidarPayloadService } from "../../services/validar-payload.service";
 
 // Unitário de ValidarPayloadService.validar: função pura, sem recurso externo.
 const base = {
-  estacaoId: "e30a57e3-0d33-4f9e-86b2-6cb1690a7891",
+  macAddress: "e30a57e3-0d33-4f9e-86b2-6cb1690a7891",
   topico: "pulso/estacoes/e30a57e3-0d33-4f9e-86b2-6cb1690a7891/telemetria",
   recebidoEm: "2026-10-08T21:42:01.000Z",
 };

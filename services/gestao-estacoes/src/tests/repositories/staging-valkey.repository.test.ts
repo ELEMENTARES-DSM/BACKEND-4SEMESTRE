@@ -7,7 +7,7 @@ import {
 // Unitário: o cliente do Valkey é falso. A leitura real fica no teste de integração.
 jest.mock("../../config/valkey", () => ({ valkey: jest.fn() }));
 
-const ESTACAO = "11111111-1111-4111-8111-111111111111";
+const ESTACAO = "aabbccddeeff";
 const OUTRA = "22222222-2222-4222-8222-222222222222";
 const topicoDe = (id: string) => `pulso/estacoes/${id}/telemetria`;
 

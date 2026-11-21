@@ -33,6 +33,60 @@ export function lerConfigApi(env: NodeJS.ProcessEnv = process.env): ConfigApi {
 
 type Buscar = typeof fetch;
 
+const MAC_VALIDO = /^[0-9a-f]{12}$/;
+
+/**
+ * MAC da estação (12 hex minúsculos), que é o identificador do tópico MQTT
+ * pulso/estacoes/<mac>/telemetria. Vem do cadastro no gestao-estacoes, pelo UUID.
+ */
+export async function buscarMacDaEstacao(
+  estacaoId: string,
+  config: ConfigApi,
+  buscar: Buscar = fetch,
+): Promise<string> {
+  const resposta = await buscar(
+    `${config.url}/api/v1/internal/estacoes/${encodeURIComponent(estacaoId)}`,
+    {
+      headers: { "X-Internal-Token": config.tokenInterno },
+      signal: AbortSignal.timeout(TEMPO_LIMITE_MS),
+    },
+  );
+
+  if (!resposta.ok) {
+    throw new Error(
+      `gestao-estacoes respondeu ${resposta.status} ao buscar a estação ${estacaoId}.`,
+    );
+  }
+
+  const corpo = (await resposta.json()) as { mac_address?: unknown };
+  if (typeof corpo.mac_address !== "string" || !MAC_VALIDO.test(corpo.mac_address)) {
+    throw new Error(`Estação ${estacaoId} sem MAC cadastrado: não há tópico para publicar.`);
+  }
+
+  return corpo.mac_address;
+}
+
+/**
+ * MACs já lidos antes (LOTE_MACS_JSON), para o modo lote com o gestao-estacoes
+ * fora do ar. Formato: { "<uuid da estação>": "<mac>" }.
+ */
+export function lerMacsDeJson(texto: string): Map<string, string> {
+  const dados: unknown = JSON.parse(texto);
+
+  if (dados === null || typeof dados !== "object" || Array.isArray(dados)) {
+    throw new Error("LOTE_MACS_JSON deve ser um objeto { uuid_da_estacao: mac }.");
+  }
+
+  const macs = new Map<string, string>();
+  for (const [estacaoId, mac] of Object.entries(dados)) {
+    if (typeof mac !== "string" || !MAC_VALIDO.test(mac)) {
+      throw new Error(`LOTE_MACS_JSON: MAC inválido para a estação ${estacaoId}.`);
+    }
+    macs.set(estacaoId, mac);
+  }
+  return macs;
+}
+
 /**
  * Sensores ativos da estação, lidos do catálogo no gestao-estacoes a cada
  * chamada (sem cache): um sensor cadastrado agora entra no próximo ciclo.

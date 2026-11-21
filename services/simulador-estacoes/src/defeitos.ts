@@ -15,7 +15,8 @@ export const TIPOS_DEFEITO = [
 export type TipoDefeito = (typeof TIPOS_DEFEITO)[number];
 
 export interface MensagemSimulada {
-  estacaoId: string;
+  /** MAC da estação, que vai no tópico pulso/estacoes/<mac>/telemetria. */
+  macAddress: string;
   conteudo: string;
   vezes: number;
 }
@@ -45,49 +46,49 @@ export function lerTiposAtivos(valor: string | undefined): TipoDefeito[] {
 }
 
 export function mensagemValida(
-  estacaoId: string,
+  macAddress: string,
   payload: PayloadTelemetria,
 ): MensagemSimulada {
-  return { estacaoId, conteudo: JSON.stringify(payload), vezes: 1 };
+  return { macAddress, conteudo: JSON.stringify(payload), vezes: 1 };
 }
 
 export function aplicarDefeito(
   tipo: TipoDefeito,
-  estacaoId: string,
+  macAddress: string,
   payload: PayloadTelemetria,
   rng: Rng,
-  estacaoInativaId?: string,
+  macEstacaoInativa?: string,
 ): MensagemSimulada {
   switch (tipo) {
     case "payload_malformado":
       // Corta o fim do JSON: o texto deixa de ser um JSON válido.
       return {
-        estacaoId,
+        macAddress,
         conteudo: JSON.stringify(payload).slice(0, -5),
         vezes: 1,
       };
 
     case "sem_timestamp": {
       const { timestamp: _removido, ...semTimestamp } = payload;
-      return mensagemValida(estacaoId, semTimestamp as PayloadTelemetria);
+      return mensagemValida(macAddress, semTimestamp as PayloadTelemetria);
     }
 
     case "estacao_inexistente":
-      // UUID novo, que não está cadastrado.
-      return mensagemValida(uuidAleatorio(rng), payload);
+      // MAC novo, que não está cadastrado.
+      return mensagemValida(macAleatorio(rng), payload);
 
     case "estacao_inativa":
-      return mensagemValida(estacaoInativaId as string, payload);
+      return mensagemValida(macEstacaoInativa as string, payload);
 
     case "bateria_invalida":
-      return mensagemValida(estacaoId, { ...payload, nivel_bateria: 150 });
+      return mensagemValida(macAddress, { ...payload, nivel_bateria: 150 });
 
     case "duplicata":
       // A mesma mensagem, publicada duas vezes.
-      return { ...mensagemValida(estacaoId, payload), vezes: 2 };
+      return { ...mensagemValida(macAddress, payload), vezes: 2 };
 
     case "sensor_inexistente":
-      return mensagemValida(estacaoId, {
+      return mensagemValida(macAddress, {
         ...payload,
         leituras: [
           { sensor: "SENSOR-INEXISTENTE", valor: payload.leituras[0].valor },
@@ -97,7 +98,7 @@ export function aplicarDefeito(
 
     case "valor_impossivel":
       // 99999 está fora da faixa física de todas as grandezas.
-      return mensagemValida(estacaoId, {
+      return mensagemValida(macAddress, {
         ...payload,
         leituras: [
           { sensor: payload.leituras[0].sensor, valor: 99999 },
@@ -105,6 +106,11 @@ export function aplicarDefeito(
         ],
       });
   }
+}
+
+/** MAC aleatório (12 hex minúsculos), que não está cadastrado em nenhuma estação. */
+export function macAleatorio(rng: Rng): string {
+  return Array.from({ length: 12 }, () => Math.floor(rng() * 16).toString(16)).join("");
 }
 
 export function uuidAleatorio(rng: Rng): string {

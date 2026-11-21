@@ -25,7 +25,7 @@ import {
 } from "../../services/processar-mensagem.service";
 import { configurarPublisherStaging, encerrarPublisherStaging } from "../../services/staging-publisher.service";
 import { logger } from "../../utils/logger";
-import { cadastrarEstacao, criarTabelaEstacoes } from "./helpers/estacoes";
+import { cadastrarEstacao, criarTabelaEstacoes, macDaEstacao } from "./helpers/estacoes";
 import { ProxyTcp } from "./helpers/proxy-tcp";
 import { esperar, esperarValkeyPronto } from "./helpers/valkey";
 
@@ -39,7 +39,7 @@ const BANCO_VALKEY = 4;
 // O middleware lê o JWT_SECRET na hora de cada requisição.
 const JWT_TESTE = "segredo-so-do-teste-de-metricas";
 process.env.JWT_SECRET = JWT_TESTE;
-const topicoDe = (uuid: string) => `pulso/estacoes/${uuid}/telemetria`;
+const topicoDe = (uuid: string) => `pulso/estacoes/${macDaEstacao(uuid)}/telemetria`;
 const leitura = (timestamp: string, extras = "") =>
   `{"timestamp":"${timestamp}"${extras},"leituras":[{"sensor":"T-01","valor":25.4}]}`;
 

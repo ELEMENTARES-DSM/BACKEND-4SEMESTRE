@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import request from "supertest";
-import { abrirBancoDeTeste, exigir, tokenDe } from "../../../tests/integration/ambiente";
+import { abrirBancoDeTeste, exigir, macAleatorio, tokenDe } from "../../../tests/integration/ambiente";
 
 const api = request(exigir("TEST_API_URL"));
 const pool: Pool = abrirBancoDeTeste();
@@ -46,6 +46,7 @@ beforeAll(async () => {
     .post("/estacoes")
     .auth(token, { type: "bearer" })
     .send({
+      mac_address: macAleatorio(),
       codigo: codigoEstacao,
       nome: "Estação da manutenção do catálogo",
       municipio: "São José dos Campos",
