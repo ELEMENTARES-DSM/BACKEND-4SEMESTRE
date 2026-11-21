@@ -1,0 +1,619 @@
+name: CI Elementares
+
+on:
+  push:
+    branches: ["develop", "main"]
+    paths-ignore:
+      - "**/*.md"
+      - ".devcontainer/**"
+      - "docs/**/*.md"
+      - "docs/**/*.txt"
+      - "docs/**/*.png"
+      - "docs/**/*.svg"
+  pull_request:
+    branches: ["develop", "main"]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validar-rastreabilidade:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fazer o Checkout do código
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Validar rastreabilidade (branch, título do PR e commits ELEM-XX)
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          ERROS=0
+
+          echo "Branch de origem: $HEAD_REF -> destino: $BASE_REF"
+          echo "Título do PR: $PR_TITLE"
+
+          RE_RELEASE='^release/[0-9]+\.[0-9]+\.[0-9]+$'
+          RE_BRANCH='^(feature|feat|fix|docs|hotfix|chore|refactor|test)/ELEM-[0-9]+-.*'
+          RE_PR_TITLE='^ELEM-[0-9]+ (feat|fix|docs|test|refactor|chore|style): .+'
+          RE_MERGE='^Merge '
+          RE_ELEM='ELEM-[0-9]+'
+          RE_EXCECAO='^(docs|chore)(\([^)]+\))?: .+'
+
+          IS_RELEASE_PR=false
+          if [[ "$HEAD_REF" =~ $RE_RELEASE ]] && [[ "$BASE_REF" == "main" ]]; then
+            IS_RELEASE_PR=true
+          fi
+
+          # 1. Validação do nome da branch
+          if [[ ! "$HEAD_REF" =~ $RE_BRANCH ]] && [[ ! "$HEAD_REF" =~ $RE_RELEASE ]]; then
+            echo "::error::Nome de branch inválido: '$HEAD_REF'. Esperado: (feature|feat|fix|docs|hotfix|chore|refactor|test)/ELEM-<num>-<descricao> ou release/<x.y.z>."
+            ERROS=1
+          fi
+
+          # 2. Validação do título do PR
+          if [[ "$IS_RELEASE_PR" == "false" ]]; then
+            if [[ ! "$PR_TITLE" =~ $RE_PR_TITLE ]]; then
+              echo "::error::Título de PR inválido: '$PR_TITLE'. Esperado: 'ELEM-<num> <tipo>: <descrição>'."
+              ERROS=1
+            fi
+          fi
+
+          # 3. Validação dos commits do PR (aceita exceções docs: e chore: sem ticket e commits de merge)
+          while IFS= read -r msg; do
+            [[ -z "$msg" ]] && continue
+            if [[ "$msg" =~ $RE_MERGE ]]; then
+              continue
+            fi
+            if [[ "$msg" =~ $RE_ELEM ]]; then
+              continue
+            fi
+            if [[ "$msg" =~ $RE_EXCECAO ]]; then
+              continue
+            fi
+            echo "::error::Commit sem chave ELEM-XX (e fora das exceções docs:/chore:): '$msg'"
+            ERROS=1
+          done < <(git log --format=%s "${BASE_SHA}..${HEAD_SHA}")
+
+          if [[ "$ERROS" -ne 0 ]]; then
+            exit 1
+          fi
+          echo "Rastreabilidade validada com sucesso."
+
+  detectar-mudancas:
+    runs-on: ubuntu-latest
+
+    outputs:
+      run_all: ${{ steps.matriz.outputs.run_all }}
+      services_matrix: ${{ steps.matriz.outputs.services_matrix }}
+      has_services: ${{ steps.matriz.outputs.has_services }}
+      openapi: ${{ steps.filtro.outputs.openapi }}
+      integration: ${{ steps.filtro.outputs.integration }}
+      fluxo_ingestao: ${{ steps.filtro.outputs.fluxo_ingestao }}
+      infra: ${{ steps.filtro.outputs.infra }}
+      firmware: ${{ steps.filtro.outputs.firmware }}
+      mqtt: ${{ steps.filtro.outputs.mqtt }}
+
+    steps:
+      - name: Fazer o Checkout do código
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Detectar escopos alterados
+        id: filtro
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        with:
+          filters: |
+            global:
+              - ".github/workflows/**"
+              - "docker-compose*.yml"
+              - "nginx.conf"
+              - "package*.json"
+            alertas-notificacoes:
+              - "services/alertas-notificacoes/**"
+            analise-dados:
+              - "services/analise-dados/**"
+            auth-service:
+              - "services/auth-service/**"
+            gestao-usuarios:
+              - "services/gestao-usuarios/**"
+            gestao-estacoes:
+              - "services/gestao-estacoes/**"
+            ingestao-dados:
+              - "services/ingestao-dados/**"
+            servico-relatorios:
+              - "services/servico-relatorios/**"
+            servico-validacao:
+              - "services/servico-validacao/**"
+            simulador-estacoes:
+              - "services/simulador-estacoes/**"
+            openapi:
+              - "**/openapi.json"
+              - "docs/validate.cjs"
+              - "services/*/src/routes/**"
+            integration:
+              - "tests/integration/**"
+              - "**/migrations/**"
+              - "services/**"
+            fluxo_ingestao:
+              - "services/ingestao-dados/**"
+              - "services/servico-validacao/**"
+              - "services/simulador-estacoes/**"
+              - "tests/fluxo-ingestao/**"
+            infra:
+              - "**/Dockerfile"
+              - "docker-compose*.yml"
+              - "nginx.conf"
+              - "scripts/validate-infra.sh"
+            firmware:
+              - "firmware/**"
+            mqtt:
+              - "mosquitto/**"
+              - "scripts/mqtt/**"
+
+      - name: Montar matriz dinâmica de serviços e flag run_all
+        id: matriz
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          BASE_REF: ${{ github.base_ref }}
+          GLOBAL_CHANGED: ${{ steps.filtro.outputs.global }}
+          CHANGES_JSON: ${{ steps.filtro.outputs.changes }}
+        run: |
+          set -euo pipefail
+          ALL_SERVICES='["alertas-notificacoes","analise-dados","auth-service","gestao-usuarios","gestao-estacoes","ingestao-dados","servico-relatorios","servico-validacao","simulador-estacoes"]'
+
+          RUN_ALL="false"
+          if [[ "$EVENT_NAME" == "push" && "$REF_NAME" == "main" ]]; then
+            RUN_ALL="true"
+          elif [[ "$EVENT_NAME" == "pull_request" && "$BASE_REF" == "main" ]]; then
+            RUN_ALL="true"
+          elif [[ "$GLOBAL_CHANGED" == "true" ]]; then
+            RUN_ALL="true"
+          fi
+
+          if [[ "$RUN_ALL" == "true" ]]; then
+            MATRIX="$ALL_SERVICES"
+          else
+            MATRIX=$(node -e '
+              const all = JSON.parse(process.argv[1]);
+              const changed = new Set(JSON.parse(process.argv[2] || "[]"));
+              console.log(JSON.stringify(all.filter((s) => changed.has(s))));
+            ' "$ALL_SERVICES" "$CHANGES_JSON")
+          fi
+
+          HAS_SERVICES=$(node -e 'console.log(JSON.parse(process.argv[1]).length > 0 ? "true" : "false")' "$MATRIX")
+
+          echo "run_all=$RUN_ALL" >> "$GITHUB_OUTPUT"
+          echo "services_matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "has_services=$HAS_SERVICES" >> "$GITHUB_OUTPUT"
+          echo "run_all=$RUN_ALL | has_services=$HAS_SERVICES | services_matrix=$MATRIX"
+
+  validar-servicos:
+    needs: [detectar-mudancas]
+    if: needs.detectar-mudancas.outputs.has_services == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.detectar-mudancas.outputs.services_matrix) }}
+
+    defaults:
+      run:
+        working-directory: ./services/${{ matrix.service }}
+
+    steps:
+      - name: Fazer o Checkout do código
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Configurar Node.js (com cache npm por serviço)
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.0.4
+        with:
+          node-version: "24.x"
+          cache: "npm"
+          cache-dependency-path: services/${{ matrix.service }}/package-lock.json
+
+      - name: Instalar dependências (${{ matrix.service }})
+        run: npm ci
+
+      - name: Criar arquivo .env dinamicamente
+        env:
+          PORT: ${{ secrets.PORT }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASS: ${{ secrets.DB_PASS }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          RABBITMQ_URL: ${{ secrets.RABBITMQ_URL }}
+        run: |
+          echo "PORT=$PORT" >> .env
+          echo "DB_HOST=$DB_HOST" >> .env
+          echo "DB_USER=$DB_USER" >> .env
+          echo "DB_PASS=$DB_PASS" >> .env
+          echo "JWT_SECRET=$JWT_SECRET" >> .env
+          echo "RABBITMQ_URL=$RABBITMQ_URL" >> .env
+
+      - name: Verificar tipagem TypeScript (${{ matrix.service }})
+        run: npx tsc --noEmit
+
+      - name: Rodar Linter (${{ matrix.service }})
+        run: npm run lint
+
+      - name: Rodar Testes Unitários com Cobertura (${{ matrix.service }})
+        run: npm test
+
+      - name: Publicar resumo de cobertura no PR (${{ matrix.service }})
+        if: always()
+        env:
+          SERVICE: ${{ matrix.service }}
+        run: |
+          if [ -f coverage/coverage-summary.json ]; then
+            node -e '
+              const fs = require("fs");
+              const data = JSON.parse(fs.readFileSync("coverage/coverage-summary.json", "utf8")).total;
+              const svc = process.env.SERVICE;
+              const fmt = (m) => `${m.pct.toFixed(2)}% (${m.covered}/${m.total})`;
+              const md = [
+                `### Cobertura de Testes — \`${svc}\``,
+                "",
+                "| Métrica | Cobertura | Mínimo | Status |",
+                "|---|---:|---:|:---:|",
+                `| Statements | ${fmt(data.statements)} | 70% | ${data.statements.pct >= 70 ? "✅" : "❌"} |`,
+                `| Branches | ${fmt(data.branches)} | 70% | ${data.branches.pct >= 70 ? "✅" : "❌"} |`,
+                `| Functions | ${fmt(data.functions)} | 70% | ${data.functions.pct >= 70 ? "✅" : "❌"} |`,
+                `| Lines | ${fmt(data.lines)} | 70% | ${data.lines.pct >= 70 ? "✅" : "❌"} |`,
+                "",
+              ].join("\n");
+              if (process.env.GITHUB_STEP_SUMMARY) {
+                fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md);
+              }
+            '
+          fi
+
+      - name: Fazer o Build (${{ matrix.service }})
+        run: npm run build
+
+  validar-openapi:
+    needs: [detectar-mudancas]
+    if: needs.detectar-mudancas.outputs.openapi == 'true' || needs.detectar-mudancas.outputs.run_all == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fazer o Checkout do código
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.0.4
+        with:
+          node-version: "24.x"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Instalar dependências da raiz
+        run: npm ci
+
+      - name: Validar contratos OpenAPI de todos os serviços
+        run: npm run docs:validate
+
+  testes-integracao:
+    needs: [detectar-mudancas, validar-servicos]
+    if: >-
+      always() &&
+      needs.detectar-mudancas.result == 'success' &&
+      (needs.validar-servicos.result == 'success' || needs.validar-servicos.result == 'skipped') &&
+      (needs.detectar-mudancas.outputs.integration == 'true' || needs.detectar-mudancas.outputs.run_all == 'true')
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: integration
+          POSTGRES_PASSWORD: integration
+          POSTGRES_DB: elementares_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U integration -d elementares_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+      valkey:
+        image: valkey/valkey:9.1.3-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="valkey-cli ping | grep -q PONG"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+      rabbitmq:
+        image: rabbitmq:3-management-alpine
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd="rabbitmq-diagnostics -q ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+      mailpit:
+        image: axllent/mailpit:v1.31.6
+        ports:
+          - 1025:1025
+          - 8025:8025
+
+    env:
+      DATABASE_URL: postgresql://integration:integration@127.0.0.1:5432/elementares_test
+      STAGING_TEST_DATABASE_URL: postgresql://integration:integration@127.0.0.1:5432/elementares_test
+      ALERTAS_TEST_DATABASE_URL: postgresql://integration:integration@127.0.0.1:5432/elementares_test
+      VALIDACAO_TEST_DATABASE_URL: postgresql://integration:integration@127.0.0.1:5432/elementares_test
+      RELATORIOS_TEST_DATABASE_URL: postgresql://integration:integration@127.0.0.1:5432/elementares_test
+      VALKEY_TEST_URL: redis://127.0.0.1:6379
+      REDIS_URL: redis://127.0.0.1:6379
+      MQTT_TEST_URL: mqtt://127.0.0.1:1883
+      RABBITMQ_TEST_URL: amqp://guest:guest@127.0.0.1:5672
+      SMTP_TEST_HOST: 127.0.0.1
+      SMTP_TEST_PORT: "1025"
+      MAILPIT_TEST_URL: http://127.0.0.1:8025
+      VALKEY_PASSWORD: ci-descartavel
+
+    steps:
+      - name: Fazer o Checkout do código
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.0.4
+        with:
+          node-version: "24.x"
+
+      - name: Subir broker MQTT (Mosquitto)
+        run: |
+          cp .env.example .env
+          docker compose up -d --wait mosquitto
+
+      - name: Rodar testes de integração (ingestao-dados)
+        working-directory: ./services/ingestao-dados
+        run: |
+          npm ci
+          npm run test:integration -- --verbose
+
+      - name: Rodar testes de integração (alertas-notificacoes)
+        working-directory: ./services/alertas-notificacoes
+        run: |
+          npm ci
+          npm run test:integration -- --verbose
+
+      - name: Aplicar migrations base (gestao-estacoes e servico-validacao)
+        run: |
+          npm --prefix services/gestao-estacoes ci
+          npm --prefix services/gestao-estacoes run migrate -- up
+          npm --prefix services/servico-validacao ci
+          npm --prefix services/servico-validacao run migrate -- up
+
+      - name: Rodar testes de integração (analise-dados)
+        working-directory: ./services/analise-dados
+        run: |
+          npm ci
+          npm run test:integration -- --verbose
+
+      - name: Rodar testes de integração (gestao-usuarios)
+        working-directory: ./services/gestao-usuarios
+        run: |
+          npm ci
+          npm run test:integration -- --verbose
+
+      - name: Rodar testes de integração (servico-relatorios)
+        working-directory: ./services/servico-relatorios
+        run: |
+          npm ci
+          npm run test:integration -- --verbose
+
+      - name: Rodar testes de integração (servico-validacao)
+        working-directory: ./services/servico-validacao
+        run: |
+          npm ci
+          npm run test:integration -- --verbose
+
+      - name: Rodar testes de integração (gestao-estacoes)
+        run: |
+          npm --prefix services/gestao-estacoes ci
+          bash scripts/test-integration.sh
+
+      - name: Logs do Mosquitto em caso de falha
+        if: failure()
+        run: docker compose logs mosquitto
+
+  fluxo-ingestao:
+    needs: [detectar-mudancas]
+    if: needs.detectar-mudancas.outputs.fluxo_ingestao == 'true' || needs.detectar-mudancas.outputs.run_all == 'true'
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./tests/fluxo-ingestao
+
+    steps:
+      - name: Fazer o Checkout do código
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.0.4
+        with:
+          node-version: "24.x"
+          cache: "npm"
+          cache-dependency-path: tests/fluxo-ingestao/package-lock.json
+
+      - name: Instalar dependências (teste do fluxo de ingestão)
+        run: npm ci
+
+      - name: Verificar tipagem TypeScript (teste do fluxo de ingestão)
+        run: npx tsc --noEmit
+
+      - name: Rodar Linter (teste do fluxo de ingestão)
+        run: npm run lint
+
+      - name: Rodar Testes (teste do fluxo de ingestão)
+        run: npm test
+
+  validar-infra:
+    needs: [detectar-mudancas]
+    if: needs.detectar-mudancas.outputs.infra == 'true' || needs.detectar-mudancas.outputs.run_all == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fazer o Checkout do código
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Validar Docker Compose, Nginx e Dockerfiles alterados
+        env:
+          BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'HEAD~1' }}
+        run: bash scripts/validate-infra.sh
+
+  validar-firmware:
+    needs: [detectar-mudancas]
+    if: needs.detectar-mudancas.outputs.firmware == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fazer o Checkout do código
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Configurar Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Cache do PlatformIO
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.platformio
+          key: ${{ runner.os }}-pio-${{ hashFiles('firmware/platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-
+
+      - name: Instalar PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Compilar firmware ESP32
+        run: pio run -d firmware
+
+  seguranca-e-licencas:
+    needs: [detectar-mudancas]
+    if: github.event_name == 'pull_request' || github.ref_name == 'main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fazer o Checkout do código
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Varredura de segredos (Gitleaks CLI)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          docker run --rm \
+            -u "$(id -u):$(id -g)" \
+            -v "$PWD:/repo" \
+            -w /repo \
+            ghcr.io/gitleaks/gitleaks:v8.24.2 \
+            git --log-opts="${BASE_SHA}..${HEAD_SHA}" --redact --verbose
+
+      - name: Configurar Node.js (checagem de licenças na promoção para main)
+        if: github.base_ref == 'main' || github.ref_name == 'main'
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.0.4
+        with:
+          node-version: "24.x"
+
+      - name: Checar licenças de produção por serviço (promoção para main)
+        if: github.base_ref == 'main' || github.ref_name == 'main'
+        run: |
+          for dir in services/*; do
+            if [ -f "$dir/package.json" ]; then
+              echo "==> Verificando licenças em $dir"
+              (
+                cd "$dir"
+                npm ci
+                npx --yes license-checker-rseidelsohn --summary --production --failOn "GPL-2.0;GPL-3.0;AGPL-3.0;LGPL-2.1;LGPL-3.0;SSPL-1.0"
+              )
+            fi
+          done
+
+  ci-status:
+    needs:
+      - validar-rastreabilidade
+      - detectar-mudancas
+      - validar-servicos
+      - validar-openapi
+      - testes-integracao
+      - fluxo-ingestao
+      - validar-infra
+      - validar-firmware
+      - seguranca-e-licencas
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Avaliar resultado consolidado da esteira
+        id: gate
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          STATUS=$(node -e '
+            const needs = JSON.parse(process.env.NEEDS_JSON);
+            const failed = Object.entries(needs)
+              .filter(([, v]) => v.result === "failure" || v.result === "cancelled")
+              .map(([k, v]) => `${k} (${v.result})`);
+            if (failed.length > 0) {
+              console.error("Jobs com falha/cancelamento:", failed.join(", "));
+              process.stdout.write("failure");
+            } else {
+              process.stdout.write("success");
+            }
+          ')
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          if [[ "$STATUS" != "success" ]]; then
+            exit 1
+          fi
+
+      - name: 📢 Notificação consolidada de Pull Request
+        if: always() && github.event_name == 'pull_request'
+        uses: sarisia/actions-status-discord@eb045afee445dc055c18d3d90bd0f244fd062708 # v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK_PRS }}
+          status: ${{ steps.gate.outputs.status || job.status }}
+          title: "CI Backend — PR #${{ github.event.pull_request.number }}"
+          description: "${{ github.event.pull_request.title }} | Status consolidado: ${{ steps.gate.outputs.status || job.status }}"
+
+      - name: 📢 Notificação consolidada de Push
+        if: always() && github.event_name == 'push'
+        uses: sarisia/actions-status-discord@eb045afee445dc055c18d3d90bd0f244fd062708 # v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK_FEED }}
+          status: ${{ steps.gate.outputs.status || job.status }}
+          title: "CI Backend — Push em ${{ github.ref_name }}"
+          description: "A branch ${{ github.ref_name }} finalizou a esteira consolidada com status: ${{ steps.gate.outputs.status || job.status }}."

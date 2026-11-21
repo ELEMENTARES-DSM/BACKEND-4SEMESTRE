@@ -13,8 +13,7 @@ import {
 // US-39 (ELEM-265): a faixa física vem do catálogo tipos_sensor, por JOIN, na
 // consulta que traz o sensor. Execute com VALIDACAO_TEST_DATABASE_URL apontando
 // para uma instância de teste (não precisa de RabbitMQ).
-const databaseUrl = process.env.VALIDACAO_TEST_DATABASE_URL;
-const integration = databaseUrl ? describe : describe.skip;
+const integration = describe;
 
 integration("US-39 - faixa física do catálogo (PostgreSQL)", () => {
   const schema = `validacao_us39_${randomUUID().replaceAll("-", "")}`;
