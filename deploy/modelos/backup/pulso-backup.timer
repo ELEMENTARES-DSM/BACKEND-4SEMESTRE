@@ -1,0 +1,12 @@
+# Gerado pelo instalador do Pulso Urbano.
+[Unit]
+Description=Backup diário do banco do Pulso Urbano
+
+[Timer]
+OnCalendar=*-*-* ${BACKUP_HORARIO}:00
+# Se o S4 estava desligado na hora, roda assim que ligar.
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,122 @@
+# =============================================================================
+# Pulso Urbano · configuração da instalação nos 4 servidores
+#
+# Um arquivo só para a infraestrutura inteira: gere uma vez, preencha os IPs
+# e copie o MESMO arquivo para os 4 servidores, em /etc/pulso-urbano/pulso.conf
+# (dono root, permissão 600). Os segredos precisam ser iguais em todos.
+#
+#   sudo ./instalar.sh gerar-config > pulso.conf   # já sai com senhas aleatórias
+#
+# Senhas: só letras e números. Elas entram em URLs de conexão
+# (postgresql://, amqp://, redis://) e um caractere especial quebra a URL.
+# =============================================================================
+
+# --- Rede --------------------------------------------------------------------
+# IP de cada servidor na rede interna. Para testar vários papéis numa VM só,
+# use 127.0.0.1 nos papéis que ficam nela.
+S1_IP="10.10.0.11"
+S2_IP="10.10.0.12"
+S3_IP="10.10.0.13"
+S4_IP="10.10.0.14"
+
+# Quem pode entrar por SSH e abrir o Grafana/Prometheus (a rede da VPN).
+REDE_ADMIN="10.10.0.0/24"
+# De onde as estações publicam na porta MQTT 1883 do S2.
+REDE_ESTACOES="10.20.0.0/16"
+# Endereço em que o Mosquitto escuta no S2 (IP da placa da rede das estações,
+# ou 0.0.0.0 para todas). O firewall libera a 1883 só para REDE_ESTACOES.
+MQTT_BIND="0.0.0.0"
+
+# Nome público do site no S1 (vai no certificado e no nginx).
+DOMINIO="pulsourbano.exemplo.sp.gov.br"
+
+# Ligar o firewall (ufw) com as regras da arquitetura física: sim | nao
+FIREWALL="sim"
+FUSO="America/Sao_Paulo"
+
+# Proxy de saída, se a rede da Prefeitura exigir (apt, npm, git, curl).
+# Exemplo: http://proxy.prefeitura.local:3128
+PROXY_HTTP=""
+
+# --- Versão da aplicação -----------------------------------------------------
+REPO_BACKEND="https://github.com/ELEMENTARES-DSM/BACKEND-4SEMESTRE.git"
+REPO_FRONTEND="https://github.com/ELEMENTARES-DSM/FRONTEND-4SEMESTRE.git"
+# Branch, tag (ex.: 1.2.0) ou commit. Em produção, use a tag da release.
+REF_BACKEND="main"
+REF_FRONTEND="main"
+NODE_MAJOR="22"
+# Quantas versões antigas guardar para voltar com ./deploy.sh <papel> --voltar
+RELEASES_GUARDADAS="5"
+
+# --- Banco (S3) --------------------------------------------------------------
+POSTGRES_DB="pulso"
+POSTGRES_USER="pulso"
+POSTGRES_PASSWORD=""
+# Usuário só de leitura que o S4 usa para o backup.
+POSTGRES_BACKUP_USER="pulso_backup"
+POSTGRES_BACKUP_PASSWORD=""
+# Usuário do coletor de métricas do PostgreSQL (no próprio S3).
+POSTGRES_MONITOR_PASSWORD=""
+# Vazio = calculado pela memória da máquina (25% e 75%).
+PG_SHARED_BUFFERS=""
+PG_EFFECTIVE_CACHE_SIZE=""
+PG_MAX_CONNECTIONS="150"
+
+# --- Segredos da aplicação ---------------------------------------------------
+JWT_SECRET=""
+# O auth-service hoje fixa 8 horas no código; a variável fica para quando ler.
+JWT_EXPIRES_IN="8h"
+INTERNAL_TOKEN=""
+
+# --- Valkey -------------------------------------------------------------------
+# S1: tokens revogados e cota de consultas. Só escuta na própria máquina.
+VALKEY_S1_SENHA=""
+VALKEY_S1_PORTA="6379"
+VALKEY_S1_MAXMEMORY="256mb"
+# S2: staging das leituras por 7 dias (US-40). Escuta também no S2_IP,
+# porque o gestao-estacoes do S1 lê os códigos de sensor detectados.
+VALKEY_S2_SENHA=""
+# Se S1 e S2 ficarem na mesma VM de teste, troque esta para 6380.
+VALKEY_S2_PORTA="6379"
+VALKEY_S2_MAXMEMORY="1gb"
+
+# --- RabbitMQ e MQTT (S2) ----------------------------------------------------
+RABBITMQ_USER="pulso"
+RABBITMQ_PASSWORD=""
+# O RabbitMQ recusa mensagens acima desta fração da memória da máquina.
+RABBITMQ_LIMITE_MEMORIA="0.4"
+MQTT_QOS="1"
+
+# --- E-mail (avisos de alarme no S2 e alertas do monitoramento no S4) --------
+# O servidor SMTP precisa ser alcançável do S2 e do S4 (relay da Prefeitura).
+SMTP_HOST=""
+SMTP_PORT="587"
+SMTP_SECURE="false"
+SMTP_USER=""
+SMTP_PASSWORD=""
+SMTP_FROM="Pulso Urbano <alertas@pulsourbano.local>"
+
+# --- HTTPS (S1) ---------------------------------------------------------------
+# Certificado da Prefeitura. Se os arquivos não existirem, o instalador gera
+# um autoassinado (serve para VM e homologação, não para produção).
+CERT_ARQUIVO="/etc/pulso-urbano/tls/pulso.crt"
+CHAVE_ARQUIVO="/etc/pulso-urbano/tls/pulso.key"
+# A porta 80 só redireciona para a 443. A arquitetura abre só a 443: sim | nao
+ABRIR_PORTA_80="nao"
+
+# --- Administrador inicial ----------------------------------------------------
+# A migration cria admin@exemplo.com com uma senha de teste conhecida.
+# O instalador do S1 troca o e-mail e a senha por estes.
+ADMIN_EMAIL=""
+ADMIN_SENHA=""
+
+# --- Backup e monitoramento (S4) ---------------------------------------------
+BACKUP_DIR="/var/backups/pulso-urbano"
+BACKUP_DIAS="30"
+BACKUP_MESES="60"
+BACKUP_HORARIO="02:30"
+PROMETHEUS_RETENCAO="35d"
+GRAFANA_USER="admin"
+GRAFANA_PASSWORD=""
+# Quem recebe os alertas do Alertmanager (separe vários por vírgula).
+ALERTA_EMAIL_PARA=""

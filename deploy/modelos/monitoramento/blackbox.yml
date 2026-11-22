@@ -1,0 +1,16 @@
+# Blackbox exporter do Pulso Urbano (S4). Gerado pelo instalador.
+modules:
+  http_2xx:
+    prober: http
+    timeout: 5s
+    http:
+      valid_status_codes: [200]
+      preferred_ip_protocol: ip4
+      # O S1 é chamado pelo IP: o certificado é do domínio (ou autoassinado).
+      tls_config:
+        insecure_skip_verify: true
+  tcp_connect:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      preferred_ip_protocol: ip4
