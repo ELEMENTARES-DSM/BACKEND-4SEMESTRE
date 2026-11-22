@@ -1,0 +1,8 @@
+# Gerado pelo instalador do Pulso Urbano.
+apiVersion: 1
+providers:
+  - name: pulso-urbano
+    folder: Pulso Urbano
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards/pulso

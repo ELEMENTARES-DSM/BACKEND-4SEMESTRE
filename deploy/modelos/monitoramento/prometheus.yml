@@ -1,0 +1,94 @@
+# Prometheus do Pulso Urbano (S4). Gerado pelo instalador; não edite aqui.
+# Coleta dos 4 servidores pela rede interna.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/pulso-alertas.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["127.0.0.1:9093"]
+
+scrape_configs:
+  # 1) Disponibilidade: o /health de cada serviço. Os do S1 passam pelo nginx,
+  #    como o usuário; os do S2 são lidos direto na porta de cada um.
+  - job_name: health-servicos
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - labels: { servidor: S1 }
+        targets:
+          - https://${S1_IP}/auth/health
+          - https://${S1_IP}/usuarios/health
+          - https://${S1_IP}/estacoes/health
+          - https://${S1_IP}/analise/health
+          - https://${S1_IP}/relatorios/health
+      - labels: { servidor: S2 }
+        targets:
+          - http://${S2_IP}:3002/alertas/health
+          - http://${S2_IP}:3005/ingestao/health
+          - http://${S2_IP}:3007/validacao/health
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        regex: .*/([a-z]+)/health
+        target_label: servico
+      - target_label: __address__
+        replacement: 127.0.0.1:9115
+
+  # 2) Portas sem HTTP: aberta = no ar
+  - job_name: portas-infra
+    metrics_path: /probe
+    params:
+      module: [tcp_connect]
+    static_configs:
+      - targets: ["${S3_IP}:5432"]
+        labels: { servidor: S3, servico: postgresql }
+      - targets: ["${S2_IP}:1883"]
+        labels: { servidor: S2, servico: mosquitto }
+      - targets: ["${S2_IP}:${VALKEY_S2_PORTA}"]
+        labels: { servidor: S2, servico: valkey-s2 }
+      - targets: ["${S1_IP}:443"]
+        labels: { servidor: S1, servico: https }
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - target_label: __address__
+        replacement: 127.0.0.1:9115
+
+  # 3) Métricas de cada máquina (CPU, memória, disco, serviços do systemd)
+  - job_name: maquinas
+    static_configs:
+      - targets: ["${S1_IP}:9100"]
+        labels: { servidor: S1 }
+      - targets: ["${S2_IP}:9100"]
+        labels: { servidor: S2 }
+      - targets: ["${S3_IP}:9100"]
+        labels: { servidor: S3 }
+      - targets: ["127.0.0.1:9100"]
+        labels: { servidor: S4 }
+
+  # 4) Métricas de cada componente
+  - job_name: rabbitmq
+    static_configs:
+      - targets: ["${S2_IP}:15692"]
+        labels: { servidor: S2 }
+  - job_name: postgres
+    static_configs:
+      - targets: ["${S3_IP}:9187"]
+        labels: { servidor: S3 }
+  - job_name: valkey
+    static_configs:
+      - targets: ["${S1_IP}:9121"]
+        labels: { servidor: S1 }
+      - targets: ["${S2_IP}:9121"]
+        labels: { servidor: S2 }
+  - job_name: prometheus
+    static_configs:
+      - targets: ["127.0.0.1:9090"]
+        labels: { servidor: S4 }
