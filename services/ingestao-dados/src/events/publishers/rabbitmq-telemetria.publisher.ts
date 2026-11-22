@@ -43,13 +43,18 @@ export function montarEvento(mensagem: MensagemStaging): EventoTelemetriaBruta {
     throw new Error(`mensagem ${mensagem.id} sem estação resolvida`);
   }
   const payload = JSON.parse(mensagem.payloadBruto) as {
-    timestamp: string;
+    timestamp: string | number;
     leituras: Array<{ sensor: string; valor: number }>;
   };
+  // Epoch em segundos já é o unixtime; string ISO continua sendo convertida.
+  const unixtime =
+    typeof payload.timestamp === "number"
+      ? payload.timestamp
+      : Math.floor(Date.parse(payload.timestamp) / 1000);
   return {
     staging_id: mensagem.id,
     estacao_uuid: estacaoUuid,
-    unixtime: Math.floor(Date.parse(payload.timestamp) / 1000),
+    unixtime,
     leituras: payload.leituras.map(({ sensor, valor }) => ({ sensor, valor })),
   };
 }

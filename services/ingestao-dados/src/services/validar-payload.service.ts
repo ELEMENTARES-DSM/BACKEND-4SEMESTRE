@@ -33,7 +33,12 @@ export class ValidarPayloadService {
       };
     }
 
-    const { timestamp, leituras, nivel_bateria } = jsonParsed;
+    const { leituras, nivel_bateria } = jsonParsed;
+    let timestamp: unknown = jsonParsed.timestamp;
+    // Aceita epoch em segundos (unixtimestamp) e converte para ISO antes da validação.
+    if (typeof timestamp === "number" && Number.isInteger(timestamp) && timestamp > 0) {
+      timestamp = new Date(timestamp * 1000).toISOString();
+    }
 
     if (!timestamp || typeof timestamp !== "string") {
       return {
