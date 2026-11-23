@@ -1,0 +1,4 @@
+# Falsos positivos do gitleaks: JWT_SECRET fixo usado só em testes do analise-dados.
+# Não é o segredo real (ele vem do .env). Impressão digital: commit:arquivo:regra:linha.
+b06c272015ca5a5843af3a1f5e723b7dbe8992e0:services/analise-dados/src/tests/routes/limites-periodo.integration.spec.ts:generic-api-key:8
+1f3cca64b70fe436159ccb6be9923190d32de098:services/analise-dados/src/tests/middlewares/cota.middleware.spec.ts:generic-api-key:11
