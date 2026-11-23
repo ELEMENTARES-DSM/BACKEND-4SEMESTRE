@@ -1,76 +1,51 @@
-import { describe, it, expect, jest, beforeEach } from "@jest/globals";
+import { describe, it, expect, jest, afterEach } from "@jest/globals";
 import {
   registrarDuplicadaIgnorada,
   MENSAGEM_DUPLICADA_IGNORADA,
-  RegistroDuplicadaDeps,
 } from "../../services/registro-duplicada.service";
-import { duplicateMetricsService } from "../../services/duplicate-metrics.service";
-import { rejectionMetricsService } from "../../services/rejection-metrics.service";
 import { logger } from "../../utils/logger";
 
-describe("registroDuplicadaService", () => {
-  const dados = {
-    estacaoId: "e30a57e3-0d33-4f9e-86b2-6cb1690a7891",
-    timestamp: "2026-10-14T12:00:00Z",
-  };
+// Unitário de registrarDuplicadaIgnorada: log injetado como mock. O contador
+// de duplicadas fica no Valkey (staging-valkey.repository).
+describe("registrarDuplicadaIgnorada", () => {
+  const dados = { estacaoId: "e30a57e3-0d33-4f9e-86b2-6cb1690a7891", timestamp: "2026-10-14T12:00:00Z" };
 
-  beforeEach(() => {
-    duplicateMetricsService.reset();
-    rejectionMetricsService.reset();
+  afterEach(() => {
     jest.restoreAllMocks();
   });
 
-  const criarDeps = () => {
-    const mockLogger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
-    const mockMetricas = { incrementar: jest.fn() };
-    const deps: RegistroDuplicadaDeps = { logger: mockLogger, metricas: mockMetricas };
-    return { mockLogger, mockMetricas, deps };
-  };
+  it("deve emitir INFO uma vez com a mensagem e o contexto exatos quando a duplicata é ignorada", () => {
+    // Dado (Arrange)
+    const mockLogger = { info: jest.fn() };
 
-  it("deve emitir INFO 1 vez com a mensagem e o contexto exatos", () => {
-    const { mockLogger, deps } = criarDeps();
+    // Quando (Act)
+    registrarDuplicadaIgnorada(dados, { logger: mockLogger });
 
-    registrarDuplicadaIgnorada(dados, deps);
-
+    // Então (Assert)
     expect(mockLogger.info).toHaveBeenCalledTimes(1);
-    expect(mockLogger.info).toHaveBeenCalledWith(MENSAGEM_DUPLICADA_IGNORADA, {
-      estacaoId: dados.estacaoId,
-      timestamp: dados.timestamp,
-    });
+    expect(mockLogger.info).toHaveBeenCalledWith(MENSAGEM_DUPLICADA_IGNORADA, dados);
   });
 
-  it("deve incrementar o contador exatamente 1 vez", () => {
-    const { mockMetricas, deps } = criarDeps();
+  it("deve não emitir WARN nem ERROR quando a duplicata é ignorada, porque duplicata não é erro", () => {
+    // Dado (Arrange)
+    const mockLogger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
 
-    registrarDuplicadaIgnorada(dados, deps);
+    // Quando (Act)
+    registrarDuplicadaIgnorada(dados, { logger: mockLogger });
 
-    expect(mockMetricas.incrementar).toHaveBeenCalledTimes(1);
-  });
-
-  it("não deve emitir warn nem error", () => {
-    const { mockLogger, deps } = criarDeps();
-
-    registrarDuplicadaIgnorada(dados, deps);
-
+    // Então (Assert)
     expect(mockLogger.warn).not.toHaveBeenCalled();
     expect(mockLogger.error).not.toHaveBeenCalled();
   });
 
-  it("não deve contar como rejeição", () => {
-    const { deps } = criarDeps();
+  it("deve usar o logger padrão quando as dependências não são informadas", () => {
+    // Dado (Arrange)
+    const info = jest.spyOn(logger, "info").mockImplementation(() => undefined);
 
-    registrarDuplicadaIgnorada(dados, deps);
-
-    expect(rejectionMetricsService.obterMetricas()).toEqual({});
-  });
-
-  it("deve usar as dependências padrão (singleton logger e duplicateMetricsService) quando não fornecidas", () => {
-    const spyInfo = jest.spyOn(logger, "info").mockImplementation(() => {});
-
+    // Quando (Act)
     registrarDuplicadaIgnorada(dados);
 
-    expect(spyInfo).toHaveBeenCalledWith(MENSAGEM_DUPLICADA_IGNORADA, dados);
-    expect(duplicateMetricsService.obterTotal()).toBe(1);
-    expect(rejectionMetricsService.obterMetricas()).toEqual({});
+    // Então (Assert)
+    expect(info).toHaveBeenCalledWith(MENSAGEM_DUPLICADA_IGNORADA, dados);
   });
 });

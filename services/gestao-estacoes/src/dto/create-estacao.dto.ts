@@ -1,4 +1,5 @@
 export interface CreateEstacaoDTO {
+  mac_address: string;
   codigo: string;
   nome: string;
   municipio: string;

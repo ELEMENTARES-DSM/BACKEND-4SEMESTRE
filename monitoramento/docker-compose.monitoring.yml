@@ -1,0 +1,97 @@
+# Monitoramento do Pulso Urbano: Prometheus + Grafana + exporters (ELEM-128 e ELEM-129).
+# Arquivo SEPARADO: não altera o docker-compose.yml da aplicação.
+# Entra na mesma rede Docker do backend.
+#
+# Uso (na raiz do repositório, com o backend já no ar):
+#   docker compose -f monitoramento/docker-compose.monitoring.yml --env-file .env up -d
+#
+# APP_NETWORK (no .env) = nome da rede criada pelo compose da aplicação:
+#   <nome-da-pasta-em-minusculas>_app-network  (ex.: backend-4semestre_app-network)
+
+name: monitoramento
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks: [app-network]
+
+  # Painéis: já nasce com a fonte de dados (Prometheus) e o painel "Saúde da Plataforma"
+  grafana:
+    image: grafana/grafana:12.1.1
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?defina GRAFANA_PASSWORD no .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    depends_on: [prometheus]
+    networks: [app-network]
+
+  # Testa de fora para dentro: /health de cada serviço (via nginx) e portas TCP
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.27.0
+    restart: unless-stopped
+    command: --config.file=/etc/blackbox/blackbox.yml
+    volumes:
+      - ./blackbox:/etc/blackbox:ro
+    networks: [app-network]
+
+  # CPU, memória e reinícios de cada container
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks: [app-network]
+
+  # CPU, memória e disco da máquina
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    restart: unless-stopped
+    command: --path.rootfs=/host
+    volumes:
+      - /:/host:ro
+    networks: [app-network]
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+    networks: [app-network]
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.74.0
+    restart: unless-stopped
+    environment:
+      # redis_exporter também lê o Valkey; o job continua "redis" no Prometheus
+      REDIS_ADDR: redis://valkey:6379
+      REDIS_PASSWORD: ${VALKEY_PASSWORD}
+    networks: [app-network]
+
+networks:
+  app-network:
+    external: true
+    name: ${APP_NETWORK:-backend-4semestre_app-network}
+
+volumes:
+  prometheus-data:
+  grafana-data:

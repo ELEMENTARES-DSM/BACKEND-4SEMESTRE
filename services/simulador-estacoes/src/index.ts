@@ -7,6 +7,7 @@ import {
 } from "./defeitos.js";
 import { criarClienteMqtt, publicar } from "./mqtt.client.js";
 import { criarRng } from "./random.js";
+import { buscarMacDaEstacao, buscarSensoresDaEstacao, lerConfigApi } from "./sensores.api.js";
 import { gerarTelemetria } from "./telemetria.factory.js";
 
 const estacaoIds = (process.env.SIM_ESTACAO_IDS ?? "")
@@ -22,11 +23,24 @@ const tiposAtivos = lerTiposAtivos(process.env.SIM_TIPOS_ERRO);
 const estacaoInativaId =
   process.env.SIM_ESTACAO_INATIVA_ID?.trim() || undefined;
 const semente = process.env.SIM_SEED?.trim() || undefined;
+// Os sensores de cada estação vêm do gestao-estacoes (catálogo), não de uma lista fixa.
+const configApi = lerConfigApi();
 
 if (estacaoIds.length === 0) {
   throw new Error(
     "Configure SIM_ESTACAO_IDS com pelo menos um UUID de estação.",
   );
+}
+
+// MAC de cada estação (identificador do tópico), lido do cadastro pelo UUID e guardado.
+const macs = new Map<string, string>();
+async function macDe(estacaoId: string): Promise<string> {
+  const guardado = macs.get(estacaoId);
+  if (guardado) return guardado;
+
+  const mac = await buscarMacDaEstacao(estacaoId, configApi);
+  macs.set(estacaoId, mac);
+  return mac;
 }
 
 if (!Number.isFinite(intervaloMs) || intervaloMs < 1000) {
@@ -88,20 +102,35 @@ async function executarCiclo(): Promise<void> {
       }
 
       try {
-        const payload = gerarTelemetria(rng);
+        // Lê a cada ciclo: um sensor cadastrado agora já entra na próxima mensagem.
+        const sensores = await buscarSensoresDaEstacao(estacaoId, configApi);
+        if (sensores.length === 0) {
+          console.warn(
+            `[simulador] Estação ${estacaoId} sem sensor ativo com código: nada a publicar.`,
+          );
+          continue;
+        }
+
+        const macEstacao = await macDe(estacaoId);
+        const payload = gerarTelemetria(sensores, rng);
         const defeito = sortearDefeito();
+        // Só a estação inativa precisa do MAC dela, e só quando o defeito é sorteado.
+        const macInativa =
+          defeito === "estacao_inativa" && estacaoInativaId
+            ? await macDe(estacaoInativaId)
+            : undefined;
         const mensagem = defeito
-          ? aplicarDefeito(defeito, estacaoId, payload, rng, estacaoInativaId)
-          : mensagemValida(estacaoId, payload);
+          ? aplicarDefeito(defeito, macEstacao, payload, rng, macInativa)
+          : mensagemValida(macEstacao, payload);
 
         for (let i = 0; i < mensagem.vezes; i++) {
-          await publicar(client, mensagem.estacaoId, mensagem.conteudo);
+          await publicar(client, mensagem.macAddress, mensagem.conteudo);
         }
 
         contadores.registrar(defeito, mensagem.vezes);
 
         console.log(
-          `[simulador] Publicado para estação ${mensagem.estacaoId}: ` +
+          `[simulador] Publicado para estação ${estacaoId} (MAC ${mensagem.macAddress}): ` +
           (defeito ? `defeito ${defeito}` : "válida"),
         );
       } catch (error) {

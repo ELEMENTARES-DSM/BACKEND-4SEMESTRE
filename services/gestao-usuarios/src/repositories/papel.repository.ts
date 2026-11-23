@@ -17,3 +17,12 @@ export const findById = async (id: string): Promise<Papel | null> => {
 
   return result.rows[0] ?? null;
 };
+
+export const findByNome = async (nome: string): Promise<Papel | null> => {
+  const result = await pool.query<Papel>(
+    `SELECT * FROM papeis WHERE nome = $1`,
+    [nome]
+  );
+
+  return result.rows[0] ?? null;
+};

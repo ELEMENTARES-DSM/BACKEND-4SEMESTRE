@@ -1,0 +1,36 @@
+# Pulso Urbano: um microsserviço Node.js por instância (pulso@auth-service, ...).
+# Gerado pelo instalador. Variáveis em /etc/pulso-urbano/servicos/%i.env.
+[Unit]
+Description=Pulso Urbano - %i
+Wants=network-online.target
+After=network-online.target postgresql.service rabbitmq-server.service mosquitto.service pulso-valkey@s1.service pulso-valkey@s2.service
+# Se cair, o systemd religa sempre (sem limite de tentativas).
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=pulso
+Group=pulso
+WorkingDirectory=/opt/pulso-urbano/servicos/%i
+EnvironmentFile=/etc/pulso-urbano/servicos/%i.env
+ExecStart=/usr/bin/node dist/server.js
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+SyslogIdentifier=pulso-%i
+LimitNOFILE=65536
+
+# Proteções: o serviço não escreve no disco nem ganha privilégios.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

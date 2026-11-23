@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { Request, Response, NextFunction } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
 
@@ -53,4 +54,33 @@ export function checkRole(papeisPermitidos: string[]) {
 
     return next();
   };
+}
+
+export function internalTokenMiddleware(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  const token = req.header("x-internal-token");
+  const expectedToken = process.env.INTERNAL_TOKEN;
+
+  if (!token || !expectedToken) {
+    return res.status(401).json({
+      message: "Token interno ausente ou inválido.",
+    });
+  }
+
+  const tokenBuffer = Buffer.from(token);
+  const expectedBuffer = Buffer.from(expectedToken);
+
+  if (
+    tokenBuffer.length !== expectedBuffer.length ||
+    !timingSafeEqual(tokenBuffer, expectedBuffer)
+  ) {
+    return res.status(401).json({
+      message: "Token interno ausente ou inválido.",
+    });
+  }
+
+  return next();
 }

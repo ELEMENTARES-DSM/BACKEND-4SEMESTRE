@@ -1,6 +1,7 @@
 export interface MetricasValidacao {
   leiturasIgnoradasSensorInativo: number;
   medidasInvalidasGravadas: number;
+  leiturasAtrasadasSemAvaliacao: number;
 }
 
 /**
@@ -10,6 +11,7 @@ export interface MetricasValidacao {
 export class MetricasValidacaoService {
   private ignoradasSensorInativo = 0;
   private invalidasGravadas = 0;
+  private atrasadasSemAvaliacao = 0;
 
   public incrementarIgnoradasSensorInativo(quantidade = 1): void {
     this.ignoradasSensorInativo += quantidade;
@@ -19,16 +21,22 @@ export class MetricasValidacaoService {
     this.invalidasGravadas += quantidade;
   }
 
+  public incrementarLeiturasAtrasadas(quantidade = 1): void {
+    this.atrasadasSemAvaliacao += quantidade;
+  }
+
   public obterMetricas(): MetricasValidacao {
     return {
       leiturasIgnoradasSensorInativo: this.ignoradasSensorInativo,
       medidasInvalidasGravadas: this.invalidasGravadas,
+      leiturasAtrasadasSemAvaliacao: this.atrasadasSemAvaliacao,
     };
   }
 
   public reset(): void {
     this.ignoradasSensorInativo = 0;
     this.invalidasGravadas = 0;
+    this.atrasadasSemAvaliacao = 0;
   }
 }
 

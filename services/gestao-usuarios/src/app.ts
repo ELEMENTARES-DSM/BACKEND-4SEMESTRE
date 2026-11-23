@@ -6,6 +6,9 @@ import openapi from "./docs/openapi.json";
 
 const app = express();
 
+// Confia no cabeçalho X-Forwarded-For repassado pelo Nginx (API Gateway)
+app.set("trust proxy", 1);
+
 // Necessário no desenvolvimento: Swagger UI e API usam portas diferentes.
 if (process.env.SWAGGER_UI_ORIGIN) {
   app.use(cors({ origin: process.env.SWAGGER_UI_ORIGIN }));

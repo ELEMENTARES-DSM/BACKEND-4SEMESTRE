@@ -1,0 +1,102 @@
+# Regras de alerta do Pulso Urbano (S4). Gerado pelo instalador; não edite aqui.
+# Limites da governança: CPU 50%, memória 80%, disco 60%, Valkey do S2 80%;
+# e o S2 avisa em 35% de memória, antes de o RabbitMQ recusar mensagens em 40%.
+groups:
+  - name: pulso-urbano
+    rules:
+      - alert: ServicoFora
+        expr: probe_success{job="health-servicos"} == 0
+        for: 1m
+        labels: { severidade: critico }
+        annotations:
+          resumo: "{{ $labels.servico }} ({{ $labels.servidor }}) não responde ao /health há 1 minuto"
+
+      - alert: InfraestruturaFora
+        expr: probe_success{job="portas-infra"} == 0
+        for: 1m
+        labels: { severidade: critico }
+        annotations:
+          resumo: "{{ $labels.servico }} ({{ $labels.servidor }}) não aceita conexão há 1 minuto"
+
+      - alert: ColetorFora
+        expr: up == 0
+        for: 2m
+        labels: { severidade: alerta }
+        annotations:
+          resumo: "O Prometheus não consegue ler {{ $labels.job }} em {{ $labels.instance }}: servidor desligado, firewall ou coletor parado"
+
+      - alert: ServicoSystemdFalhou
+        expr: node_systemd_unit_state{state="failed"} == 1
+        for: 1m
+        labels: { severidade: critico }
+        annotations:
+          resumo: "{{ $labels.name }} falhou no {{ $labels.servidor }}"
+
+      - alert: RespostaLenta
+        expr: probe_duration_seconds{job="health-servicos"} > 1 and probe_success{job="health-servicos"} == 1
+        for: 5m
+        labels: { severidade: alerta }
+        annotations:
+          resumo: "{{ $labels.servico }} leva mais de 1 s para responder"
+
+      - alert: FilaAcumulando
+        expr: sum(rabbitmq_queue_messages_ready) > 1000
+        for: 5m
+        labels: { severidade: alerta }
+        annotations:
+          resumo: "Mais de 1000 mensagens paradas no RabbitMQ: algum consumidor travou"
+
+      - alert: MemoriaS2PertoDoLimiteDoRabbitMQ
+        expr: (1 - node_memory_MemAvailable_bytes{servidor="S2"} / node_memory_MemTotal_bytes{servidor="S2"}) > 0.35
+        for: 5m
+        labels: { severidade: critico }
+        annotations:
+          resumo: "Memória do S2 acima de 35%: em 40% o RabbitMQ para de aceitar leituras"
+
+      - alert: ValkeyS2Cheio
+        expr: redis_memory_used_bytes{servidor="S2"} / redis_memory_max_bytes{servidor="S2"} > 0.80 and redis_memory_max_bytes{servidor="S2"} > 0
+        for: 5m
+        labels: { severidade: critico }
+        annotations:
+          resumo: "Valkey do S2 acima de 80% do maxmemory: cheio, ele recusa as leituras novas"
+
+      - alert: MemoriaAlta
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.80
+        for: 5m
+        labels: { severidade: alerta }
+        annotations:
+          resumo: "Memória do {{ $labels.servidor }} acima de 80%"
+
+      - alert: CPUAlta
+        expr: (1 - avg by (servidor) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) > 0.50
+        for: 15m
+        labels: { severidade: alerta }
+        annotations:
+          resumo: "CPU do {{ $labels.servidor }} acima de 50% por 15 minutos"
+
+      - alert: DiscoQuaseCheio
+        expr: (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}) > 0.60
+        for: 10m
+        labels: { severidade: alerta }
+        annotations:
+          resumo: "Disco {{ $labels.mountpoint }} do {{ $labels.servidor }} acima de 60%"
+
+      - alert: ConexoesDoBancoPertoDoLimite
+        expr: sum(pg_stat_database_numbackends) / max(pg_settings_max_connections) > 0.80
+        for: 5m
+        labels: { severidade: alerta }
+        annotations:
+          resumo: "Mais de 80% das conexões do PostgreSQL em uso: hora do PgBouncer"
+
+      - alert: BackupAtrasado
+        expr: time() - pulso_backup_ultimo_sucesso_timestamp_seconds > 26 * 3600
+        labels: { severidade: critico }
+        annotations:
+          resumo: "O último backup do banco que deu certo tem mais de 26 horas"
+
+      - alert: BackupNuncaRodou
+        expr: absent(pulso_backup_ultimo_sucesso_timestamp_seconds)
+        for: 26h
+        labels: { severidade: critico }
+        annotations:
+          resumo: "Nenhum backup do banco terminou desde a instalação do S4"

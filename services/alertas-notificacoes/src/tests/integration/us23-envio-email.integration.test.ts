@@ -19,10 +19,9 @@ import { cadastrarUsuario, prepararSchemaNotificacoes } from "./helpers/banco-no
 // US-23 (TASK 23.03) com PostgreSQL, RabbitMQ e caixa de e-mail (Mailpit) reais.
 // Execute com ALERTAS_TEST_DATABASE_URL, RABBITMQ_TEST_URL, SMTP_TEST_HOST,
 // SMTP_TEST_PORT e MAILPIT_TEST_URL (API HTTP do Mailpit).
-const databaseUrl = process.env.ALERTAS_TEST_DATABASE_URL;
 const rabbitUrl = process.env.RABBITMQ_TEST_URL;
 const mailpitUrl = process.env.MAILPIT_TEST_URL;
-const integration = databaseUrl && rabbitUrl && mailpitUrl && process.env.SMTP_TEST_HOST ? describe : describe.skip;
+const integration = describe;
 
 async function esperar(condicao: () => Promise<boolean>, descricao: string, limiteMs = 15000) {
   const inicio = Date.now();

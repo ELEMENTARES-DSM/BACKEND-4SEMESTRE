@@ -49,7 +49,7 @@ set -a
 . ./.env
 set +a
 
-for servico in postgres rabbitmq mosquitto ingestao-dados servico-validacao; do
+for servico in postgres rabbitmq mosquitto valkey gestao-estacoes ingestao-dados servico-validacao; do
   docker compose ps --status running --services | grep -qx "$servico" \
     || erro "o serviço $servico não está rodando. Suba com: docker compose up -d --build"
 done
@@ -68,6 +68,8 @@ docker compose build -q simulador-estacoes
 
 export DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:5432/${POSTGRES_DB}"
 export RABBITMQ_URL="amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@localhost:5672"
+# REDIS_URL aponta para o Valkey (nome mantido por compatibilidade)
+export REDIS_URL="redis://:${VALKEY_PASSWORD}@localhost:6379"
 
 esperar_banco() {
   local limite=$((SECONDS + 60))
@@ -87,14 +89,45 @@ limpar() {
 trap limpar EXIT
 
 # Cada lote usa horários até alguns segundos no futuro. Sem --inicio, começa
-# depois do último horário das estações de teste no staging: estação e horário
-# repetidos seriam descartados como duplicata pela ingestão.
+# depois do último horário das estações de teste em medidas: estação e horário
+# repetidos seriam descartados como duplicata (staging:visto no Valkey por 7
+# dias, depois o índice único de medidas).
 if [ -z "$inicio" ]; then
   ultimo=$(docker compose exec -T postgres psql -At -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
-    "SELECT COALESCE(MAX(unixtime), 0) FROM staging_telemetria WHERE estacao_uuid IN (SELECT id FROM estacoes WHERE municipio = 'Teste Fluxo')")
+    "SELECT COALESCE(MAX(m.unixtime), 0) FROM medidas m JOIN sensores s ON s.id = m.sensor_id JOIN estacoes e ON e.id = s.estacao_id WHERE e.municipio = 'Teste Fluxo'")
   agora=$(date +%s)
   inicio=$(( ultimo >= agora ? ultimo + 1 : agora ))
 fi
+# O simulador lê os sensores de cada estação no gestao-estacoes (rota interna). Com
+# --queda-banco o PostgreSQL está parado quando o simulador roda e o gestao-estacoes
+# não responde: lê os sensores antes e entrega ao simulador em LOTE_SENSORES_JSON.
+sensores_env=()
+if [ "$queda_banco" -gt 0 ]; then
+  sensores_json=$(docker compose exec -T gestao-estacoes node -e '
+    Promise.all(process.argv.slice(1).map(async (id) => {
+      const r = await fetch(`http://127.0.0.1:3000/api/v1/internal/estacoes/${id}/sensores`, {
+        headers: { "X-Internal-Token": process.env.INTERNAL_TOKEN },
+      });
+      if (!r.ok) throw new Error(`estação ${id}: HTTP ${r.status}`);
+      return [id, await r.json()];
+    })).then((lista) => console.log(JSON.stringify(Object.fromEntries(lista))))
+      .catch((e) => { console.error(e.message); process.exit(1); });
+  ' ${estacoes//,/ }) || erro "não consegui ler os sensores das estações de teste no gestao-estacoes."
+  # Os tópicos usam o MAC da estação: ele também é lido agora, pelo mesmo motivo.
+  macs_json=$(docker compose exec -T gestao-estacoes node -e '
+    Promise.all(process.argv.slice(1).map(async (id) => {
+      const r = await fetch(`http://127.0.0.1:3000/api/v1/internal/estacoes/${id}`, {
+        headers: { "X-Internal-Token": process.env.INTERNAL_TOKEN },
+      });
+      if (!r.ok) throw new Error(`estação ${id}: HTTP ${r.status}`);
+      const estacao = await r.json();
+      return [id, estacao.mac_address];
+    })).then((lista) => console.log(JSON.stringify(Object.fromEntries(lista))))
+      .catch((e) => { console.error(e.message); process.exit(1); });
+  ' ${estacoes//,/ }) || erro "não consegui ler o MAC das estações de teste no gestao-estacoes."
+  sensores_env=(-e "LOTE_SENSORES_JSON=$sensores_json" -e "LOTE_MACS_JSON=$macs_json")
+fi
+
 n=0
 while :; do
   n=$((n + 1))
@@ -112,6 +145,7 @@ while :; do
     -e LOTE_MEDIDAS="$medidas" \
     -e LOTE_INICIO_UNIX="$inicio" \
     -e LOTE_MANIFESTO=/app/manifesto.jsonl \
+    ${sensores_env[@]+"${sensores_env[@]}"} \
     simulador-estacoes node dist/lote.js
   docker cp "$container:/app/manifesto.jsonl" "$manifesto" >/dev/null
   docker rm "$container" >/dev/null

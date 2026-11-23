@@ -5,6 +5,14 @@ import { writeFileSync } from "node:fs";
 import { contarLeiturasEnviadas, lerCasos, planejarLote } from "./lote/plano.js";
 import { criarClienteMqtt, publicar } from "./mqtt.client.js";
 import { criarRng } from "./random.js";
+import type { SensorSimulado } from "./sensores.js";
+import {
+  buscarMacDaEstacao,
+  buscarSensoresDaEstacao,
+  lerConfigApi,
+  lerMacsDeJson,
+  lerSensoresDeJson,
+} from "./sensores.api.js";
 
 const estacoes = (process.env.LOTE_ESTACOES ?? process.env.SIM_ESTACAO_IDS ?? "")
   .split(",")
@@ -18,8 +26,39 @@ if (!Number.isInteger(inicioUnix) || inicioUnix <= 0) {
   throw new Error("LOTE_INICIO_UNIX deve ser um unixtime em segundos.");
 }
 
+// Os sensores de cada estação vêm do gestao-estacoes (catálogo), não de uma lista fixa.
+// Com LOTE_SENSORES_JSON (teste de fluxo com o PostgreSQL parado) usa os sensores
+// já lidos; sem ele, lê da rota interna.
+const sensoresPorEstacao = process.env.LOTE_SENSORES_JSON?.trim()
+  ? lerSensoresDeJson(process.env.LOTE_SENSORES_JSON)
+  : new Map<string, SensorSimulado[]>();
+// MAC de cada estação (identificador do tópico): LOTE_MACS_JSON, ou a rota interna.
+const macsPorEstacao = process.env.LOTE_MACS_JSON?.trim()
+  ? lerMacsDeJson(process.env.LOTE_MACS_JSON)
+  : new Map<string, string>();
+if (sensoresPorEstacao.size === 0) {
+  const config = lerConfigApi();
+  for (const estacao of new Set(estacoes)) {
+    sensoresPorEstacao.set(estacao, await buscarSensoresDaEstacao(estacao, config));
+    if (!macsPorEstacao.has(estacao)) {
+      macsPorEstacao.set(estacao, await buscarMacDaEstacao(estacao, config));
+    }
+  }
+}
+for (const estacao of new Set(estacoes)) {
+  if (!macsPorEstacao.has(estacao)) {
+    throw new Error(`Sem MAC da estação ${estacao}: informe LOTE_MACS_JSON.`);
+  }
+}
+
+// Estação desconhecida do lote (não está no mapa) recebe um MAC que não existe no
+// cadastro, tirado dos 12 primeiros hex do UUID aleatório.
+const macDoLote = (estacaoUuid: string): string =>
+  macsPorEstacao.get(estacaoUuid) ?? estacaoUuid.replace(/-/g, "").slice(0, 12);
+
 const mensagens = planejarLote({
   estacoes,
+  sensoresPorEstacao,
   medidas,
   inicioUnix,
   casos: lerCasos(process.env.LOTE_CASOS),
@@ -33,13 +72,14 @@ client.once("connect", () => {
     try {
       for (const mensagem of mensagens) {
         for (let i = 0; i < mensagem.vezes; i++) {
-          await publicar(client, mensagem.estacao_uuid, mensagem.payload_bruto);
+          await publicar(client, macDoLote(mensagem.estacao_uuid), mensagem.payload_bruto);
         }
       }
 
       writeFileSync(
         manifesto,
-        mensagens.map((m) => JSON.stringify(m)).join("\n") + "\n",
+        // Cada linha leva também o MAC enviado no tópico: o teste de fluxo liga o staging à estação por ele.
+        mensagens.map((m) => JSON.stringify({ ...m, estacao_mac: macDoLote(m.estacao_uuid) })).join("\n") + "\n",
         "utf-8",
       );
       console.log(

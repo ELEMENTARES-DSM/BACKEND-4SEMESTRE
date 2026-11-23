@@ -5,7 +5,7 @@
     "outDir": "dist",
     "module": "commonjs",
     "target": "es2022",
-    "types": ["node"],
+    "types": ["node", "jest"],
     "sourceMap": true,
     "strict": true,
     "isolatedModules": true,
@@ -15,5 +15,6 @@
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true
-  }
+  },
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
 }

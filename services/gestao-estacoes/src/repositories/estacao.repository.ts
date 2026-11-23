@@ -2,6 +2,7 @@ import { pool } from "../config/db";
 import { Estacoes } from "../models/estacao.model";
 
 interface CreateParams {
+  mac_address: string;
   codigo: string;
   nome: string;
   municipio: string;
@@ -11,6 +12,7 @@ interface CreateParams {
 }
 
 interface UpdateParams {
+  mac_address?: string;
   nome?: string;
   latitude?: number;
   longitude?: number;
@@ -21,10 +23,11 @@ interface UpdateParams {
 
 export const create = async (params: CreateParams): Promise<Estacoes> => {
   const result = await pool.query<Estacoes>(
-    `INSERT INTO estacoes (codigo, nome, municipio, latitude, longitude, status)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO estacoes (mac_address, codigo, nome, municipio, latitude, longitude, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING *`,
     [
+      params.mac_address,
       params.codigo,
       params.nome, 
       params.municipio, 
@@ -63,6 +66,14 @@ export const findById = async (id: string): Promise<Estacoes | null> => {
     [id]
   );
 
+  return result.rows[0] ?? null;
+};
+
+export const findByMac = async (macAddress: string): Promise<Estacoes | null> => {
+  const result = await pool.query<Estacoes>(
+    `SELECT * FROM estacoes WHERE mac_address = $1`,
+    [macAddress],
+  );
   return result.rows[0] ?? null;
 };
 
@@ -118,6 +129,17 @@ import {
 } from "../models/estacao.model";
 
 
+export const findDistinctMunicipios = async (): Promise<string[]> => {
+  const result = await pool.query<{ municipio: string }>(
+    `SELECT DISTINCT municipio
+     FROM estacoes
+     WHERE municipio IS NOT NULL
+     ORDER BY municipio ASC`
+  );
+
+  return result.rows.map((row) => row.municipio);
+};
+
 export const findStatusByMunicipio = async (
   municipio: string | null
 ): Promise<EstacaoComStatusOperacional[]> => {
@@ -130,7 +152,7 @@ export const findStatusByMunicipio = async (
               ELSE 'Com Falha'
             END AS status_operacional
      FROM estacoes
-     WHERE ($1::text IS NULL OR municipio = $1)
+     WHERE ($1::text IS NULL OR LOWER(municipio) = LOWER($1))
      ORDER BY codigo`,
     [municipio]
   );

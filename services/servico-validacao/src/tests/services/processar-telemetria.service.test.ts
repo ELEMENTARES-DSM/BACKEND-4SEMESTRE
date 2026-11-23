@@ -5,6 +5,7 @@ import * as medidaRepository from "../../repositories/medida.repository";
 import * as regraAlertaRepository from "../../repositories/regra-alerta.repository";
 import * as alarmeRepository from "../../repositories/alarme.repository";
 import logger from "../../utils/logger";
+import { faixaDoCatalogo } from "../helpers/catalogo";
 
 jest.mock("../../repositories/sensor.repository");
 jest.mock("../../repositories/medida.repository");
@@ -50,10 +51,11 @@ describe("processar-telemetria.service", () => {
           id: "sensor-temp-id",
           estacao_id: "estacao-uuid-1",
           codigo: "TEMP-01",
-          fator: "1.000000",
-          ganho: "-0.400000",
+          fator_conversao: "1.000000",
+          offset: "-0.400000",
           status: "Ativo",
           tipo: "Temperatura",
+          ...faixaDoCatalogo("Temperatura"),
           municipio: "São José dos Campos",
           estacao_status: "Ativa",
         },
@@ -64,10 +66,11 @@ describe("processar-telemetria.service", () => {
           id: "sensor-umid-id",
           estacao_id: "estacao-uuid-1",
           codigo: "UMID-01",
-          fator: "1.000000",
-          ganho: "0.000000",
+          fator_conversao: "1.000000",
+          offset: "0.000000",
           status: "Ativo",
           tipo: "Umidade Relativa",
+          ...faixaDoCatalogo("Umidade Relativa"),
           municipio: "São José dos Campos",
           estacao_status: "Ativa",
         },
@@ -161,10 +164,11 @@ describe("processar-telemetria.service", () => {
           id: "sensor-temp-id",
           estacao_id: "estacao-uuid-1",
           codigo: "TEMP-01",
-          fator: "1.000000",
-          ganho: "0.000000",
+          fator_conversao: "1.000000",
+          offset: "0.000000",
           status: "Ativo",
           tipo: "Temperatura",
+          ...faixaDoCatalogo("Temperatura"),
           municipio: "São José dos Campos",
           estacao_status: "Ativa",
         },
@@ -216,10 +220,11 @@ describe("processar-telemetria.service", () => {
           id: "sensor-temp-id",
           estacao_id: "estacao-uuid-1",
           codigo: "TEMP-01",
-          fator: "1.000000",
-          ganho: "0.000000",
+          fator_conversao: "1.000000",
+          offset: "0.000000",
           status: "Ativo",
           tipo: "Temperatura",
+          ...faixaDoCatalogo("Temperatura"),
           municipio: "São José dos Campos",
           estacao_status: "Ativa",
         },

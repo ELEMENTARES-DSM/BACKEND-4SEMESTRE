@@ -10,10 +10,10 @@ import { inserirMedidaIdempotente } from "../repositories/medida.repository";
 import { buscarSensoresPorEvento } from "../repositories/sensor.repository";
 import { calibrarValor, valoresBrutosIguais } from "./calibracao.service";
 import {
-  buscarFaixaFisica,
   dentroDaFaixa,
   descreverFaixa,
   FaixaFisica,
+  faixaDoSensor,
 } from "./faixa-fisica.service";
 import {
   metricasValidacaoService,
@@ -25,13 +25,17 @@ import logger from "../utils/logger";
 export const SENSOR_INATIVO = "Inativo";
 // US-22: medida de estação inativa é gravada, mas não dispara alarme.
 export const ESTACAO_INATIVA = "Inativa";
+export const LIMITE_ATRASO_MS = 10 * 60 * 1000;
 
 export interface OpcoesProcessarTelemetria {
   dbPool?: Pick<Pool, "connect">;
   agora?: () => Date;
   metricas?: Pick<
     MetricasValidacaoService,
-    "incrementarIgnoradasSensorInativo" | "incrementarMedidasInvalidasGravadas"
+    | "incrementarIgnoradasSensorInativo"
+    | "incrementarMedidasInvalidasGravadas"
+    | "incrementarLeiturasAtrasadas"
+    | "obterMetricas"
   >;
 }
 
@@ -46,6 +50,7 @@ export interface ResultadoProcessamentoEvento {
   inseridas: number;
   duplicadasIdempotentes: number;
   duplicadasDivergentes: number;
+  leiturasAtrasadas: number;
   medidas: MedidaRow[];
   // US-18: leituras de sensor que não existe na estação, para a DLQ.
   recusadas: LeituraEventoDTO[];
@@ -103,8 +108,9 @@ function validarEstruturaEvento(evento: EventoTelemetriaDTO): void {
  * - Busca os sensores da estação em uma única consulta SQL (sem cache).
  * - US-18: leitura de sensor inexistente na estação é devolvida em `recusadas`
  *   (o consumidor a envia à DLQ); de sensor inativo é ignorada, com log e contador.
- * - Calibra cada leitura válida: (bruto * fator) + ganho em BigInt escala 6 com HALF_UP para 2 casas.
- * - US-19: valor real fora da faixa física da grandeza é gravado com valida falso.
+ * - Calibra cada leitura válida: (bruto * fator_conversao) + offset em BigInt escala 6 com HALF_UP para 2 casas.
+ * - US-19 e US-39: valor real fora da faixa física da grandeza (lida do catálogo
+ *   tipos_sensor, junto com o sensor) é gravado com valida falso.
  * - Persiste cada leitura válida em `medidas` com o unixtime da estação e criado_em em UTC.
  * - Garante idempotência por UNIQUE (sensor_id, unixtime): mantém a primeira medida e,
  *   se o valor bruto divergir, registra a divergência em log.
@@ -121,7 +127,6 @@ export const processarEventoTelemetria = async (
   const obterAgora = opcoes.agora ?? (() => new Date());
   const metricas = opcoes.metricas ?? metricasValidacaoService;
   const client = await dbPool.connect();
-
   // US-20: cliente retirado do pool fica sem ouvinte de "error"; se a conexão
   // cair no meio da transação, o evento sem ouvinte derrubaria o processo. A
   // falha já chega pela Promise da consulta, então aqui basta registrar.
@@ -149,13 +154,14 @@ export const processarEventoTelemetria = async (
     let inseridas = 0;
     let duplicadasIdempotentes = 0;
     let duplicadasDivergentes = 0;
+    let atrasadasNovas = 0;
     const medidas: MedidaRow[] = [];
     const recusadas: LeituraEventoDTO[] = [];
     const ignoradas: LeituraEventoDTO[] = [];
     const invalidas: MedidaInvalida[] = [];
     const paraAvaliar: MedidaParaAvaliar[] = [];
     const lidoEm = new Date(evento.unixtime * 1000);
-
+    const atrasada = criadoEm.getTime() - lidoEm.getTime() > LIMITE_ATRASO_MS;
     for (const leitura of evento.leituras) {
       const sensor = sensoresPorCodigo.get(leitura.sensor);
       // Código que existe só em outra estação também cai aqui: a busca é por estação.
@@ -171,14 +177,14 @@ export const processarEventoTelemetria = async (
 
       const valorCalibrado = calibrarValor(
         leitura.valor,
-        sensor.fator,
-        sensor.ganho,
+        sensor.fator_conversao,
+        sensor.offset,
       );
 
       // US-19: confere o valor real (já em 2 casas), nunca o bruto. Fora da
       // faixa, a medida é gravada do mesmo jeito, mas com valida falso.
-      const faixa = buscarFaixaFisica(sensor.tipo);
-      const valida = faixa ? dentroDaFaixa(valorCalibrado, faixa) : true;
+      const faixa = faixaDoSensor(sensor);
+      const valida = dentroDaFaixa(valorCalibrado, faixa);
 
       const resultado = await inserirMedidaIdempotente(
         {
@@ -197,8 +203,11 @@ export const processarEventoTelemetria = async (
 
       if (resultado.inserida) {
         inseridas += 1;
+        if (atrasada) {
+          atrasadasNovas += 1;
+        }
         // US-22: reentrega não avalia de novo; medida inválida nunca dispara alarme.
-        if (valida && sensor.estacao_status !== ESTACAO_INATIVA) {
+        if (valida && sensor.estacao_status !== ESTACAO_INATIVA && !atrasada) {
           paraAvaliar.push({
             medida_id: resultado.medida.id,
             sensor_id: sensor.id,
@@ -208,7 +217,7 @@ export const processarEventoTelemetria = async (
             lido_em: lidoEm,
           });
         }
-        if (!valida && faixa) {
+        if (!valida) {
           invalidas.push({
             codigo: sensor.codigo,
             valorBruto: leitura.valor,
@@ -255,6 +264,15 @@ export const processarEventoTelemetria = async (
     if (ignoradas.length > 0) {
       metricas.incrementarIgnoradasSensorInativo(ignoradas.length);
     }
+    if (atrasadasNovas > 0) {
+      metricas.incrementarLeiturasAtrasadas(atrasadasNovas);
+      logger.info("Leitura atrasada gravada sem avaliar regras", {
+        estacao_uuid: evento.estacao_uuid,
+        unixtime: evento.unixtime,
+        atraso_s: (criadoEm.getTime() - lidoEm.getTime()) / 1000,
+        contador: metricas.obterMetricas().leiturasAtrasadasSemAvaliacao,
+      });
+    }
 
     // US-19: só a medida nova conta; a reentrega do mesmo evento não grava de novo.
     for (const invalida of invalidas) {
@@ -294,6 +312,7 @@ export const processarEventoTelemetria = async (
       inseridas,
       duplicadasIdempotentes,
       duplicadasDivergentes,
+      leiturasAtrasadas: atrasadasNovas,
       medidas,
       recusadas,
       ignoradasSensorInativo: ignoradas.length,

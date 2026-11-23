@@ -25,9 +25,8 @@ import {
 
 // TASK 20.02 de ponta a ponta: a rota HTTP reenvia da DLQ real e as leituras
 // viram medidas. Execute com VALIDACAO_TEST_DATABASE_URL e RABBITMQ_TEST_URL.
-const databaseUrl = process.env.VALIDACAO_TEST_DATABASE_URL;
 const rabbitUrl = process.env.RABBITMQ_TEST_URL;
-const integration = databaseUrl && rabbitUrl ? describe : describe.skip;
+const integration = describe;
 
 integration("POST /validacao/dlq/reenviar (PostgreSQL e RabbitMQ)", () => {
   const schema = `validacao_rota_reenvio_${randomUUID().replaceAll("-", "")}`;

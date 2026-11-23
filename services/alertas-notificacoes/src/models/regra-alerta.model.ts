@@ -33,4 +33,7 @@ export interface SensorComEstacao {
   status: string;
   estacao_id: string;
   municipio: string;
+  /** Faixa física da grandeza, lida do catálogo (tipos_sensor); NUMERIC chega como texto. */
+  faixa_min: string;
+  faixa_max: string;
 }

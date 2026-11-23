@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import * as userService from "../../services/user.service";
 import * as userRepository from "../../repositories/user.repository";
 import * as papelRepository from "../../repositories/papel.repository";
+import * as historicoPapelRepository from "../../repositories/historico-papel.repository";
 import { AppError } from "../../middlewares/error-handler";
 import { Usuario } from "../../models/user.model";
 import { Papel } from "../../models/papel.model";
@@ -11,10 +12,12 @@ import { CreateUserDTO } from "../../dto/create-user.dto";
 // testes da regra de negócio do service, sem banco de dados.
 jest.mock("../../repositories/user.repository");
 jest.mock("../../repositories/papel.repository");
+jest.mock("../../repositories/historico-papel.repository");
 jest.mock("bcryptjs");
 
 const mockUserRepo = jest.mocked(userRepository);
 const mockPapelRepo = jest.mocked(papelRepository);
+const mockHistoricoRepo = jest.mocked(historicoPapelRepository);
 const mockHash = bcrypt.hash as jest.Mock;
 
 // ---------- fixtures ----------
@@ -42,6 +45,7 @@ const makePapel = (nome: string, id: string): Papel => ({
 const PAPEL_ADMIN = makePapel("ADMINISTRADOR", "papel-admin");
 const PAPEL_GESTOR = makePapel("GESTOR_PUBLICO", "papel-gestor");
 const PAPEL_PESQUISADOR = makePapel("PESQUISADOR", "papel-pesquisador");
+const PAPEL_MUNICIPE = makePapel("MUNICIPE", "papel-municipe");
 
 const makeCreateDTO = (overrides: Partial<CreateUserDTO> = {}): CreateUserDTO => ({
   nome: "Maria Souza",
@@ -68,6 +72,95 @@ const expectAppError = async (
 // ---------- testes ----------
 
 describe("user.service", () => {
+  describe("cadastrarMunicipe", () => {
+    const makeCadastroDTO = () => ({
+      nome: "Ana da Silva",
+      email: "ana@teste.com",
+      senha: "SenhaForte@2026",
+      municipio: "São José dos Campos",
+      aceite_privacidade: true,
+    });
+
+    it("cadastra munícipe com sucesso vinculando papel MUNICIPE e registrando aceite_privacidade_em", async () => {
+      mockUserRepo.findByEmail.mockResolvedValue(null);
+      mockPapelRepo.findByNome.mockResolvedValue(PAPEL_MUNICIPE);
+      mockHash.mockResolvedValue("hash-bcrypt");
+      mockUserRepo.create.mockResolvedValue(
+        makeUsuario({
+          nome: "Ana da Silva",
+          email: "ana@teste.com",
+          papel_id: PAPEL_MUNICIPE.id,
+          municipio: "São José dos Campos",
+          aceite_privacidade_em: new Date("2026-11-17T12:00:00Z"),
+        })
+      );
+
+      const result = await userService.cadastrarMunicipe(makeCadastroDTO());
+
+      expect(mockUserRepo.findByEmail).toHaveBeenCalledWith("ana@teste.com");
+      expect(mockPapelRepo.findByNome).toHaveBeenCalledWith("MUNICIPE");
+      expect(mockHash).toHaveBeenCalledWith("SenhaForte@2026", 10);
+      expect(mockUserRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          nome: "Ana da Silva",
+          email: "ana@teste.com",
+          senhaHash: "hash-bcrypt",
+          papel_id: PAPEL_MUNICIPE.id,
+          municipio: "São José dos Campos",
+          aceite_privacidade_em: expect.any(Date),
+        })
+      );
+      expect(result).not.toHaveProperty("senha_hash");
+      expect(result.email).toBe("ana@teste.com");
+      expect(result.aceite_privacidade_em).toBeDefined();
+    });
+
+    it("lança 409 quando o e-mail já existe", async () => {
+      mockUserRepo.findByEmail.mockResolvedValue(makeUsuario({ email: "ana@teste.com" }));
+
+      await expectAppError(
+        userService.cadastrarMunicipe(makeCadastroDTO()),
+        409,
+        "E-mail já cadastrado"
+      );
+
+      expect(mockPapelRepo.findByNome).not.toHaveBeenCalled();
+      expect(mockHash).not.toHaveBeenCalled();
+      expect(mockUserRepo.create).not.toHaveBeenCalled();
+    });
+
+    it("lança 500 se o papel MUNICIPE não existir no banco", async () => {
+      mockUserRepo.findByEmail.mockResolvedValue(null);
+      mockPapelRepo.findByNome.mockResolvedValue(null);
+
+      await expectAppError(
+        userService.cadastrarMunicipe(makeCadastroDTO()),
+        500,
+        "Papel MUNICIPE não encontrado no sistema"
+      );
+
+      expect(mockHash).not.toHaveBeenCalled();
+      expect(mockUserRepo.create).not.toHaveBeenCalled();
+    });
+
+    it("normaliza e-mail para letras minúsculas antes de consultar e persistir", async () => {
+      mockUserRepo.findByEmail.mockResolvedValue(null);
+      mockPapelRepo.findByNome.mockResolvedValue(PAPEL_MUNICIPE);
+      mockHash.mockResolvedValue("hash-bcrypt");
+      mockUserRepo.create.mockResolvedValue(makeUsuario());
+
+      const dto = makeCadastroDTO();
+      dto.email = "  ANA.SILVA@Teste.COM  ";
+
+      await userService.cadastrarMunicipe(dto);
+
+      expect(mockUserRepo.findByEmail).toHaveBeenCalledWith("ana.silva@teste.com");
+      expect(mockUserRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ email: "ana.silva@teste.com" })
+      );
+    });
+  });
+
   describe("create", () => {
     it("lança 409 quando o e-mail já está cadastrado", async () => {
       mockUserRepo.findByEmail.mockResolvedValue(makeUsuario());
@@ -393,6 +486,140 @@ describe("user.service", () => {
 
       expect(mockUserRepo.softDelete).toHaveBeenCalledWith("user-1");
       expect(mockUserRepo.hardDelete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("trocarPapel", () => {
+    const ADMIN_ID = "admin-uuid-123";
+
+    it("lança 404 quando o usuário não existe", async () => {
+      mockUserRepo.findById.mockResolvedValue(null);
+
+      await expectAppError(
+        userService.trocarPapel("invalido", { papel_id: PAPEL_ADMIN.id }, ADMIN_ID),
+        404,
+        "Usuário não encontrado"
+      );
+
+      expect(mockUserRepo.update).not.toHaveBeenCalled();
+      expect(mockHistoricoRepo.registrar).not.toHaveBeenCalled();
+    });
+
+    it("lança 400 quando o papel_id não existe", async () => {
+      mockUserRepo.findById.mockResolvedValue(makeUsuario());
+      mockPapelRepo.findById.mockResolvedValue(null);
+
+      await expectAppError(
+        userService.trocarPapel("user-1", { papel_id: "papel-inexistente" }, ADMIN_ID),
+        400,
+        "papel_id inválido: papel não encontrado"
+      );
+
+      expect(mockUserRepo.update).not.toHaveBeenCalled();
+      expect(mockHistoricoRepo.registrar).not.toHaveBeenCalled();
+    });
+
+    it("lança 400 ao tentar trocar para GESTOR_PUBLICO sem município", async () => {
+      mockUserRepo.findById.mockResolvedValue(makeUsuario({ municipio: null }));
+      mockPapelRepo.findById.mockResolvedValue(PAPEL_GESTOR);
+
+      await expectAppError(
+        userService.trocarPapel("user-1", { papel_id: PAPEL_GESTOR.id }, ADMIN_ID),
+        400,
+        "Usuário com papel GESTOR_PUBLICO exige município definido"
+      );
+
+      expect(mockUserRepo.update).not.toHaveBeenCalled();
+      expect(mockHistoricoRepo.registrar).not.toHaveBeenCalled();
+    });
+
+    it("troca para GESTOR_PUBLICO com sucesso quando município é fornecido no payload", async () => {
+      const usuarioOriginal = makeUsuario({ municipio: null, papel_id: PAPEL_PESQUISADOR.id });
+      mockUserRepo.findById.mockResolvedValue(usuarioOriginal);
+      mockPapelRepo.findById.mockResolvedValue(PAPEL_GESTOR);
+      mockUserRepo.update.mockResolvedValue({
+        ...usuarioOriginal,
+        papel_id: PAPEL_GESTOR.id,
+        municipio: "São José dos Campos",
+      });
+      mockHistoricoRepo.registrar.mockResolvedValue({
+        id: "hist-1",
+        usuario_id: "user-1",
+        papel_anterior_id: PAPEL_PESQUISADOR.id,
+        papel_novo_id: PAPEL_GESTOR.id,
+        alterado_por: ADMIN_ID,
+        criado_em: new Date(),
+      });
+
+      const resultado = await userService.trocarPapel(
+        "user-1",
+        { papel_id: PAPEL_GESTOR.id, municipio: "São José dos Campos" },
+        ADMIN_ID
+      );
+
+      expect(resultado.papel_id).toBe(PAPEL_GESTOR.id);
+      expect(resultado.municipio).toBe("São José dos Campos");
+      expect(mockUserRepo.update).toHaveBeenCalledWith("user-1", {
+        papel_id: PAPEL_GESTOR.id,
+        municipio: "São José dos Campos",
+      });
+      expect(mockHistoricoRepo.registrar).toHaveBeenCalledWith({
+        usuario_id: "user-1",
+        papel_anterior_id: PAPEL_PESQUISADOR.id,
+        papel_novo_id: PAPEL_GESTOR.id,
+        alterado_por: ADMIN_ID,
+      });
+    });
+
+    it("troca de papel e registra histórico corretamente", async () => {
+      const usuarioOriginal = makeUsuario({ papel_id: PAPEL_PESQUISADOR.id });
+      mockUserRepo.findById.mockResolvedValue(usuarioOriginal);
+      mockPapelRepo.findById.mockResolvedValue(PAPEL_ADMIN);
+      mockUserRepo.update.mockResolvedValue({
+        ...usuarioOriginal,
+        papel_id: PAPEL_ADMIN.id,
+      });
+      mockHistoricoRepo.registrar.mockResolvedValue({
+        id: "hist-2",
+        usuario_id: "user-1",
+        papel_anterior_id: PAPEL_PESQUISADOR.id,
+        papel_novo_id: PAPEL_ADMIN.id,
+        alterado_por: ADMIN_ID,
+        criado_em: new Date(),
+      });
+
+      const resultado = await userService.trocarPapel(
+        "user-1",
+        { papel_id: PAPEL_ADMIN.id },
+        ADMIN_ID
+      );
+
+      expect(resultado.papel_id).toBe(PAPEL_ADMIN.id);
+      expect(mockUserRepo.update).toHaveBeenCalledWith("user-1", {
+        papel_id: PAPEL_ADMIN.id,
+      });
+      expect(mockHistoricoRepo.registrar).toHaveBeenCalledWith({
+        usuario_id: "user-1",
+        papel_anterior_id: PAPEL_PESQUISADOR.id,
+        papel_novo_id: PAPEL_ADMIN.id,
+        alterado_por: ADMIN_ID,
+      });
+    });
+
+    it("não grava histórico se o papel for idêntico ao papel atual", async () => {
+      const usuarioOriginal = makeUsuario({ papel_id: PAPEL_ADMIN.id });
+      mockUserRepo.findById.mockResolvedValue(usuarioOriginal);
+      mockPapelRepo.findById.mockResolvedValue(PAPEL_ADMIN);
+      mockUserRepo.update.mockResolvedValue(usuarioOriginal);
+
+      const resultado = await userService.trocarPapel(
+        "user-1",
+        { papel_id: PAPEL_ADMIN.id },
+        ADMIN_ID
+      );
+
+      expect(resultado.papel_id).toBe(PAPEL_ADMIN.id);
+      expect(mockHistoricoRepo.registrar).not.toHaveBeenCalled();
     });
   });
 

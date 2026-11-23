@@ -1,8 +1,11 @@
 import bcrypt from "bcryptjs";
 import * as userRepository from "../repositories/user.repository";
 import * as papelRepository from "../repositories/papel.repository";
+import * as historicoPapelRepository from "../repositories/historico-papel.repository";
 import { CreateUserDTO } from "../dto/create-user.dto";
 import { UpdateUserDTO } from "../dto/update-user.dto";
+import { CadastroMunicipeDTO } from "../dto/cadastro-municipe.dto";
+import { TrocarPapelDTO } from "../dto/trocar-papel.dto";
 import { UsuarioPublico } from "../models/user.model";
 import { AppError } from "../middlewares/error-handler";
 
@@ -26,6 +29,32 @@ const validarPapelEMunicipio = async (papel_id: string, municipio?: string) => {
       400
     );
   }
+};
+
+export const cadastrarMunicipe = async (data: CadastroMunicipeDTO): Promise<UsuarioPublico> => {
+  const emailNormalizado = data.email.trim().toLowerCase();
+  const existente = await userRepository.findByEmail(emailNormalizado);
+  if (existente) {
+    throw new AppError("E-mail já cadastrado", 409);
+  }
+
+  const papelMunicipe = await papelRepository.findByNome("MUNICIPE");
+  if (!papelMunicipe) {
+    throw new AppError("Papel MUNICIPE não encontrado no sistema", 500);
+  }
+
+  const senhaHash = await bcrypt.hash(data.senha, SALT_ROUNDS);
+
+  const usuario = await userRepository.create({
+    nome: data.nome.trim(),
+    email: emailNormalizado,
+    senhaHash,
+    papel_id: papelMunicipe.id,
+    municipio: data.municipio?.trim() || undefined,
+    aceite_privacidade_em: new Date(),
+  });
+
+  return toPublic(usuario);
 };
 
 export const create = async (data: CreateUserDTO): Promise<UsuarioPublico> => {
@@ -93,6 +122,49 @@ export const updateStatus = async (
 
 // Soft delete, service para atualizar diretamente o campo esta_ativo para FALSE
 //  mantendo, para caso necessário
+export const trocarPapel = async (
+  id: string,
+  data: TrocarPapelDTO,
+  alteradoPorId: string
+): Promise<UsuarioPublico> => {
+  const usuario = await userRepository.findById(id);
+  if (!usuario) {
+    throw new AppError("Usuário não encontrado", 404);
+  }
+
+  const papelNovo = await papelRepository.findById(data.papel_id);
+  if (!papelNovo) {
+    throw new AppError("papel_id inválido: papel não encontrado", 400);
+  }
+
+  const municipioFinal = data.municipio !== undefined ? data.municipio.trim() : usuario.municipio;
+  if (papelNovo.nome === "GESTOR_PUBLICO" && !municipioFinal) {
+    throw new AppError("Usuário com papel GESTOR_PUBLICO exige município definido", 400);
+  }
+
+  const papelAnteriorId = usuario.papel_id;
+
+  const updatePayload: UpdateUserDTO = {
+    papel_id: data.papel_id,
+  };
+  if (data.municipio !== undefined) {
+    updatePayload.municipio = data.municipio.trim();
+  }
+
+  const usuarioAtualizado = await userRepository.update(id, updatePayload);
+
+  if (papelAnteriorId !== data.papel_id) {
+    await historicoPapelRepository.registrar({
+      usuario_id: id,
+      papel_anterior_id: papelAnteriorId,
+      papel_novo_id: data.papel_id,
+      alterado_por: alteradoPorId,
+    });
+  }
+
+  return toPublic(usuarioAtualizado!);
+};
+
 export const inativar = async (id: string): Promise<void> => {
   const existente = await userRepository.findById(id);
   if (!existente) {

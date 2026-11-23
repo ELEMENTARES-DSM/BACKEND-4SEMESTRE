@@ -3,68 +3,834 @@
   "info": {
     "title": "Elementares — Análise de dados",
     "version": "1.0.0",
-    "description": "Operações HTTP do serviço analise-dados."
+    "description": "Contrato OpenAPI das operações de séries históricas, últimas leituras e IQAr do serviço analise-dados."
   },
   "servers": [
     {
-      "url": "http://localhost/analise",
-      "description": "Desenvolvimento local"
+      "url": "http://localhost",
+      "description": "Servidor local de desenvolvimento"
     }
   ],
   "tags": [
     {
-      "name": "Saúde",
-      "description": "Verificação básica do processo HTTP"
+      "name": "Análise",
+      "description": "Operações autenticadas de séries históricas, últimas leituras e IQAr."
+    },
+    {
+      "name": "Público",
+      "description": "Operações públicas de consulta sem necessidade de autenticação."
     }
   ],
   "paths": {
-    "/health": {
+    "/analise/estacoes/{id}/series": {
       "get": {
-        "tags": [
-          "Saúde"
+        "tags": ["Análise"],
+        "operationId": "getEstacaoSeries",
+        "summary": "Obter séries históricas da estação",
+        "description": "Retorna as séries históricas da grandeza solicitada, agrupando os dados em intervalos de 5 minutos para 24h, 1 hora para 7d e 1 dia para 30d. Suporta requisições com ou sem autenticação: usuários sem login podem consultar até 7 dias; MUNICIPE pode consultar até 30 dias com cota de 2.000 requisições/semana e 6.000 requisições/mês (retornando cabeçalhos X-Cota-Semana-Restante e X-Cota-Mes-Restante, ou 429 se esgotada); GESTOR_PUBLICO e ADMINISTRADOR não possuem limite de período nem cota. Períodos maiores que o permitido para o perfil respondem 400 com o limite máximo na mensagem.",
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {}
         ],
-        "operationId": "analise_dados_health",
-        "summary": "Verificar se o serviço responde",
-        "description": "Verifica se o processo HTTP responde. Não verifica a disponibilidade de bancos de dados, filas ou outros serviços.",
-        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EstacaoId"
+          },
+          {
+            "name": "grandeza",
+            "in": "query",
+            "required": true,
+            "description": "Grandeza que será consultada. Exemplos: PM25, PM10 e O3.",
+            "schema": {
+              "type": "string",
+              "example": "PM25"
+            }
+          },
+          {
+            "name": "periodo",
+            "in": "query",
+            "required": true,
+            "description": "Período da série histórica. O agrupamento dos dados depende do período selecionado.",
+            "schema": {
+              "type": "string",
+              "enum": ["24h", "7d", "30d"],
+              "example": "24h"
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Serviço disponível para receber requisições HTTP.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HealthResponse"
-                },
-                "examples": {
-                  "processoDisponivel": {
-                    "summary": "Serviço disponível",
-                    "value": {
-                      "status": "ok"
-                    }
-                  }
-                }
-              }
+            "$ref": "#/components/responses/SeriesSuccess"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/EstacaoNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/analise/estacoes/{id}/ultimas-leituras": {
+      "get": {
+        "tags": ["Análise"],
+        "operationId": "getEstacaoUltimasLeituras",
+        "summary": "Obter últimas leituras da estação",
+        "description": "Retorna as últimas leituras disponíveis da estação, incluindo a grandeza, o valor calibrado, a unidade de medida e o tempo relativo da leitura.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EstacaoId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/UltimasLeiturasSuccess"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/EstacaoNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/analise/estacoes/{id}/iqar": {
+      "get": {
+        "tags": ["Análise"],
+        "operationId": "getEstacaoIqar",
+        "summary": "Obter Índice de Qualidade do Ar (IQAr) da estação",
+        "description": "Calcula o IQAr da estação com base na média móvel das últimas 24 horas de leituras válidas de PM2.5, usando as faixas oficiais brasileiras (CONAMA nº 506/2024 / MMA e CETESB: Boa <= 15, Moderada <= 50, Ruim <= 75, Muito Ruim <= 125, Péssima > 125 µg/m³). Sem 24 horas de histórico válido, retorna 'Sem dados suficientes'. Gestores públicos só acessam estações do próprio município (404 para outros municípios).",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EstacaoId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/IqarSuccess"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/EstacaoNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/analise/iqar": {
+      "get": {
+        "tags": ["Análise"],
+        "operationId": "getIqar",
+        "summary": "Obter Índice de Qualidade do Ar (IQAr) por query de estação",
+        "description": "Atalho compatível para consulta do IQAr passando o parâmetro de query `estacaoId`. Sem `estacaoId`, responde 400 orientando o uso de `/analise/estacoes/{id}/iqar`.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "estacaoId",
+            "in": "query",
+            "required": true,
+            "description": "UUID ou código da estação.",
+            "schema": {
+              "type": "string",
+              "example": "EST-HIST-01"
             }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/IqarSuccess"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/EstacaoNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/analise/publico/{municipio}/estacoes/{codigo}/series": {
+      "get": {
+        "tags": ["Público"],
+        "operationId": "getPublicEstacaoSeries",
+        "summary": "Obter séries históricas da estação (Público)",
+        "description": "Versão pública da consulta de séries históricas sem exigência de autenticação, filtrada por município e restrita a estações ativas (limite máximo de até 7 dias para acesso anônimo; acima disso retorna 400). Os agrupamentos são de 5 minutos para 24h e 1 hora para 7d.",
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/MunicipioParam"
+          },
+          {
+            "$ref": "#/components/parameters/EstacaoCodigoParam"
+          },
+          {
+            "name": "grandeza",
+            "in": "query",
+            "required": true,
+            "description": "Grandeza que será consultada. Exemplos: PM25, PM10 e Temperatura.",
+            "schema": {
+              "type": "string",
+              "example": "PM25"
+            }
+          },
+          {
+            "name": "periodo",
+            "in": "query",
+            "required": true,
+            "description": "Período da série histórica (para acesso anônimo, o limite máximo é de 7 dias).",
+            "schema": {
+              "type": "string",
+              "enum": ["24h", "7d", "30d"],
+              "example": "24h"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SeriesSuccess"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/EstacaoNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/analise/publico/{municipio}/estacoes/{codigo}/ultimas-leituras": {
+      "get": {
+        "tags": ["Público"],
+        "operationId": "getPublicEstacaoUltimasLeituras",
+        "summary": "Obter últimas leituras da estação (Público)",
+        "description": "Versão pública da consulta de últimas leituras válidas de uma estação ativa pertencente ao município informado, sem necessidade de autenticação.",
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/MunicipioParam"
+          },
+          {
+            "$ref": "#/components/parameters/EstacaoCodigoParam"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/UltimasLeiturasSuccess"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/EstacaoNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/analise/publico/{municipio}/iqar": {
+      "get": {
+        "tags": ["Público"],
+        "operationId": "getPublicIqar",
+        "summary": "Obter IQAr por município (Público)",
+        "description": "Versão pública da consulta do Índice de Qualidade do Ar filtrada por município e estações ativas, sem necessidade de autenticação.",
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/MunicipioParam"
+          },
+          {
+            "name": "estacaoId",
+            "in": "query",
+            "required": false,
+            "description": "Identificador ou código opcional de uma estação ativa pertencente ao município informado.",
+            "schema": {
+              "type": "string",
+              "example": "EST-001"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/IqarSuccess"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/EstacaoNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           }
         }
       }
     }
   },
   "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "parameters": {
+      "EstacaoId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "description": "Identificador da estação.",
+        "schema": {
+          "type": "string",
+          "example": "estacao-01"
+        }
+      },
+      "EstacaoCodigoParam": {
+        "name": "codigo",
+        "in": "path",
+        "required": true,
+        "description": "Código ou identificador de uma estação ativa pertencente ao município.",
+        "schema": {
+          "type": "string",
+          "example": "EST-001"
+        }
+      },
+      "MunicipioParam": {
+        "name": "municipio",
+        "in": "path",
+        "required": true,
+        "description": "Nome do município para filtro dos dados públicos.",
+        "schema": {
+          "type": "string",
+          "example": "São José dos Campos"
+        }
+      }
+    },
+    "responses": {
+      "SeriesSuccess": {
+        "description": "Séries históricas obtidas com sucesso.",
+        "headers": {
+          "X-Cota-Semana-Restante": {
+            "description": "Requisições restantes na cota semanal (somente com token)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "X-Cota-Mes-Restante": {
+            "description": "Requisições restantes na cota mensal (somente com token)",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SeriesResponse"
+            },
+            "examples": {
+              "periodo24h": {
+                "summary": "Série histórica de 24 horas (agrupamento de 5 minutos)",
+                "value": {
+                  "estacaoId": "estacao-01",
+                  "grandeza": "PM25",
+                  "periodo": "24h",
+                  "dados": [
+                    {
+                      "timestamp": "2026-06-06T10:00:00-03:00",
+                      "valor": 25.4
+                    },
+                    {
+                      "timestamp": "2026-06-06T10:05:00-03:00",
+                      "valor": 26.1
+                    }
+                  ]
+                }
+              },
+              "periodo7d": {
+                "summary": "Série histórica de 7 dias (agrupamento de 1 hora)",
+                "value": {
+                  "estacaoId": "estacao-01",
+                  "grandeza": "PM25",
+                  "periodo": "7d",
+                  "dados": [
+                    {
+                      "timestamp": "2026-06-06T10:00:00-03:00",
+                      "valor": 25.4
+                    },
+                    {
+                      "timestamp": "2026-06-06T11:00:00-03:00",
+                      "valor": 26.1
+                    }
+                  ]
+                }
+              },
+              "periodo30d": {
+                "summary": "Série histórica de 30 dias (agrupamento de 1 dia)",
+                "value": {
+                  "estacaoId": "estacao-01",
+                  "grandeza": "PM25",
+                  "periodo": "30d",
+                  "dados": [
+                    {
+                      "timestamp": "2026-06-06T00:00:00-03:00",
+                      "valor": 25.4
+                    },
+                    {
+                      "timestamp": "2026-06-07T00:00:00-03:00",
+                      "valor": 26.1
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "UltimasLeiturasSuccess": {
+        "description": "Últimas leituras obtidas com sucesso.",
+        "headers": {
+          "X-Cota-Semana-Restante": {
+            "description": "Requisições restantes na cota semanal (somente com token)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "X-Cota-Mes-Restante": {
+            "description": "Requisições restantes na cota mensal (somente com token)",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/UltimasLeiturasResponse"
+            },
+            "example": {
+              "estacaoId": "estacao-01",
+              "leituras": [
+                {
+                  "grandeza": "PM25",
+                  "valorCalibrado": 18.2,
+                  "unidade": "µg/m³",
+                  "tempoRelativo": "há 5 min"
+                },
+                {
+                  "grandeza": "PM10",
+                  "valorCalibrado": 32.5,
+                  "unidade": "µg/m³",
+                  "tempoRelativo": "há 10 min"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "IqarSuccess": {
+        "description": "IQAr obtido com sucesso. Quando não houver dados suficientes, o resultado informa essa condição.",
+        "headers": {
+          "X-Cota-Semana-Restante": {
+            "description": "Requisições restantes na cota semanal (somente com token)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "X-Cota-Mes-Restante": {
+            "description": "Requisições restantes na cota mensal (somente com token)",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/IqarResponse"
+            },
+            "examples": {
+              "comDados": {
+                "summary": "IQAr calculado",
+                "value": {
+                  "estacaoId": "EST-HIST-01",
+                  "indice": 15,
+                  "classificacao": "Boa",
+                  "status": "Boa",
+                  "cor": "#00E400",
+                  "rotuloFaixa": "Boa",
+                  "mensagem": "Qualidade do ar considerada boa.",
+                  "municipio": "São José dos Campos"
+                }
+              },
+              "semDados": {
+                "summary": "Dados insuficientes",
+                "value": {
+                  "estacaoId": "EST-REC-02",
+                  "indice": "Sem dados suficientes",
+                  "status": "Sem dados suficientes",
+                  "rotuloFaixa": "Sem dados suficientes",
+                  "mensagem": "Não há dados suficientes para calcular o IQAr.",
+                  "municipio": "São José dos Campos"
+                }
+              }
+            }
+          }
+        }
+      },
+      "BadRequest": {
+        "description": "Requisição inválida devido a parâmetros incorretos, ausentes ou período solicitado superior ao limite permitido para o perfil (sem login: máx 7d; MUNICIPE: máx 30d).",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "examples": {
+              "parametroInvalido": {
+                "summary": "Parâmetro inválido",
+                "value": {
+                  "statusCode": 400,
+                  "message": "Parâmetro 'periodo' inválido."
+                }
+              },
+              "periodoExcedido": {
+                "summary": "Período superior ao limite do perfil",
+                "value": {
+                  "erro": "Período solicitado (30 dias) excede o limite permitido para o seu perfil. Período máximo permitido: 7 dias.",
+                  "limiteMaximoDias": 7,
+                  "diasSolicitados": 30
+                }
+              }
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Autenticação necessária ou token ausente, inválido ou expirado.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "example": {
+              "statusCode": 401,
+              "message": "Token ausente ou inválido."
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Usuário autenticado, mas sem permissão para realizar a operação.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "example": {
+              "statusCode": 403,
+              "message": "Acesso não permitido para este recurso."
+            }
+          }
+        }
+      },
+      "EstacaoNotFound": {
+        "description": "Estação não encontrada ou indisponível para consulta no município informado. A resposta não diferencia os dois casos.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "example": {
+              "statusCode": 404,
+              "message": "Estação não encontrada."
+            }
+          }
+        }
+      },
+      "TooManyRequests": {
+        "description": "Limite de cota de requisições excedido para o perfil (semanal ou mensal). Retorna a data em que a cota será renovada.",
+        "headers": {
+          "X-Cota-Semana-Restante": {
+            "description": "Saldo restante de requisições na semana atual",
+            "schema": {
+              "type": "string",
+              "example": "0"
+            }
+          },
+          "X-Cota-Mes-Restante": {
+            "description": "Saldo restante de requisições no mês atual",
+            "schema": {
+              "type": "string",
+              "example": "120"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/QuotaExceededResponse"
+            },
+            "example": {
+              "erro": "Limite de cota semanal de requisições excedido para o seu perfil.",
+              "renovaEm": "2026-11-23T00:00:00.000Z",
+              "semanaRestante": 0,
+              "mesRestante": 120
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "Erro interno durante o processamento da requisição.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "example": {
+              "statusCode": 500,
+              "message": "Internal Server Error"
+            }
+          }
+        }
+      }
+    },
     "schemas": {
-      "HealthResponse": {
+      "ErrorResponse": {
         "type": "object",
-        "required": [
-          "status"
-        ],
+        "required": ["statusCode", "message"],
         "properties": {
+          "statusCode": {
+            "type": "integer",
+            "example": 400
+          },
+          "message": {
+            "type": "string",
+            "example": "Erro na requisição."
+          }
+        }
+      },
+      "QuotaExceededResponse": {
+        "type": "object",
+        "required": ["erro", "renovaEm"],
+        "properties": {
+          "erro": {
+            "type": "string",
+            "example": "Limite de cota semanal de requisições excedido para o seu perfil."
+          },
+          "renovaEm": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-11-23T00:00:00.000Z"
+          },
+          "semanaRestante": {
+            "type": "integer",
+            "example": 0
+          },
+          "mesRestante": {
+            "type": "integer",
+            "example": 120
+          }
+        }
+      },
+      "SeriesResponse": {
+        "type": "object",
+        "required": ["estacaoId", "grandeza", "periodo", "dados"],
+        "properties": {
+          "estacaoId": {
+            "type": "string",
+            "example": "estacao-01"
+          },
+          "grandeza": {
+            "type": "string",
+            "example": "PM25"
+          },
+          "periodo": {
+            "type": "string",
+            "enum": ["24h", "7d", "30d"],
+            "example": "24h"
+          },
+          "dados": {
+            "type": "array",
+            "description": "Pontos da série histórica agrupados conforme o período solicitado.",
+            "items": {
+              "type": "object",
+              "required": ["timestamp", "valor"],
+              "properties": {
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time",
+                  "example": "2026-06-06T10:00:00-03:00"
+                },
+                "valor": {
+                  "type": "number",
+                  "example": 25.4
+                }
+              }
+            }
+          }
+        }
+      },
+      "UltimasLeiturasResponse": {
+        "type": "object",
+        "required": ["estacaoId", "leituras"],
+        "properties": {
+          "estacaoId": {
+            "type": "string",
+            "example": "estacao-01"
+          },
+          "leituras": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "grandeza",
+                "valorCalibrado",
+                "unidade",
+                "tempoRelativo"
+              ],
+              "properties": {
+                "grandeza": {
+                  "type": "string",
+                  "example": "PM25"
+                },
+                "valorCalibrado": {
+                  "type": "number",
+                  "example": 18.2
+                },
+                "unidade": {
+                  "type": "string",
+                  "example": "µg/m³"
+                },
+                "tempoRelativo": {
+                  "type": "string",
+                  "example": "há 5 min"
+                }
+              }
+            }
+          }
+        }
+      },
+      "IqarResponse": {
+        "type": "object",
+        "required": ["estacaoId", "indice", "status", "rotuloFaixa", "mensagem", "municipio"],
+        "properties": {
+          "estacaoId": {
+            "type": "string",
+            "description": "Identificador ou código da estação consultada.",
+            "example": "EST-HIST-01"
+          },
+          "indice": {
+            "oneOf": [
+              { "type": "integer", "example": 15 },
+              { "type": "string", "example": "Sem dados suficientes" }
+            ],
+            "description": "Média arredondada de PM2.5 nas últimas 24h ou 'Sem dados suficientes'."
+          },
+          "classificacao": {
+            "type": "string",
+            "description": "Faixa oficial do IQAr (Boa, Moderada, Ruim, Muito Ruim ou Péssima), presente quando há dados suficientes.",
+            "example": "Boa"
+          },
           "status": {
             "type": "string",
-            "enum": [
-              "ok"
-            ],
-            "description": "Estado do processo HTTP.",
-            "example": "ok"
+            "description": "Situação do IQAr ou indicação de dados insuficientes.",
+            "example": "Boa"
+          },
+          "cor": {
+            "type": "string",
+            "description": "Cor correspondente à faixa de qualidade do ar, quando houver dados suficientes.",
+            "example": "#00E400"
+          },
+          "rotuloFaixa": {
+            "type": "string",
+            "description": "Rótulo correspondente à faixa oficial de qualidade do ar ou indicação de dados insuficientes.",
+            "example": "Boa"
+          },
+          "mensagem": {
+            "type": "string",
+            "example": "Qualidade do ar considerada boa."
+          },
+          "municipio": {
+            "type": "string",
+            "description": "Município ao qual a estação pertence.",
+            "example": "São José dos Campos"
           }
         }
       }

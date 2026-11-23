@@ -1,6 +1,15 @@
 import { Request, Response, NextFunction } from "express";
 import * as userService from "../services/user.service";
 
+export const cadastrarMunicipe = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const usuario = await userService.cadastrarMunicipe(req.body);
+    res.status(201).json(usuario);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const create = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const usuario = await userService.create(req.body);
@@ -45,6 +54,17 @@ export const updateStatus = async (req: Request, res: Response, next: NextFuncti
     next(err);
   }
 };
+
+export const trocarPapel = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const alteradoPorId = req.auth?.id as string;
+    const usuario = await userService.trocarPapel(req.params.id as string, req.body, alteradoPorId);
+    res.json(usuario);
+  } catch (err) {
+    next(err);
+  }
+};
+
 
 export const remove = async (req: Request, res: Response, next: NextFunction) => {
   try {

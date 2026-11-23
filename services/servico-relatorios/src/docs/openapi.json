@@ -15,6 +15,10 @@
     {
       "name": "Saúde",
       "description": "Verificação básica do processo HTTP"
+    },
+    {
+      "name": "Medições",
+      "description": "Consulta das medições do município em JSON e exportação em CSV (US-31)"
     }
   ],
   "paths": {
@@ -48,9 +52,304 @@
           }
         }
       }
+    },
+    "/medicoes": {
+      "get": {
+        "tags": [
+          "Medições"
+        ],
+        "operationId": "servico_relatorios_listar_medicoes",
+        "summary": "Listar as medições do município em JSON ou CSV",
+        "description": "Devolve as medições do município no período, com os filtros de estação e grandeza. `formato=json` (padrão) devolve uma página, com o total; `formato=csv` devolve o período inteiro num arquivo para o Power BI e o Excel (UTF-8 com BOM, separador `;`, vírgula decimal, horário de Brasília), ignorando `pagina` e `porPagina`. O GESTOR_PUBLICO só vê o município do token: outro município responde 404, igual ao inexistente. ADMINISTRADOR, PESQUISADOR e MUNICIPE escolhem o município; sem ele no pedido, usam o do token. Medidas inválidas aparecem com `valida = false`. Respostas com `Cache-Control: no-store`.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "inicio",
+            "in": "query",
+            "required": false,
+            "description": "Primeiro dia do período (AAAA-MM-DD, horário de Brasília). Padrão: ontem.",
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "example": "2026-11-06"
+            }
+          },
+          {
+            "name": "fim",
+            "in": "query",
+            "required": false,
+            "description": "Último dia do período, incluído inteiro (AAAA-MM-DD, horário de Brasília). Padrão: hoje. No máximo 31 dias contando o início e o fim.",
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "example": "2026-11-06"
+            }
+          },
+          {
+            "name": "estacao",
+            "in": "query",
+            "required": false,
+            "description": "Códigos das estações, separados por vírgula. Sem ele, todas as estações do município.",
+            "schema": {
+              "type": "string",
+              "example": "EST-001,EST-002"
+            }
+          },
+          {
+            "name": "grandeza",
+            "in": "query",
+            "required": false,
+            "description": "Grandezas medidas, separadas por vírgula. Sem ele, todas.",
+            "schema": {
+              "type": "string",
+              "example": "Temperatura,Umidade Relativa"
+            }
+          },
+          {
+            "name": "municipio",
+            "in": "query",
+            "required": false,
+            "description": "Município como está no cadastro da estação. Ignorado para o GESTOR_PUBLICO, que usa o do token.",
+            "schema": {
+              "type": "string",
+              "example": "São José dos Campos"
+            }
+          },
+          {
+            "name": "formato",
+            "in": "query",
+            "required": false,
+            "description": "`json` (padrão) ou `csv`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "json",
+                "csv"
+              ],
+              "default": "json"
+            }
+          },
+          {
+            "name": "pagina",
+            "in": "query",
+            "required": false,
+            "description": "Página do JSON, a partir de 1. Ignorada no CSV.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "porPagina",
+            "in": "query",
+            "required": false,
+            "description": "Medições por página do JSON. Ignorado no CSV.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5000,
+              "default": 500
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Medições do período. Em CSV, vem com `Content-Disposition: attachment; filename=\"pulso-urbano_medicoes_<municipio>_<inicio>_<fim>.csv\"`.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Sempre `no-store`: os dados mudam a cada 5 minutos e dependem do perfil.",
+                "schema": {
+                  "type": "string",
+                  "example": "no-store"
+                }
+              },
+              "Content-Disposition": {
+                "description": "Só no CSV: o nome do arquivo.",
+                "schema": {
+                  "type": "string",
+                  "example": "attachment; filename=\"pulso-urbano_medicoes_sao-jose-dos-campos_2026-11-06_2026-11-06.csv\""
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListaMedicoes"
+                },
+                "examples": {
+                  "umDia": {
+                    "summary": "Um dia de São José dos Campos",
+                    "value": {
+                      "municipio": "São José dos Campos",
+                      "inicio": "2026-11-06",
+                      "fim": "2026-11-06",
+                      "pagina": 1,
+                      "porPagina": 500,
+                      "total": 1440,
+                      "medicoes": [
+                        {
+                          "lidoEm": "2026-11-06T14:05:00Z",
+                          "estacaoCodigo": "EST-001",
+                          "estacaoNome": "Centro",
+                          "municipio": "São José dos Campos",
+                          "sensorCodigo": "T-01",
+                          "grandeza": "Temperatura",
+                          "unidade": "°C",
+                          "valor": 23.4,
+                          "valorBruto": 24.9,
+                          "valida": true
+                        }
+                      ]
+                    }
+                  },
+                  "periodoSemMedicoes": {
+                    "summary": "Período sem medições",
+                    "value": {
+                      "municipio": "São José dos Campos",
+                      "inicio": "2026-10-01",
+                      "fim": "2026-10-01",
+                      "pagina": 1,
+                      "porPagina": 500,
+                      "total": 0,
+                      "medicoes": []
+                    }
+                  }
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string",
+                  "description": "UTF-8 com BOM, separador `;`, fim de linha CRLF, vírgula decimal e `lido_em` em dd/mm/aaaa hh:mm (Brasília). Período sem medições: só o cabeçalho."
+                },
+                "examples": {
+                  "duasLinhas": {
+                    "summary": "Duas medições, uma inválida",
+                    "value": "lido_em;estacao_codigo;estacao_nome;municipio;sensor_codigo;grandeza;unidade;valor;valor_bruto;valida\r\n06/11/2026 11:05;EST-001;Centro;São José dos Campos;T-01;Temperatura;°C;23,4;24,9;Sim\r\n06/11/2026 11:05;EST-001;Centro;São José dos Campos;U-01;Umidade Relativa;%;120;120;Não\r\n"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Filtro inválido ou município não informado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroResponse"
+                },
+                "examples": {
+                  "fimAntesDoInicio": {
+                    "summary": "Fim antes do início",
+                    "value": {
+                      "erro": "Período inválido: o fim é antes do início."
+                    }
+                  },
+                  "periodoLongo": {
+                    "summary": "Mais de 31 dias",
+                    "value": {
+                      "erro": "Período inválido: o máximo é 31 dias."
+                    }
+                  },
+                  "dataInvalida": {
+                    "summary": "Data fora do formato ou inexistente",
+                    "value": {
+                      "erro": "Data de início inválida: use AAAA-MM-DD."
+                    }
+                  },
+                  "parametroDesconhecido": {
+                    "summary": "Parâmetro desconhecido",
+                    "value": {
+                      "erro": "Parâmetro desconhecido: sensor."
+                    }
+                  },
+                  "semMunicipio": {
+                    "summary": "Sem município no pedido e no token",
+                    "value": {
+                      "erro": "Informe o município."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido ou expirado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroResponse"
+                },
+                "examples": {
+                  "semToken": {
+                    "summary": "Sem Authorization",
+                    "value": {
+                      "erro": "Autenticação necessária. Token não informado ou formato inválido."
+                    }
+                  },
+                  "tokenInvalido": {
+                    "summary": "Token inválido ou expirado",
+                    "value": {
+                      "erro": "Token inválido ou expirado."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Perfil sem acesso às medições, ou gestor sem município no token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroResponse"
+                },
+                "examples": {
+                  "gestorSemMunicipio": {
+                    "summary": "Gestor sem município",
+                    "value": {
+                      "erro": "Gestor sem município associado."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Município sem estação cadastrada, ou de outro município para o GESTOR_PUBLICO (mesma resposta).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErroResponse"
+                },
+                "examples": {
+                  "municipioNaoEncontrado": {
+                    "summary": "Município não encontrado",
+                    "value": {
+                      "erro": "Município não encontrado."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Token JWT emitido pelo auth-service."
+      }
+    },
     "schemas": {
       "HealthResponse": {
         "type": "object",
@@ -65,6 +364,129 @@
             ],
             "description": "Estado do processo HTTP.",
             "example": "ok"
+          }
+        }
+      },
+      "ErroResponse": {
+        "type": "object",
+        "required": [
+          "erro"
+        ],
+        "properties": {
+          "erro": {
+            "type": "string",
+            "description": "Mensagem do erro.",
+            "example": "Município não encontrado."
+          }
+        }
+      },
+      "Medicao": {
+        "type": "object",
+        "required": [
+          "lidoEm",
+          "estacaoCodigo",
+          "estacaoNome",
+          "municipio",
+          "sensorCodigo",
+          "grandeza",
+          "unidade",
+          "valor",
+          "valorBruto",
+          "valida"
+        ],
+        "properties": {
+          "lidoEm": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Data e hora da leitura, em ISO 8601 (UTC).",
+            "example": "2026-11-06T14:05:00Z"
+          },
+          "estacaoCodigo": {
+            "type": "string",
+            "example": "EST-001"
+          },
+          "estacaoNome": {
+            "type": "string",
+            "example": "Centro"
+          },
+          "municipio": {
+            "type": "string",
+            "example": "São José dos Campos"
+          },
+          "sensorCodigo": {
+            "type": "string",
+            "nullable": true,
+            "example": "T-01"
+          },
+          "grandeza": {
+            "type": "string",
+            "example": "Temperatura"
+          },
+          "unidade": {
+            "type": "string",
+            "example": "°C"
+          },
+          "valor": {
+            "type": "number",
+            "description": "Valor calibrado.",
+            "example": 23.4
+          },
+          "valorBruto": {
+            "type": "number",
+            "description": "Valor enviado pelo sensor.",
+            "example": 24.9
+          },
+          "valida": {
+            "type": "boolean",
+            "description": "Se a medida entra em dashboards e alertas (US-19).",
+            "example": true
+          }
+        }
+      },
+      "ListaMedicoes": {
+        "type": "object",
+        "required": [
+          "municipio",
+          "inicio",
+          "fim",
+          "pagina",
+          "porPagina",
+          "total",
+          "medicoes"
+        ],
+        "properties": {
+          "municipio": {
+            "type": "string",
+            "example": "São José dos Campos"
+          },
+          "inicio": {
+            "type": "string",
+            "format": "date",
+            "example": "2026-11-06"
+          },
+          "fim": {
+            "type": "string",
+            "format": "date",
+            "example": "2026-11-06"
+          },
+          "pagina": {
+            "type": "integer",
+            "example": 1
+          },
+          "porPagina": {
+            "type": "integer",
+            "example": 500
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total de medições do período com os filtros, somando todas as páginas.",
+            "example": 1440
+          },
+          "medicoes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Medicao"
+            }
           }
         }
       }

@@ -1,25 +1,58 @@
 import type { ChannelModel } from "amqplib";
 import type { Pool } from "pg";
-import type { Destinos, EventoDlq, MedidasDoStaging, StagingRow } from "./balanco.js";
+import type { createClient } from "redis";
+import type { MedidasDoStaging, EventoDlq, MensagemStaging } from "./balanco.js";
 import type { MensagemLote } from "./manifesto.js";
 
 export const FILA_VALIDACAO_DLQ = "validacao.dlq";
+const PREFIXO_MENSAGEM = "staging:msg:";
 
-/** Linhas do staging e medidas das mensagens do lote (só leitura). */
-export async function lerBanco(pool: Pool, manifesto: MensagemLote[]): Promise<Omit<Destinos, "dlq">> {
-  const estacoes = [...new Set(manifesto.map((m) => m.estacao_uuid))];
-  const horarios = [...new Set(manifesto.map((m) => m.unixtime))];
-  const conteudos = manifesto.map((m) => m.payload_bruto);
+type ClienteValkey = Pick<ReturnType<typeof createClient>, "scanIterator" | "hmGet">;
 
-  const staging = await pool.query<StagingRow>(
-    `SELECT id, estacao_uuid, unixtime::float8 AS unixtime, status, motivo_rejeicao, payload_bruto
-     FROM staging_telemetria
-     WHERE estacao_uuid = ANY($1::uuid[])
-       AND (unixtime = ANY($2::bigint[]) OR payload_bruto = ANY($3::text[]))`,
-    [estacoes, horarios, conteudos],
+/** MAC da estação no tópico pulso/estacoes/{mac}/telemetria (minúsculas). */
+export function macDoTopico(topico: string | null | undefined): string | null {
+  const mac = /^pulso\/estacoes\/([^/]+)\/telemetria$/.exec(topico ?? "")?.[1];
+  return mac ? mac.toLowerCase() : null;
+}
+
+/**
+ * Mensagens das estações do lote no Valkey (só leitura). As decididas ficam
+ * 7 dias lá; recebida e pendente ficam até sair.
+ * A cada volta da espera, o SCAN percorre todo staging:msg:*. Se passar de
+ * alguns milhares de chaves, trocar o SCAN por um índice por estação.
+ */
+export async function lerValkey(cliente: ClienteValkey, manifesto: MensagemLote[]): Promise<MensagemStaging[]> {
+  const estacoes = new Set(manifesto.map((m) => m.estacao_uuid));
+  // MAC → UUID da estação, pelo manifesto (cada linha leva o MAC enviado no tópico).
+  const uuidPorMac = new Map(
+    manifesto.flatMap((m) => (m.estacao_mac ? [[m.estacao_mac.toLowerCase(), m.estacao_uuid] as const] : [])),
   );
+  const chaves: string[] = [];
+  for await (const chave of cliente.scanIterator({ MATCH: `${PREFIXO_MENSAGEM}*`, COUNT: 1000 })) {
+    chaves.push(chave);
+  }
 
-  const ids = staging.rows.map((linha) => linha.id);
+  // O cliente junta os comandos simultâneos num pipeline só.
+  const campos = await Promise.all(
+    chaves.map((chave) => cliente.hmGet(chave, ["topico", "conteudo", "status", "motivo"])),
+  );
+  return chaves
+    .map((chave, i) => {
+      const [topico, conteudo, status, motivo] = campos[i];
+      return {
+        id: chave.slice(PREFIXO_MENSAGEM.length),
+        estacao_uuid: uuidPorMac.get(macDoTopico(topico) ?? "") ?? null,
+        status: status ?? "",
+        motivo: motivo ?? null,
+        payload_bruto: conteudo ?? "",
+      };
+    })
+    // Sem status a chave expirou entre o SCAN e a leitura.
+    .filter((m) => m.status !== "" && m.estacao_uuid !== null && estacoes.has(m.estacao_uuid));
+}
+
+/** Medidas gravadas pelo servico-validacao para as mensagens encaminhadas (só leitura). */
+export async function lerMedidas(pool: Pool, stagingIds: string[]): Promise<MedidasDoStaging[]> {
   const medidas = await pool.query<MedidasDoStaging>(
     `SELECT staging_id,
             count(*) FILTER (WHERE valida)::int AS validas,
@@ -27,10 +60,9 @@ export async function lerBanco(pool: Pool, manifesto: MensagemLote[]): Promise<O
      FROM medidas
      WHERE staging_id = ANY($1::uuid[])
      GROUP BY staging_id`,
-    [ids],
+    [stagingIds],
   );
-
-  return { staging: staging.rows, medidas: medidas.rows };
+  return medidas.rows;
 }
 
 /**

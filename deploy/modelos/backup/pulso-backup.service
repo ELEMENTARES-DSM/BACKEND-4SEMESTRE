@@ -1,0 +1,11 @@
+# Gerado pelo instalador do Pulso Urbano.
+[Unit]
+Description=Backup do banco do Pulso Urbano (pg_dump do S3)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/pulso-backup
+Nice=10
+IOSchedulingClass=idle

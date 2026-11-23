@@ -2,12 +2,10 @@ import { EventEmitter } from "events";
 import mqtt, { type IPublishPacket } from "mqtt";
 import { ConfigMqtt } from "../../../config/mqtt.config";
 import { ConsumidorMqttTelemetria, CLIENT_ID } from "../../../events/consumers/mqtt-telemetria.consumer";
-import {
-  ReceivedMetricsService,
-  receivedMetricsService,
-} from "../../../services/received-metrics.service";
 import { MqttStatusService, mqttStatusService } from "../../../services/mqtt-status.service";
 
+// Unitário de ConsumidorMqttTelemetria (métodos iniciar e encerrar): o cliente
+// MQTT é falso, a gravação (Valkey) é um mock e o relógio é injetado.
 const UUID_A = "8723c462-e79c-4e58-9751-eef8868a5312";
 const UUID_B = "e30a57e3-0d33-4f9e-86b2-6cb1690a7891";
 const TOPICO_A = `pulso/estacoes/${UUID_A}/telemetria`;
@@ -15,8 +13,6 @@ const TOPICO_B = `pulso/estacoes/${UUID_B}/telemetria`;
 
 const config: ConfigMqtt = {
   brokerUrl: "mqtt://mosquitto:1883",
-  usuario: "ingestao-dados",
-  senha: "segredo",
   qos: 1,
 };
 
@@ -39,7 +35,8 @@ function pacote(topic: string, payload: string): IPublishPacket {
   return { cmd: "publish", topic, payload: Buffer.from(payload), qos: 1, messageId: 1 } as IPublishPacket;
 }
 
-// Simula o broker entregando um pacote ao cliente, como o mqtt.js faz internamente.
+// Simula o broker entregando um pacote ao tratamento instalado por iniciar:
+// o callback é o que envia o PUBACK.
 function entregar(cliente: ClienteFalso, topico: string, payload: string) {
   return new Promise<{ erro?: Error }>((resolve) => {
     cliente.handleMessage(pacote(topico, payload), (erro) => resolve({ erro }));
@@ -49,9 +46,8 @@ function entregar(cliente: ClienteFalso, topico: string, payload: string) {
 describe("ConsumidorMqttTelemetria", () => {
   let cliente: ClienteFalso;
   let conectar: jest.Mock;
-  let encaminhados: unknown[];
+  let gravadas: unknown[];
   let proximoPasso: jest.Mock;
-  let recebidas: ReceivedMetricsService;
   let estado: MqttStatusService;
   let warn: jest.SpyInstance;
   let error: jest.SpyInstance;
@@ -59,14 +55,13 @@ describe("ConsumidorMqttTelemetria", () => {
 
   function criarServico(passo?: jest.Mock, reentregaMs?: number) {
     proximoPasso = passo ?? jest.fn(async (mensagem) => {
-      encaminhados.push(mensagem);
+      gravadas.push(mensagem);
     });
     const servico = new ConsumidorMqttTelemetria({
       config,
       proximoPasso,
       agora: () => dataFixa,
       conectar: conectar as unknown as typeof mqtt.connect,
-      metricasRecebidas: recebidas,
       estadoConexao: estado,
       reentregaMs,
     });
@@ -77,8 +72,7 @@ describe("ConsumidorMqttTelemetria", () => {
   beforeEach(() => {
     cliente = new ClienteFalso();
     conectar = jest.fn(() => cliente);
-    encaminhados = [];
-    recebidas = new ReceivedMetricsService();
+    gravadas = [];
     estado = new MqttStatusService();
     warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
     error = jest.spyOn(console, "error").mockImplementation(() => undefined);
@@ -89,404 +83,471 @@ describe("ConsumidorMqttTelemetria", () => {
     jest.restoreAllMocks();
   });
 
-  describe("conexão e assinatura", () => {
-    test("conecta com clientId fixo, sessão persistente e MQTT 3.1.1", () => {
-      criarServico();
+  describe("iniciar", () => {
+    describe("US-11 · conexão e assinatura", () => {
+      it("deve conectar com clientId fixo, sessão persistente e MQTT 3.1.1 quando inicia", () => {
+        // Dado (Arrange)
+        // Quando (Act)
+        criarServico();
 
-      expect(conectar).toHaveBeenCalledWith(
-        "mqtt://mosquitto:1883",
-        expect.objectContaining({
-          clientId: CLIENT_ID,
-          clean: false,
-          protocolVersion: 4,
-          username: "ingestao-dados",
-          password: "segredo",
-        }),
-      );
-    });
-
-    test("assina pulso/estacoes/+/telemetria com QoS 1 ao conectar", () => {
-      criarServico();
-      cliente.emit("connect");
-
-      expect(cliente.subscribe).toHaveBeenCalledWith(
-        "pulso/estacoes/+/telemetria",
-        { qos: 1 },
-        expect.any(Function),
-      );
-    });
-
-    test("assina de novo a cada reconexão", () => {
-      criarServico();
-      cliente.emit("connect");
-      cliente.emit("close");
-      cliente.emit("error", new Error("ECONNREFUSED"));
-      cliente.emit("connect");
-
-      expect(cliente.subscribe).toHaveBeenCalledTimes(2);
-      expect(cliente.subscribe).toHaveBeenNthCalledWith(
-        2,
-        "pulso/estacoes/+/telemetria",
-        { qos: 1 },
-        expect.any(Function),
-      );
-    });
-
-    test("erro de conexão é registrado sem derrubar o processo", () => {
-      criarServico();
-
-      expect(() => cliente.emit("error", new Error("ECONNREFUSED"))).not.toThrow();
-      expect(error).toHaveBeenCalledWith(expect.stringContaining("ECONNREFUSED"));
-    });
-
-    test("registra falha de assinatura sem lançar exceção", () => {
-      cliente.subscribe.mockImplementationOnce((_topico, _opcoes, callback) => {
-        callback?.(new Error("não autorizado"));
-        return cliente;
+        // Então (Assert)
+        expect(conectar).toHaveBeenCalledWith(
+          "mqtt://mosquitto:1883",
+          expect.objectContaining({
+            clientId: CLIENT_ID,
+            clean: false,
+            protocolVersion: 4,
+          }),
+        );
       });
-      criarServico();
 
-      expect(() => cliente.emit("connect")).not.toThrow();
-      expect(error).toHaveBeenCalledWith(expect.stringContaining("não autorizado"));
+      it("deve conectar sem username e password quando não há credencial", () => {
+        // Dado (Arrange)
+        // Quando (Act)
+        criarServico();
+
+        // Então (Assert)
+        const opcoes = conectar.mock.calls[0][1];
+        expect(opcoes).not.toHaveProperty("username");
+        expect(opcoes).not.toHaveProperty("password");
+      });
+
+      it("deve conectar sem username e password quando só a senha existe", () => {
+        // Dado (Arrange)
+        // MQTT 3.1.1 não aceita senha sem usuário: a senha sozinha é ignorada.
+        const soSenha = { ...config, senha: "segredo" };
+
+        // Quando (Act)
+        new ConsumidorMqttTelemetria({
+          config: soSenha,
+          proximoPasso: async () => undefined,
+          conectar: conectar as unknown as typeof mqtt.connect,
+        }).iniciar();
+
+        // Então (Assert)
+        const opcoes = conectar.mock.calls[0][1];
+        expect(opcoes).not.toHaveProperty("username");
+        expect(opcoes).not.toHaveProperty("password");
+      });
+
+      it("deve enviar o username sem senha quando só o usuário existe", () => {
+        // Dado (Arrange)
+        const soUsuario = { ...config, usuario: "ingestao-dados" };
+
+        // Quando (Act)
+        new ConsumidorMqttTelemetria({
+          config: soUsuario,
+          proximoPasso: async () => undefined,
+          conectar: conectar as unknown as typeof mqtt.connect,
+        }).iniciar();
+
+        // Então (Assert)
+        const opcoes = conectar.mock.calls[0][1];
+        expect(opcoes.username).toBe("ingestao-dados");
+        expect(opcoes.password).toBeUndefined();
+      });
+
+      it("deve enviar username e password quando existem", () => {
+        // Dado (Arrange)
+        const comCredencial = { ...config, usuario: "ingestao-dados", senha: "segredo" };
+
+        // Quando (Act)
+        new ConsumidorMqttTelemetria({
+          config: comCredencial,
+          proximoPasso: async () => undefined,
+          conectar: conectar as unknown as typeof mqtt.connect,
+        }).iniciar();
+
+        // Então (Assert)
+        expect(conectar).toHaveBeenCalledWith(
+          "mqtt://mosquitto:1883",
+          expect.objectContaining({ username: "ingestao-dados", password: "segredo" }),
+        );
+      });
+
+      it("deve assinar pulso/estacoes/+/telemetria com QoS 1 quando conecta", () => {
+        // Dado (Arrange)
+        criarServico();
+
+        // Quando (Act)
+        cliente.emit("connect");
+
+        // Então (Assert)
+        expect(cliente.subscribe).toHaveBeenCalledWith("pulso/estacoes/+/telemetria", { qos: 1 }, expect.any(Function));
+        expect(log).toHaveBeenCalledWith(expect.stringContaining("pulso/estacoes/+/telemetria"));
+      });
+
+      it("deve assinar de novo quando reconecta", () => {
+        // Dado (Arrange)
+        criarServico();
+        cliente.emit("connect");
+
+        // Quando (Act)
+        cliente.emit("close");
+        cliente.emit("error", new Error("ECONNREFUSED"));
+        cliente.emit("connect");
+
+        // Então (Assert)
+        expect(cliente.subscribe).toHaveBeenCalledTimes(2);
+        expect(cliente.subscribe).toHaveBeenNthCalledWith(2, "pulso/estacoes/+/telemetria", { qos: 1 }, expect.any(Function));
+      });
+
+      it("deve registrar o erro sem derrubar o processo quando a conexão falha", () => {
+        // Dado (Arrange)
+        criarServico();
+
+        // Quando (Act)
+        const emitir = () => cliente.emit("error", new Error("ECONNREFUSED"));
+
+        // Então (Assert)
+        expect(emitir).not.toThrow();
+        expect(error).toHaveBeenCalledWith(expect.stringContaining("ECONNREFUSED"));
+      });
+
+      it("deve registrar a falha sem lançar quando a assinatura é negada", () => {
+        // Dado (Arrange)
+        cliente.subscribe.mockImplementationOnce((_topico, _opcoes, callback) => {
+          callback?.(new Error("não autorizado"));
+          return cliente;
+        });
+        criarServico();
+
+        // Quando (Act)
+        const emitir = () => cliente.emit("connect");
+
+        // Então (Assert)
+        expect(emitir).not.toThrow();
+        expect(error).toHaveBeenCalledWith(expect.stringContaining("não autorizado"));
+      });
     });
 
-    test("encerrar desconecta o cliente", async () => {
+    describe("US-40 · Cenário 1 · gravação antes de tudo", () => {
+      it("deve passar topico, conteúdo e recebidoEm em UTC para a gravação quando a mensagem chega", async () => {
+        // Dado (Arrange)
+        criarServico();
+
+        // Quando (Act)
+        await entregar(cliente, TOPICO_A, '{"timestamp":"2026-10-09T12:00:00Z","leituras":[]}');
+
+        // Então (Assert)
+        expect(gravadas).toEqual([
+          {
+            topico: TOPICO_A,
+            payloadBruto: '{"timestamp":"2026-10-09T12:00:00Z","leituras":[]}',
+            recebidoEm: "2026-10-09T12:00:00.000Z",
+          },
+        ]);
+      });
+
+      it("deve preservar o conteúdo exatamente como foi publicado quando não é JSON", async () => {
+        // Dado (Arrange)
+        criarServico();
+        const payload = "  texto puro {não é json} ";
+
+        // Quando (Act)
+        await entregar(cliente, TOPICO_A, payload);
+
+        // Então (Assert)
+        expect(gravadas[0]).toMatchObject({ payloadBruto: payload });
+      });
+
+      it("deve gravar e confirmar também quando o tópico está fora do padrão", async () => {
+        // Dado (Arrange)
+        criarServico();
+
+        // Quando (Act)
+        const { erro } = await entregar(cliente, "pulso/estacoes/est-001/telemetria", "{}");
+
+        // Então (Assert)
+        expect(erro).toBeUndefined();
+        expect(gravadas).toEqual([expect.objectContaining({ topico: "pulso/estacoes/est-001/telemetria" })]);
+      });
+
+      it("deve confirmar ao broker só depois quando a gravação ainda não terminou", async () => {
+        // Dado (Arrange)
+        let concluirGravacao!: () => void;
+        const gravacaoLenta = jest.fn(() => new Promise<void>((resolve) => {
+          concluirGravacao = resolve;
+        }));
+        criarServico(gravacaoLenta);
+        let confirmou = false;
+        const confirmacao = entregar(cliente, TOPICO_A, "{}").then((r) => {
+          confirmou = true;
+          return r;
+        });
+
+        // Quando (Act)
+        await Promise.resolve();
+        const confirmouAntes = confirmou;
+        concluirGravacao();
+        const { erro } = await confirmacao;
+
+        // Então (Assert)
+        expect(gravacaoLenta).toHaveBeenCalledTimes(1);
+        expect(confirmouAntes).toBe(false);
+        expect(erro).toBeUndefined();
+      });
+
+      it("deve usar o horário atual em UTC no recebidoEm quando não há relógio injetado", async () => {
+        // Dado (Arrange)
+        jest.useFakeTimers().setSystemTime(dataFixa);
+        const passo = jest.fn(async () => undefined);
+        new ConsumidorMqttTelemetria({
+          config,
+          proximoPasso: passo,
+          conectar: conectar as unknown as typeof mqtt.connect,
+        }).iniciar();
+
+        // Quando (Act)
+        await entregar(cliente, TOPICO_A, "{}");
+        jest.useRealTimers();
+
+        // Então (Assert)
+        expect(passo).toHaveBeenCalledWith(expect.objectContaining({ recebidoEm: "2026-10-09T12:00:00.000Z" }));
+      });
+    });
+
+    describe("US-11 · várias estações ao mesmo tempo", () => {
+      it("deve gravar cada mensagem com o seu tópico quando chegam juntas", async () => {
+        // Dado (Arrange)
+        criarServico();
+
+        // Quando (Act)
+        await Promise.all([
+          entregar(cliente, TOPICO_A, "a"),
+          entregar(cliente, TOPICO_B, "b"),
+          entregar(cliente, TOPICO_A, "c"),
+        ]);
+
+        // Então (Assert)
+        expect(gravadas.map((m) => (m as { topico: string }).topico)).toEqual([TOPICO_A, TOPICO_B, TOPICO_A]);
+        expect(gravadas.map((m) => (m as { payloadBruto: string }).payloadBruto)).toEqual(["a", "b", "c"]);
+      });
+
+      it("deve confirmar cada mensagem individualmente quando uma delas falha", async () => {
+        // Dado (Arrange)
+        criarServico(
+          jest.fn()
+            .mockResolvedValueOnce(undefined)
+            .mockRejectedValueOnce(new Error("falhou"))
+            .mockResolvedValueOnce(undefined),
+        );
+
+        // Quando (Act)
+        const resultados = await Promise.all([
+          entregar(cliente, TOPICO_A, "1"),
+          entregar(cliente, TOPICO_B, "2"),
+          entregar(cliente, TOPICO_A, "3"),
+        ]);
+
+        // Então (Assert)
+        expect(resultados.map((r) => r.erro?.message)).toEqual([undefined, "falhou", undefined]);
+      });
+
+      it("deve gravar duas vezes quando a mesma mensagem chega duas vezes", async () => {
+        // Dado (Arrange)
+        criarServico();
+        const payload = '{"timestamp":"2026-10-09T12:00:00Z","leituras":[]}';
+
+        // Quando (Act)
+        await entregar(cliente, TOPICO_A, payload);
+        await entregar(cliente, TOPICO_A, payload);
+
+        // Então (Assert)
+        expect(gravadas).toHaveLength(2);
+        expect(gravadas[0]).toEqual(gravadas[1]);
+      });
+    });
+
+    describe("US-11 · estado da conexão", () => {
+      it("deve ficar desconectado quando o broker não responde", () => {
+        // Dado (Arrange)
+        criarServico();
+
+        // Quando (Act)
+        cliente.emit("error", new Error("ECONNREFUSED"));
+
+        // Então (Assert)
+        expect(estado.estaConectado()).toBe(false);
+      });
+
+      it("deve ficar conectado quando conecta no broker", () => {
+        // Dado (Arrange)
+        criarServico();
+
+        // Quando (Act)
+        cliente.emit("connect");
+
+        // Então (Assert)
+        expect(estado.estaConectado()).toBe(true);
+      });
+
+      it("deve voltar a conectado quando a conexão cai e reconecta", () => {
+        // Dado (Arrange)
+        criarServico();
+        cliente.emit("connect");
+
+        // Quando (Act)
+        cliente.emit("close");
+        const durante = estado.estaConectado();
+        cliente.emit("connect");
+
+        // Então (Assert)
+        expect(durante).toBe(false);
+        expect(estado.estaConectado()).toBe(true);
+      });
+    });
+
+    // A contagem de recebidas sobe no MULTI do gravarBruta (staging-valkey.repository).
+    describe("US-11 · estado global da conexão", () => {
+      it("deve usar o estado global lido pelo health quando o estado não é injetado", async () => {
+        // Dado (Arrange)
+        mqttStatusService.marcarDesconectado();
+        new ConsumidorMqttTelemetria({
+          config,
+          proximoPasso: async () => undefined,
+          conectar: conectar as unknown as typeof mqtt.connect,
+        }).iniciar();
+
+        // Quando (Act)
+        cliente.emit("connect");
+        await entregar(cliente, TOPICO_A, "{}");
+
+        // Então (Assert)
+        expect(mqttStatusService.estaConectado()).toBe(true);
+      });
+    });
+
+    describe("US-40 · Cenário 6 · Valkey parado", () => {
+      beforeEach(() => {
+        jest.useFakeTimers();
+      });
+
+      afterEach(() => {
+        jest.useRealTimers();
+      });
+
+      it("deve não confirmar e registrar o erro quando o Valkey não grava", async () => {
+        // Dado (Arrange)
+        criarServico(jest.fn().mockRejectedValue(new Error("Valkey indisponível")));
+
+        // Quando (Act)
+        const { erro } = await entregar(cliente, TOPICO_A, "{}");
+
+        // Então (Assert)
+        expect(erro).toEqual(new Error("Valkey indisponível"));
+        expect(error).toHaveBeenCalledWith(expect.stringContaining("Valkey indisponível"));
+      });
+
+      it("deve desconectar do broker na hora quando o Valkey não grava", async () => {
+        // Dado (Arrange)
+        criarServico(jest.fn().mockRejectedValue(new Error("Valkey indisponível")));
+
+        // Quando (Act)
+        await entregar(cliente, TOPICO_A, "{}");
+
+        // Então (Assert)
+        expect(cliente.end).toHaveBeenCalledWith(true, {}, expect.any(Function));
+        expect(cliente.reconnect).not.toHaveBeenCalled();
+      });
+
+      it("deve reconectar depois de 10 s quando a espera não é configurada", async () => {
+        // Dado (Arrange)
+        criarServico(jest.fn().mockRejectedValue(new Error("Valkey indisponível")));
+        await entregar(cliente, TOPICO_A, "{}");
+
+        // Quando (Act)
+        jest.advanceTimersByTime(9999);
+        const antes = cliente.reconnect.mock.calls.length;
+        jest.advanceTimersByTime(1);
+
+        // Então (Assert)
+        expect(antes).toBe(0);
+        expect(cliente.reconnect).toHaveBeenCalledTimes(1);
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("reconectando"));
+      });
+
+      it("deve desconectar uma única vez quando várias gravações falham seguidas", async () => {
+        // Dado (Arrange)
+        criarServico(jest.fn().mockRejectedValue(new Error("Valkey indisponível")), 1000);
+
+        // Quando (Act)
+        await entregar(cliente, TOPICO_A, "{}");
+        await entregar(cliente, TOPICO_B, "{}");
+        await entregar(cliente, TOPICO_A, "{}");
+        jest.advanceTimersByTime(1000);
+
+        // Então (Assert)
+        expect(cliente.end).toHaveBeenCalledTimes(1);
+        expect(cliente.reconnect).toHaveBeenCalledTimes(1);
+      });
+
+      it("deve desconectar e reconectar de novo quando a gravação volta a falhar depois da reconexão", async () => {
+        // Dado (Arrange)
+        criarServico(jest.fn().mockRejectedValue(new Error("Valkey indisponível")), 1000);
+        await entregar(cliente, TOPICO_A, "{}");
+        jest.advanceTimersByTime(1000);
+
+        // Quando (Act)
+        await entregar(cliente, TOPICO_A, "{}");
+        jest.advanceTimersByTime(1000);
+
+        // Então (Assert)
+        expect(cliente.end).toHaveBeenCalledTimes(2);
+        expect(cliente.reconnect).toHaveBeenCalledTimes(2);
+      });
+
+      it("deve não desconectar quando a gravação funciona", async () => {
+        // Dado (Arrange)
+        criarServico(undefined, 1000);
+
+        // Quando (Act)
+        await entregar(cliente, TOPICO_A, "{}");
+        jest.advanceTimersByTime(20000);
+
+        // Então (Assert)
+        expect(cliente.end).not.toHaveBeenCalled();
+        expect(cliente.reconnect).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe("encerrar", () => {
+    it("deve desconectar o cliente quando o serviço encerra", async () => {
+      // Dado (Arrange)
       const servico = criarServico();
+
+      // Quando (Act)
       await servico.encerrar();
 
+      // Então (Assert)
       expect(cliente.end).toHaveBeenCalled();
     });
-  });
 
-  describe("recebimento", () => {
-    test("entrega a mensagem com estacaoId, topico, payloadBruto e recebidoEm em UTC", async () => {
-      criarServico();
-      await entregar(cliente, TOPICO_A, '{"timestamp":"2026-10-09T12:00:00Z","leituras":[]}');
-
-      expect(encaminhados).toEqual([
-        {
-          estacaoId: UUID_A,
-          topico: TOPICO_A,
-          payloadBruto: '{"timestamp":"2026-10-09T12:00:00Z","leituras":[]}',
-          recebidoEm: "2026-10-09T12:00:00.000Z",
-        },
-      ]);
-    });
-
-    test("preserva o payload exatamente como foi publicado, mesmo sem ser JSON", async () => {
-      criarServico();
-      const payload = "  texto puro {não é json} ";
-      await entregar(cliente, TOPICO_A, payload);
-
-      expect(encaminhados[0]).toMatchObject({ payloadBruto: payload });
-    });
-
-    test("confirma a mensagem somente depois de a entrega terminar", async () => {
-      let concluirEntrega!: () => void;
-      const passoLento = jest.fn(
-        () => new Promise<void>((resolve) => {
-          concluirEntrega = resolve;
-        }),
-      );
-      criarServico(passoLento);
-
-      const confirmacao = entregar(cliente, TOPICO_A, "{}");
-      await Promise.resolve();
-      expect(passoLento).toHaveBeenCalledTimes(1);
-
-      concluirEntrega();
-      const { erro } = await confirmacao;
-      expect(erro).toBeUndefined();
-    });
-
-    test("falha na entrega não confirma a mensagem", async () => {
-      criarServico(jest.fn().mockRejectedValue(new Error("próximo passo indisponível")));
-
-      const { erro } = await entregar(cliente, TOPICO_A, "{}");
-
-      expect(erro).toEqual(new Error("próximo passo indisponível"));
-      expect(error).toHaveBeenCalledWith(expect.stringContaining("próximo passo indisponível"));
-    });
-  });
-
-  describe("concorrência", () => {
-    test("identifica corretamente a estação de cada tópico quando chegam juntas", async () => {
-      criarServico();
-
-      await Promise.all([
-        entregar(cliente, TOPICO_A, "a"),
-        entregar(cliente, TOPICO_B, "b"),
-        entregar(cliente, TOPICO_A, "c"),
-      ]);
-
-      expect(encaminhados.map((m) => (m as { estacaoId: string }).estacaoId)).toEqual([
-        UUID_A,
-        UUID_B,
-        UUID_A,
-      ]);
-      expect(encaminhados.map((m) => (m as { payloadBruto: string }).payloadBruto)).toEqual([
-        "a",
-        "b",
-        "c",
-      ]);
-    });
-
-    test("cada mensagem é confirmada individualmente, mesmo quando uma falha", async () => {
-      criarServico(
-        jest
-          .fn()
-          .mockResolvedValueOnce(undefined)
-          .mockRejectedValueOnce(new Error("falhou"))
-          .mockResolvedValueOnce(undefined),
-      );
-
-      const resultados = await Promise.all([
-        entregar(cliente, TOPICO_A, "1"),
-        entregar(cliente, TOPICO_B, "2"),
-        entregar(cliente, TOPICO_A, "3"),
-      ]);
-
-      expect(resultados.map((r) => r.erro?.message)).toEqual([undefined, "falhou", undefined]);
-    });
-  });
-
-  describe("duplicatas", () => {
-    test("a mesma mensagem recebida duas vezes é entregue duas vezes", async () => {
-      criarServico();
-      const payload = '{"timestamp":"2026-10-09T12:00:00Z","leituras":[]}';
-
-      await entregar(cliente, TOPICO_A, payload);
-      await entregar(cliente, TOPICO_A, payload);
-
-      expect(encaminhados).toHaveLength(2);
-      expect(encaminhados[0]).toEqual(encaminhados[1]);
-    });
-  });
-
-  describe("tópicos inválidos", () => {
-    test("tópico sem UUID não é entregue ao fluxo e é registrado com o tópico recebido", async () => {
-      criarServico();
-
-      const { erro } = await entregar(cliente, "pulso/estacoes/est-001/telemetria", "{}");
-
-      expect(proximoPasso).not.toHaveBeenCalled();
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining("pulso/estacoes/est-001/telemetria"));
-      expect(erro).toBeUndefined();
-    });
-
-    test("tópico inválido é confirmado para o broker não reenviá-lo", async () => {
-      criarServico();
-
-      const { erro } = await entregar(cliente, "pulso/estacoes/telemetria", "{}");
-
-      expect(erro).toBeUndefined();
-      expect(encaminhados).toHaveLength(0);
-    });
-  });
-
-  test("sem relógio injetado, usa o horário atual em UTC no recebidoEm", async () => {
-    const antes = Date.now();
-    const recebidas: unknown[] = [];
-    const servico = new ConsumidorMqttTelemetria({
-      config,
-      proximoPasso: async (m) => {
-        recebidas.push(m);
-      },
-      conectar: conectar as unknown as typeof mqtt.connect,
-    });
-    servico.iniciar();
-
-    await entregar(cliente, TOPICO_A, "{}");
-
-    const recebidoEm = (recebidas[0] as { recebidoEm: string }).recebidoEm;
-    expect(recebidoEm).toMatch(/Z$/);
-    expect(Date.parse(recebidoEm)).toBeGreaterThanOrEqual(antes);
-    expect(Date.parse(recebidoEm)).toBeLessThanOrEqual(Date.now());
-  });
-
-  describe("estado da conexão", () => {
-    test("começa desconectado enquanto o broker não responde", () => {
-      criarServico();
-      cliente.emit("error", new Error("ECONNREFUSED"));
-
-      expect(estado.estaConectado()).toBe(false);
-    });
-
-    test("fica conectado ao conectar no broker", () => {
-      criarServico();
-      cliente.emit("connect");
-
-      expect(estado.estaConectado()).toBe(true);
-    });
-
-    test("fica desconectado quando a conexão cai e volta a conectado na reconexão", () => {
-      criarServico();
-      cliente.emit("connect");
-
-      cliente.emit("close");
-      expect(estado.estaConectado()).toBe(false);
-
-      cliente.emit("connect");
-      expect(estado.estaConectado()).toBe(true);
-    });
-  });
-
-  describe("contador de leituras recebidas", () => {
-    test("soma 1 a cada mensagem entregue", async () => {
-      criarServico();
-      await entregar(cliente, TOPICO_A, "{}");
-
-      expect(recebidas.obterTotal()).toBe(1);
-    });
-
-    test("soma uma por estação quando várias publicam ao mesmo tempo", async () => {
-      criarServico();
-
-      await Promise.all([
-        entregar(cliente, TOPICO_A, "a"),
-        entregar(cliente, TOPICO_B, "b"),
-        entregar(cliente, TOPICO_A, "c"),
-      ]);
-
-      expect(recebidas.obterTotal()).toBe(3);
-    });
-
-    test("payload malformado também conta como recebido", async () => {
-      criarServico();
-      await entregar(cliente, TOPICO_A, "não é json");
-
-      expect(recebidas.obterTotal()).toBe(1);
-    });
-
-    test("a mesma mensagem entregue duas vezes conta duas vezes", async () => {
-      criarServico();
-      await entregar(cliente, TOPICO_A, "{}");
-      await entregar(cliente, TOPICO_A, "{}");
-
-      expect(recebidas.obterTotal()).toBe(2);
-    });
-
-    test("tópico fora do padrão não conta", async () => {
-      criarServico();
-      await entregar(cliente, "pulso/estacoes/telemetria", "{}");
-
-      expect(recebidas.obterTotal()).toBe(0);
-    });
-
-    test("falha na entrega não conta; a mensagem conta quando o reenvio é entregue", async () => {
-      criarServico(
-        jest.fn().mockRejectedValueOnce(new Error("falhou")).mockResolvedValueOnce(undefined),
-      );
-
-      await entregar(cliente, TOPICO_A, "{}");
-      expect(recebidas.obterTotal()).toBe(0);
-
-      await entregar(cliente, TOPICO_A, "{}");
-      expect(recebidas.obterTotal()).toBe(1);
-    });
-  });
-
-  test("sem contador e estado injetados, usa os globais lidos pelas rotas", async () => {
-    receivedMetricsService.reset();
-    mqttStatusService.marcarDesconectado();
-    const servico = new ConsumidorMqttTelemetria({
-      config,
-      proximoPasso: async () => undefined,
-      conectar: conectar as unknown as typeof mqtt.connect,
-    });
-    servico.iniciar();
-
-    cliente.emit("connect");
-    await entregar(cliente, TOPICO_A, "{}");
-
-    expect(mqttStatusService.estaConectado()).toBe(true);
-    expect(receivedMetricsService.obterTotal()).toBe(1);
-  });
-
-  test("assinatura inicial registra o tópico e o QoS no log", () => {
-    criarServico();
-    cliente.emit("connect");
-
-    expect(log).toHaveBeenCalledWith(expect.stringContaining("pulso/estacoes/+/telemetria"));
-  });
-
-  describe("reentrega quando a gravação falha (TASK 14.03)", () => {
-    beforeEach(() => {
+    it("deve cancelar a reconexão agendada quando o serviço encerra depois de uma falha de gravação", async () => {
+      // Dado (Arrange)
       jest.useFakeTimers();
-    });
+      const servico = criarServico(jest.fn().mockRejectedValue(new Error("Valkey indisponível")), 1000);
+      await entregar(cliente, TOPICO_A, "{}");
 
-    afterEach(() => {
+      // Quando (Act)
+      await servico.encerrar();
+      jest.advanceTimersByTime(1000);
+
+      // Então (Assert)
+      expect(cliente.reconnect).not.toHaveBeenCalled();
       jest.useRealTimers();
     });
 
-    test("não confirma e reconecta depois da espera para o broker reenviar", async () => {
-      criarServico(jest.fn().mockRejectedValue(new Error("staging indisponível")), 3000);
+    it("deve resolver sem erro quando o serviço nunca foi iniciado", async () => {
+      // Dado (Arrange)
+      const servico = new ConsumidorMqttTelemetria({ config, proximoPasso: async () => undefined });
 
-      const { erro } = await entregar(cliente, TOPICO_A, "{}");
-      expect(erro).toEqual(new Error("staging indisponível"));
-      expect(cliente.end).not.toHaveBeenCalled();
+      // Quando (Act)
+      const resultado = servico.encerrar();
 
-      jest.advanceTimersByTime(2999);
-      expect(cliente.end).not.toHaveBeenCalled();
-
-      jest.advanceTimersByTime(1);
-      expect(cliente.end).toHaveBeenCalledWith(true, {}, expect.any(Function));
-      expect(cliente.reconnect).toHaveBeenCalledTimes(1);
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining("reconectando"));
-    });
-
-    test("várias falhas seguidas geram uma única reconexão", async () => {
-      criarServico(jest.fn().mockRejectedValue(new Error("staging indisponível")), 1000);
-
-      await entregar(cliente, TOPICO_A, "{}");
-      await entregar(cliente, TOPICO_B, "{}");
-      await entregar(cliente, TOPICO_A, "{}");
-      jest.advanceTimersByTime(1000);
-
-      expect(cliente.reconnect).toHaveBeenCalledTimes(1);
-    });
-
-    test("depois de uma reconexão, nova falha agenda nova reentrega", async () => {
-      criarServico(jest.fn().mockRejectedValue(new Error("staging indisponível")), 1000);
-
-      await entregar(cliente, TOPICO_A, "{}");
-      jest.advanceTimersByTime(1000);
-      await entregar(cliente, TOPICO_A, "{}");
-      jest.advanceTimersByTime(1000);
-
-      expect(cliente.reconnect).toHaveBeenCalledTimes(2);
-    });
-
-    test("entrega com sucesso não reconecta", async () => {
-      criarServico(undefined, 1000);
-
-      await entregar(cliente, TOPICO_A, "{}");
-      jest.advanceTimersByTime(5000);
-
-      expect(cliente.end).not.toHaveBeenCalled();
-      expect(cliente.reconnect).not.toHaveBeenCalled();
-    });
-
-    test("encerrar cancela a reentrega agendada", async () => {
-      const servico = criarServico(jest.fn().mockRejectedValue(new Error("staging indisponível")), 1000);
-
-      await entregar(cliente, TOPICO_A, "{}");
-      await servico.encerrar();
-      cliente.end.mockClear();
-      jest.advanceTimersByTime(1000);
-
-      expect(cliente.end).not.toHaveBeenCalled();
-      expect(cliente.reconnect).not.toHaveBeenCalled();
-    });
-
-    test("sem espera configurada, reconecta depois de 5 segundos", async () => {
-      criarServico(jest.fn().mockRejectedValue(new Error("staging indisponível")));
-
-      await entregar(cliente, TOPICO_A, "{}");
-      jest.advanceTimersByTime(4999);
-      expect(cliente.reconnect).not.toHaveBeenCalled();
-      jest.advanceTimersByTime(1);
-      expect(cliente.reconnect).toHaveBeenCalledTimes(1);
+      // Então (Assert)
+      await expect(resultado).resolves.toBeUndefined();
     });
   });
 });

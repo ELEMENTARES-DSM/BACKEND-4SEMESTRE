@@ -29,7 +29,7 @@ import { ProxyTcp } from "./helpers/proxy-tcp";
 // por um proxy TCP. Execute com VALIDACAO_TEST_DATABASE_URL e RABBITMQ_TEST_URL.
 const databaseUrl = process.env.VALIDACAO_TEST_DATABASE_URL;
 const rabbitUrl = process.env.RABBITMQ_TEST_URL;
-const integration = databaseUrl && rabbitUrl ? describe : describe.skip;
+const integration = describe;
 
 integration("US-20 - banco indisponível no consumo (PostgreSQL e RabbitMQ)", () => {
   const schema = `validacao_us20_${randomUUID().replaceAll("-", "")}`;
@@ -176,7 +176,11 @@ integration("US-20 - banco indisponível no consumo (PostgreSQL e RabbitMQ)", ()
     const problematico = evento(1792600000, 1e13);
     publicarEvento(admin.channel, problematico);
     publicarEvento(admin.channel, evento(1792600300));
-    await esperar(async () => (await contarDlq(admin.channel)) === 1, "evento no limite de entregas", 20000);
+    await esperar(
+      async () => (await contarDlq(admin.channel)) === 1 && (await contarMedidas()) === 1,
+      "evento no limite de entregas e medida válida gravada",
+      20000,
+    );
 
     expect(consumidor?.estaComConsumoPausado()).toBe(false);
     expect(await contarMedidas()).toBe(1);

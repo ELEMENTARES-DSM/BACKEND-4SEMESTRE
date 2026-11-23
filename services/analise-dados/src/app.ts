@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import openapi from "./docs/openapi.json";
+import analiseRoutes from "./routes/analise.routes";
 
 const app = express();
 
@@ -22,5 +23,9 @@ app.get("/analise/openapi.json", (_req, res) => {
 app.get("/analise/health", (_req, res) => {
   res.json({ status: "ok" });
 });
+
+// Rotas de análise e rotas públicas compatibilizadas com limites por perfil
+app.use("/analise", analiseRoutes);
+app.use("/public/analise", analiseRoutes);
 
 export default app;

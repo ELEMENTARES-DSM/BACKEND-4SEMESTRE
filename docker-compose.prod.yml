@@ -90,15 +90,20 @@ services:
       timeout: 5s
       retries: 5
   
-  redis:
-    image: redis:7-alpine
+  # Valkey (BSD-3) no lugar do Redis: blacklist de tokens e, depois, staging das leituras MQTT
+  valkey:
+    image: valkey/valkey:9.1.3-alpine
     restart: unless-stopped
+    environment:
+      VALKEY_PASSWORD: ${VALKEY_PASSWORD:?defina VALKEY_PASSWORD no .env}
+    command: valkey-server --appendonly yes --appendfsync always --maxmemory 256mb --maxmemory-policy noeviction --requirepass ${VALKEY_PASSWORD:?defina VALKEY_PASSWORD no .env}
     volumes:
-      - redis-data:/data
+      - valkey-data:/data
     networks:
       - app-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # grep: sem senha certa o valkey-cli responde NOAUTH e pode sair com 0
+      test: ["CMD-SHELL", "valkey-cli --no-auth-warning -a \"$$VALKEY_PASSWORD\" ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -114,13 +119,14 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
-      REDIS_URL: redis://redis:6379
+      # REDIS_URL aponta para o Valkey (nome mantido por compatibilidade)
+      REDIS_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      redis:
+      valkey:
         condition: service_healthy
     networks:
       - app-network
@@ -159,6 +165,7 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      JWT_SECRET: ${JWT_SECRET}
     depends_on:
       postgres:
         condition: service_healthy
@@ -178,13 +185,14 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
-      REDIS_URL: redis://redis:6379
+      # REDIS_URL aponta para o Valkey (nome mantido por compatibilidade)
+      REDIS_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      redis:
+      valkey:
         condition: service_healthy
     networks:
       - app-network
@@ -197,10 +205,14 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
+      REDIS_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      valkey:
         condition: service_healthy
     networks:
       - app-network
@@ -216,10 +228,14 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
       RABBITMQ_RECOVERY_INTERVAL_MS: ${RABBITMQ_RECOVERY_INTERVAL_MS:-10000}
+      # REDIS_URL aponta para o Valkey (nome mantido por compatibilidade)
+      REDIS_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      valkey:
         condition: service_healthy
     networks:
       - app-network
@@ -232,6 +248,7 @@ services:
       PORT: 3000
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET}
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
     depends_on:
       postgres:
@@ -266,4 +283,4 @@ networks:
 volumes:
   postgres-data:
   rabbitmq-data:
-  redis-data:
+  valkey-data:
