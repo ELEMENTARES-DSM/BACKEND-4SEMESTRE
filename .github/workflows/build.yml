@@ -1,4 +1,4 @@
-name: CI Elementares
+﻿name: CI Elementares
 
 on:
   push:
@@ -50,7 +50,7 @@ jobs:
           RE_BRANCH='^(feature|feat|fix|docs|hotfix|chore|refactor|test)/ELEM-[0-9]+-.*'
           RE_PR_TITLE='^ELEM-[0-9]+ (feat|fix|docs|test|refactor|chore|style): .+'
           RE_MERGE='^Merge '
-          RE_ELEM='ELEM-[0-9]+'
+          RE_ELEM='[Ee][Ll][Ee][Mm][- ][0-9]+'
           RE_EXCECAO='^(docs|chore)(\([^)]+\))?: .+'
 
           IS_RELEASE_PR=false
